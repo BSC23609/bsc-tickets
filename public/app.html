@@ -110,6 +110,9 @@
       const assigned = await api('/tickets?scope=assigned');
       if (assigned.length) document.getElementById('assignedTab').classList.remove('hidden');
       setupTabs();
+      // Deep link from a WhatsApp notification: open that ticket straight away.
+      const deep = new URLSearchParams(location.search).get('t');
+      if (deep) { switchTab('mine'); openDetail(deep); }
     }
 
     function fillForm() {

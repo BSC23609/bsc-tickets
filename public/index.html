@@ -56,6 +56,18 @@
   <script src="/js/common.js"></script>
   <script>
     let _isAdmin = false;
+    // Deep link: /t/<id> redirects here as /?t=<id>. Carry it through login.
+    const targetTicket = new URLSearchParams(location.search).get('t');
+
+    // If a valid session already exists and we have a deep-link target, skip login.
+    (async () => {
+      if (!targetTicket) return;
+      try {
+        const r = await fetch('/api/me', { credentials: 'same-origin' });
+        if (r.ok) go();
+      } catch {}
+    })();
+
     async function doLogin() {
       const emp_no = document.getElementById('empNo').value.trim();
       const password = document.getElementById('pw').value;
@@ -77,7 +89,9 @@
         toast('Password set', 'success'); setTimeout(go, 500); }
       catch (e) { toast(e.message, 'error'); }
     }
-    function go() { location.href = '/app.html'; }
+    function go() {
+      location.href = '/app.html' + (targetTicket ? ('?t=' + encodeURIComponent(targetTicket)) : '');
+    }
   </script>
 </body>
 </html>

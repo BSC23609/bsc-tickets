@@ -10,6 +10,10 @@ app.use(express.json({ limit: '1mb' })); // photos go straight to OneDrive, not 
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, wati: wati.configured(), graph: require('../lib/graph').configured() }));
 
+// Deep link target for WhatsApp buttons: /t/<id> -> login (or app) carrying the ticket.
+app.get('/t/:id', (req, res) =>
+  res.redirect('/?t=' + encodeURIComponent(req.params.id)));
+
 app.use('/api', require('../routes/auth.routes'));
 app.use('/api/tickets', require('../routes/tickets.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));

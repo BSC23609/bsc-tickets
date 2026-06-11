@@ -56,21 +56,32 @@ the admin panel; everyone else on the app.
 
 ## WATI templates (create these in your WATI dashboard)
 
-Proactive WhatsApp requires pre-approved templates. Create five, with body parameters
-in this exact order ({{1}}, {{2}}, …):
+**Create all five as CATEGORY = Utility** (not Marketing). Utility templates are exempt
+from Meta's per-user frequency cap, so they deliver reliably — but the wording must stay
+purely transactional (no greetings-as-marketing, emojis-as-promo, or upsell) or Meta
+reclassifies them as Marketing. Employees must also have opted in once (sent any message
+to your WhatsApp business number).
 
-| Template name          | Goes to   | Parameters |
-|------------------------|-----------|------------|
-| `ticket_raised`        | L1        | handler, ref, category, priority, requester, subject |
-| `ticket_escalated_l2`  | L2        | handler, ref, category, priority, requester, subject |
-| `ticket_escalated_l3`  | L3        | handler, ref, category, priority, requester, subject |
-| `ticket_resolved`      | requester | requester, ref, subject, resolver |
-| `ticket_reopened`      | L1        | handler, ref, subject, requester |
+Each template uses **named variables** and a dynamic **Visit Website** button. Build the
+button as: Button text `View ticket`, URL type **Dynamic**, URL
+`https://tickets.bharatsteels.in/t/{{ticketid}}` (only the trailing `{{ticketid}}` is the
+variable — the app turns it into a deep link to that ticket after login). Use the final
+domain from the start: templates are read-only once submitted.
 
-Suggested `ticket_raised` body: *"Hi {{1}}, a new ticket {{2}} ({{3}}, {{4}} priority)
-was raised by {{5}}: {{6}}. Please action it in the BSC Tickets portal."*
+| Template name (underscores) | To | Variables to name |
+|---|---|---|
+| `ticket_raised` | L1 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_escalated_l2` | L2 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_escalated_l3` | L3 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_resolved` | requester | name, ref, subject, resolver, ticketid |
+| `ticket_reopened` | L1 | name, ref, subject, requester, ticketid |
 
----
+Suggested `ticket_raised` body (Utility tone):
+> Hi {{name}}, ticket {{ref}} has been raised by {{requester}} under {{category}} ({{priority}} priority). Issue: {{subject}}. Tap below to view and action it.
+
+`ticketid` is the value used by the button URL; the app passes it automatically. Until
+`WATI_BASE_URL` + `WATI_TOKEN` are set, notifications are logged (not sent) with a
+`[wati]` prefix — nothing fails silently.
 
 ## Routing (seeded, editable in Admin → Categories & Routing)
 
