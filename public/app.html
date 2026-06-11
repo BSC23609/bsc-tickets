@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BSC Tickets</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: {
+      50:'#EAF2F8', 100:'#D5E6F1', 300:'#7FB3D5', 500:'#1B7BC0',
+      600:'#0E6AA6', 700:'#0A557F', 800:'#0A4566', ink:'#112532'
+    } } } } };
+  </script>
   <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}[x-cloak]{display:none}</style>
 </head>
 <body class="min-h-screen bg-slate-100 text-slate-800">
@@ -12,12 +18,13 @@
   <!-- Header -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
     <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <div class="w-8 h-8 rounded-lg bg-blue-600 text-white text-xs font-bold grid place-items-center">BSC</div>
-        <span class="font-bold">Ticket Management</span>
+      <div class="flex items-center gap-2.5">
+        <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7" />
+        <span class="text-slate-300">|</span>
+        <span class="font-semibold text-slate-600 text-sm">Tickets</span>
       </div>
       <div class="flex items-center gap-3 text-sm">
-        <a id="adminLink" href="/admin.html" class="hidden text-blue-600 font-semibold">Admin</a>
+        <a id="adminLink" href="/admin.html" class="hidden text-brand-600 font-semibold">Admin Dashboard</a>
         <span id="who" class="text-slate-500"></span>
         <button onclick="logout()" class="text-slate-500 hover:text-slate-800">Sign out</button>
       </div>
@@ -27,7 +34,7 @@
   <main class="max-w-5xl mx-auto px-4 py-6">
     <!-- Tabs -->
     <div class="flex gap-1 border-b border-slate-200 mb-5">
-      <button data-tab="raise" class="tabBtn px-4 py-2.5 text-sm font-semibold border-b-2 border-blue-600 text-blue-600">Raise Ticket</button>
+      <button data-tab="raise" class="tabBtn px-4 py-2.5 text-sm font-semibold border-b-2 border-brand-600 text-brand-600">Raise Ticket</button>
       <button data-tab="mine" class="tabBtn px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-500">My Tickets</button>
       <button data-tab="assigned" id="assignedTab" class="tabBtn hidden px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-500">Assigned to Me</button>
     </div>
@@ -66,12 +73,12 @@
           <div class="sm:col-span-2">
             <label class="lbl">Photos <span class="text-slate-400 font-normal normal-case">(up to 5 — camera or gallery)</span></label>
             <input id="f_photos" type="file" accept="image/*" capture="environment" multiple
-                   class="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 file:font-semibold" />
+                   class="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-50 file:text-brand-700 file:font-semibold" />
             <div id="photoPreview" class="flex gap-2 flex-wrap mt-2"></div>
           </div>
         </div>
         <div class="mt-5 flex justify-end">
-          <button id="submitBtn" onclick="submitTicket()" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow">Submit ticket</button>
+          <button id="submitBtn" onclick="submitTicket()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow">Submit ticket</button>
         </div>
       </div>
     </section>
@@ -89,7 +96,7 @@
   <style>
     .lbl{display:block;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:.25rem}
     .inp{width:100%;border-radius:.5rem;border-color:#cbd5e1;font-size:.875rem}
-    .inp:focus{border-color:#2563eb;box-shadow:0 0 0 1px #2563eb}
+    .inp:focus{border-color:#0E6AA6;box-shadow:0 0 0 1px #0E6AA6}
   </style>
 
   <script src="/js/common.js"></script>
@@ -185,7 +192,7 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b => {
         const on = b.dataset.tab === tab;
-        b.classList.toggle('border-blue-600', on); b.classList.toggle('text-blue-600', on);
+        b.classList.toggle('border-brand-600', on); b.classList.toggle('text-brand-600', on);
         b.classList.toggle('border-transparent', !on); b.classList.toggle('text-slate-500', !on);
       });
       ['raise','mine','assigned'].forEach(t =>
@@ -204,7 +211,7 @@
 
     function card(t, scope) {
       const who = scope === 'assigned' ? `From ${t.requester_name}` : (t.l1_name ? `Handler: ${t.l1_name}` : '');
-      return `<div onclick="openDetail(${t.id})" class="bg-white rounded-xl border border-slate-200 p-4 hover:border-blue-300 cursor-pointer">
+      return `<div onclick="openDetail(${t.id})" class="bg-white rounded-xl border border-slate-200 p-4 hover:border-brand-300 cursor-pointer">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
@@ -231,7 +238,7 @@
       const actions = [];
 
       if (p.isHandler && ['open','reopened'].includes(t.status))
-        actions.push(btn(`startTicket(${id})`, 'Start working', 'blue'));
+        actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
       if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
       if (p.isRequester && t.status === 'resolved') {

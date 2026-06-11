@@ -5,27 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BSC Tickets — Sign in</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: {
+      50:'#EAF2F8', 100:'#D5E6F1', 300:'#7FB3D5', 500:'#1B7BC0',
+      600:'#0E6AA6', 700:'#0A557F', 800:'#0A4566', ink:'#112532'
+    } } } } };
+  </script>
   <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}</style>
 </head>
 <body class="min-h-screen bg-slate-100 flex items-center justify-center p-4">
   <div class="w-full max-w-sm">
     <div class="text-center mb-6">
-      <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-blue-600 text-white text-2xl font-bold shadow-lg">BSC</div>
-      <h1 class="mt-3 text-xl font-bold text-slate-800">Ticket Management</h1>
-      <p class="text-sm text-slate-500">Bharat Steel (Chennai)</p>
+      <div class="inline-flex items-center justify-center bg-white rounded-2xl px-5 py-4 shadow-sm border border-slate-200">
+        <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-11" />
+      </div>
+      <h1 class="mt-4 text-lg font-bold text-slate-800">Ticket Management System</h1>
     </div>
 
     <!-- Sign in -->
     <div id="loginCard" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
       <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Employee Number</label>
       <input id="empNo" placeholder="e.g. BSC/006" autocomplete="username"
-             class="w-full rounded-lg border-slate-300 mb-3 focus:border-blue-500 focus:ring-blue-500" />
+             class="w-full rounded-lg border-slate-300 mb-3 focus:border-brand-500 focus:ring-brand-500" />
       <label class="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1">Password</label>
       <input id="pw" type="password" autocomplete="current-password"
-             class="w-full rounded-lg border-slate-300 mb-4 focus:border-blue-500 focus:ring-blue-500"
+             class="w-full rounded-lg border-slate-300 mb-4 focus:border-brand-500 focus:ring-brand-500"
              onkeydown="if(event.key==='Enter')doLogin()" />
       <button onclick="doLogin()" id="loginBtn"
-              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg shadow">Sign in</button>
+              class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg shadow">Sign in</button>
       <p class="text-[11px] text-slate-400 mt-3 text-center">First login: use the default password, then set your own.</p>
     </div>
 
@@ -34,11 +41,16 @@
       <h2 class="font-bold text-slate-800 mb-1">Set your password</h2>
       <p class="text-xs text-slate-500 mb-4">This is your first sign-in. Choose a new password.</p>
       <input id="newPw" type="password" placeholder="New password (min 6 chars)"
-             class="w-full rounded-lg border-slate-300 mb-3 focus:border-blue-500 focus:ring-blue-500" />
+             class="w-full rounded-lg border-slate-300 mb-3 focus:border-brand-500 focus:ring-brand-500" />
       <input id="newPw2" type="password" placeholder="Confirm new password"
-             class="w-full rounded-lg border-slate-300 mb-4 focus:border-blue-500 focus:ring-blue-500" />
-      <button onclick="doChange()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg shadow">Save & continue</button>
+             class="w-full rounded-lg border-slate-300 mb-4 focus:border-brand-500 focus:ring-brand-500" />
+      <button onclick="doChange()" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg shadow">Save & continue</button>
     </div>
+  </div>
+
+  <div class="max-w-sm mx-auto mt-6 flex flex-col items-center gap-1.5">
+    <span class="text-[10px] uppercase tracking-widest text-slate-400">A unit of</span>
+    <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 opacity-70" />
   </div>
 
   <script src="/js/common.js"></script>
@@ -65,7 +77,7 @@
         toast('Password set', 'success'); setTimeout(go, 500); }
       catch (e) { toast(e.message, 'error'); }
     }
-    function go() { location.href = _isAdmin ? '/admin.html' : '/app.html'; }
+    function go() { location.href = '/app.html'; }
   </script>
 </body>
 </html>
