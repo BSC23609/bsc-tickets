@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BSC Tickets</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { brand: { 50:'#EAF2F8',100:'#D5E6F1',300:'#7FB3D5',500:'#1B7BC0',600:'#0E6AA6',700:'#0A557F',800:'#0A4566',ink:'#112532' },
+                ink:'#112532', mist:'#F5F8FB', line:'#E6EDF3' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui','sans-serif'],
+                    display:['Space Grotesk','ui-sans-serif','sans-serif'],
+                    mono:['Space Mono','ui-monospace','monospace'] }
+    } } };
+  </script>
+  <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}[x-cloak]{display:none}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+
+  <!-- Header -->
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a id="adminLink" href="/admin.html" class="hidden text-brand-600 font-semibold hover:text-brand-700">Admin dashboard</a>
+        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-7">
+    <!-- Tabs -->
+    <div class="flex gap-6 border-b border-line mb-6">
+      <button data-tab="raise" data-active="true" class="tabBtn tab">Raise a ticket</button>
+      <button data-tab="mine" data-active="false" class="tabBtn tab">My tickets</button>
+      <button data-tab="assigned" id="assignedTab" data-active="false" class="tabBtn tab hidden">Assigned to me</button>
+    </div>
+
+    <!-- RAISE -->
+    <section id="tab-raise" class="in">
+      <div class="card p-6 max-w-2xl">
+        <div class="eyebrow">New request</div>
+        <h2 class="font-display text-xl font-bold text-ink mb-5">Raise a ticket</h2>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label class="fieldlabel">Category *</label>
+            <select id="f_category" class="field" onchange="onCategoryChange()"></select>
+          </div>
+          <div id="tradeWrap" class="hidden">
+            <label class="fieldlabel">Trade *</label>
+            <select id="f_trade" class="field"></select>
+          </div>
+          <div>
+            <label class="fieldlabel">Priority</label>
+            <select id="f_priority" class="field">
+              <option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option>
+            </select>
+          </div>
+          <div>
+            <label class="fieldlabel">Location</label>
+            <select id="f_location" class="field"><option value="">Select a location</option></select>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="fieldlabel">Subject *</label>
+            <input id="f_subject" class="field" placeholder="A short summary of the issue" />
+          </div>
+          <div class="sm:col-span-2">
+            <label class="fieldlabel">Description</label>
+            <textarea id="f_description" rows="3" class="field" placeholder="What's happening? Add any detail that helps."></textarea>
+          </div>
+          <div class="sm:col-span-2">
+            <label class="fieldlabel">Photos <span class="text-slate-400 font-normal normal-case">— up to 5</span></label>
+            <div class="flex gap-2 flex-wrap items-center">
+              <button type="button" onclick="document.getElementById('f_camera').click()" class="btn-ghost text-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                Take photo
+              </button>
+              <button type="button" onclick="document.getElementById('f_gallery').click()" class="btn-ghost text-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+                Choose from gallery
+              </button>
+              <span id="photoCount" class="text-xs text-slate-400"></span>
+            </div>
+            <input id="f_camera" type="file" accept="image/*" capture="environment" class="hidden" />
+            <input id="f_gallery" type="file" accept="image/*" multiple class="hidden" />
+            <div id="photoPreview" class="flex gap-2 flex-wrap mt-3"></div>
+          </div>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button id="submitBtn" onclick="submitTicket()" class="btn">Submit ticket</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- MINE / ASSIGNED share a list renderer -->
+    <section id="tab-mine" class="hidden"><div id="mineList" class="space-y-3"></div></section>
+    <section id="tab-assigned" class="hidden"><div id="assignedList" class="space-y-3"></div></section>
+  </main>
+
+  <!-- Detail modal -->
+  <div id="detail" class="hidden fixed inset-0 bg-ink/50 backdrop-blur-sm z-40 flex items-start justify-center p-4 overflow-y-auto" onclick="if(event.target===this)closeDetail()">
+    <div class="card modal-in max-w-2xl w-full my-8" id="detailInner"></div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let me = {}, meta = {}, selectedPhotos = [];
+
+    async function init() {
+      me = await api('/me');
+      document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
+      if (me.is_admin) document.getElementById('adminLink').classList.remove('hidden');
+      meta = await api('/tickets/meta');
+      fillForm();
+      // show "Assigned" tab only if the user handles any category/trade
+      const assigned = await api('/tickets?scope=assigned');
+      if (assigned.length) document.getElementById('assignedTab').classList.remove('hidden');
+      setupTabs();
+      // Deep link from a WhatsApp notification: open that ticket straight away.
+      const deep = new URLSearchParams(location.search).get('t');
+      if (deep) { switchTab('mine'); openDetail(deep); }
+    }
+
+    function fillForm() {
+      const c = document.getElementById('f_category');
+      c.innerHTML = '<option value="">Select a category</option>' +
+        meta.categories.map(x => `<option value="${x.id}" data-trades="${x.has_trades}">${x.name}</option>`).join('');
+      const l = document.getElementById('f_location');
+      l.innerHTML = '<option value="">Select a location</option>' +
+        meta.locations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+      document.getElementById('f_camera').addEventListener('change', onPhotoInput);
+      document.getElementById('f_gallery').addEventListener('change', onPhotoInput);
+    }
+
+    function onCategoryChange() {
+      const sel = document.getElementById('f_category');
+      const hasTrades = sel.selectedOptions[0]?.dataset.trades === 'true';
+      const wrap = document.getElementById('tradeWrap');
+      const t = document.getElementById('f_trade');
+      if (hasTrades) {
+        const cid = +sel.value;
+        t.innerHTML = '<option value="">— select —</option>' +
+          meta.trades.filter(x => x.category_id === cid).map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+        wrap.classList.remove('hidden');
+      } else { wrap.classList.add('hidden'); t.innerHTML = ''; }
+    }
+
+    // Accumulate across taps (camera fires one at a time) instead of replacing.
+    function onPhotoInput(e) {
+      for (const f of Array.from(e.target.files)) {
+        if (selectedPhotos.length >= 5) { toast('Up to 5 photos', 'info'); break; }
+        selectedPhotos.push(f);
+      }
+      e.target.value = '';               // reset so the same file/next shot fires change again
+      renderPhotos();
+    }
+    function renderPhotos() {
+      const p = document.getElementById('photoPreview');
+      p.innerHTML = selectedPhotos.map((f, i) =>
+        `<div class="thumb"><img src="${URL.createObjectURL(f)}" alt="" />` +
+        `<button type="button" onclick="removePhoto(${i})" aria-label="Remove">&times;</button></div>`).join('');
+      document.getElementById('photoCount').textContent =
+        selectedPhotos.length ? `${selectedPhotos.length}/5 added` : '';
+    }
+    function removePhoto(i) { selectedPhotos.splice(i, 1); renderPhotos(); }
+
+    async function submitTicket() {
+      const category_id = +document.getElementById('f_category').value;
+      const subject = document.getElementById('f_subject').value.trim();
+      if (!category_id) return toast('Choose a category', 'error');
+      if (!subject) return toast('Enter a subject', 'error');
+      const hasTrades = document.getElementById('f_category').selectedOptions[0]?.dataset.trades === 'true';
+      const trade_id = +document.getElementById('f_trade').value || null;
+      if (hasTrades && !trade_id) return toast('Choose a trade', 'error');
+
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true; btn.textContent = 'Submitting…';
+      try {
+        const r = await api('/tickets', { method: 'POST', body: {
+          category_id, trade_id,
+          priority: document.getElementById('f_priority').value,
+          subject, description: document.getElementById('f_description').value.trim(),
+          location_id: +document.getElementById('f_location').value || null,
+        }});
+        // upload photos straight to OneDrive in parallel (fast) after the ticket exists
+        if (selectedPhotos.length) {
+          await Promise.all(selectedPhotos.map(f =>
+            uploadPhotoToOneDrive(r.id, f, 'issue').catch(e => toast('Photo: ' + e.message, 'error'))));
+        }
+        toast(`Ticket ${r.ref_no} created`, 'success');
+        resetForm();
+        switchTab('mine');
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; btn.textContent = 'Submit ticket'; }
+    }
+
+    function resetForm() {
+      ['f_subject','f_description'].forEach(id => document.getElementById(id).value = '');
+      document.getElementById('f_category').value = '';
+      document.getElementById('f_location').value = '';
+      document.getElementById('tradeWrap').classList.add('hidden');
+      selectedPhotos = [];
+      renderPhotos();
+    }
+
+    // ---- tabs ----
+    function setupTabs() {
+      document.querySelectorAll('.tabBtn').forEach(b =>
+        b.addEventListener('click', () => switchTab(b.dataset.tab)));
+    }
+    function switchTab(tab) {
+      document.querySelectorAll('.tabBtn').forEach(b =>
+        b.setAttribute('data-active', b.dataset.tab === tab));
+      ['raise','mine','assigned'].forEach(t =>
+        document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab));
+      if (tab === 'mine') loadList('mine', 'mineList');
+      if (tab === 'assigned') loadList('assigned', 'assignedList');
+    }
+
+    async function loadList(scope, elId) {
+      const el = document.getElementById(elId);
+      el.innerHTML = '<div class="text-sm text-slate-400 py-8 text-center">Loading…</div>';
+      const rows = await api(`/tickets?scope=${scope}`);
+      if (!rows.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-12 text-center">No tickets.</div>'; return; }
+      el.innerHTML = rows.map(t => card(t, scope)).join('');
+    }
+
+    function card(t, scope) {
+      const who = scope === 'assigned' ? `From ${t.requester_name}` : (t.l1_name ? `Handler: ${t.l1_name}` : '');
+      return `<div onclick="openDetail(${t.id})" class="card lift p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="mono text-[11px] text-slate-400">${t.ref_no}</span>
+              ${statusBadge(t.status)} ${priorityBadge(t.priority)}
+              ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">↑ L${t.escalation_level}</span>` : ''}
+            </div>
+            <div class="font-semibold text-ink mt-1.5 truncate">${t.subject}</div>
+            <div class="text-xs text-slate-500 mt-1">${t.category_name}${t.trade_name ? ' · ' + t.trade_name : ''}${who ? ' · ' + who : ''}</div>
+          </div>
+          <div class="text-right text-[11px] text-slate-400 shrink-0 mono">
+            <div>${fmtDateTime(t.raised_at)}</div>
+            ${t.status==='closed' ? `<div class="text-emerald-600 font-semibold mt-1">${fmtDuration(t.downtime_mins)}</div>` : ''}
+          </div>
+        </div>
+      </div>`;
+    }
+
+    // ---- detail ----
+    async function openDetail(id) {
+      const t = await api('/tickets/' + id);
+      const p = t.perms;
+      const esc = t.escalation;
+      const actions = [];
+
+      if (p.isHandler && ['open','reopened'].includes(t.status))
+        actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
+      if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
+        actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
+      if (p.isRequester && t.status === 'resolved') {
+        actions.push(btn(`confirmTicket(${id})`, 'Confirm & close', 'emerald'));
+        actions.push(btn(`reopenTicket(${id})`, 'Not resolved — reopen', 'orange'));
+      }
+      if (p.isRequester && (esc.canEscalateL2 || esc.canEscalateL3))
+        actions.push(btn(`escalateTicket(${id})`, `Escalate to L${esc.canEscalateL2 ? 2 : 3}`, 'red'));
+
+      const escHint = (p.isRequester && !esc.canEscalateL2 && !esc.canEscalateL3 && esc.l2ReadyAt && t.escalation_level < 2)
+        ? `<div class="text-[11px] text-slate-400 mt-1">Escalation available after ${fmtDateTime(esc.l2ReadyAt)}</div>` : '';
+
+      const photos = t.photos.filter(x => x.kind === 'issue');
+      const resPhotos = t.photos.filter(x => x.kind === 'resolution');
+
+      document.getElementById('detailInner').innerHTML = `
+        <div class="seam rounded-t-2xl"></div>
+        <div class="p-5 border-b border-line flex items-start justify-between">
+          <div>
+            <div class="mono text-[11px] text-slate-400">${t.ref_no}</div>
+            <h3 class="font-display font-bold text-lg text-ink mt-0.5">${t.subject}</h3>
+            <div class="flex items-center gap-2 mt-2">${statusBadge(t.status)} ${priorityBadge(t.priority)}
+              ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">Escalated → L${t.escalation_level}</span>` : ''}</div>
+          </div>
+          <button onclick="closeDetail()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
+        </div>
+        <div class="p-5 space-y-4 text-sm">
+          <div class="grid grid-cols-2 gap-3">
+            ${field('Category', t.category_name + (t.trade_name ? ' · ' + t.trade_name : ''))}
+            ${field('Location', t.location_text || '—')}
+            ${field('Requester', `${t.requester_name} (${t.requester_dept || ''})`)}
+            ${field('Raised', fmtDateTime(t.raised_at))}
+            ${field('Handler L1', t.l1_name || '—')}
+            ${field('Downtime', t.status==='closed' ? fmtDuration(t.downtime_mins) : '—')}
+          </div>
+          ${t.description ? `<div>${label('Description')}<p class="text-slate-700 whitespace-pre-wrap">${t.description}</p></div>` : ''}
+          ${photos.length ? `<div>${label('Photos')}<div class="flex gap-2 flex-wrap">${photos.map(ph => `<a href="${ph.web_url}" target="_blank" class="text-xs bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded">${ph.file_name} ↗</a>`).join('')}</div></div>` : ''}
+          ${t.resolution_note ? `<div class="bg-violet-50 border border-violet-200 rounded-lg p-3">${label('Resolution note')}<p class="text-slate-700">${t.resolution_note}</p>${resPhotos.map(ph=>`<a href="${ph.web_url}" target="_blank" class="text-xs text-violet-700 underline mr-2">${ph.file_name} ↗</a>`).join('')}</div>` : ''}
+          <div>${label('Timeline')}
+            <ol class="space-y-1.5">${t.events.map(ev => `<li class="flex gap-2 text-xs"><span class="text-slate-400 w-28 shrink-0">${fmtDateTime(ev.at)}</span><span class="text-slate-700"><b>${evLabel(ev.event)}</b>${ev.by_name ? ' · ' + ev.by_name : ''}${ev.note ? ' — ' + ev.note : ''}</span></li>`).join('')}</ol>
+          </div>
+          ${escHint}
+          <div class="flex flex-wrap gap-2 pt-2">${actions.join('')}</div>
+        </div>`;
+      document.getElementById('detail').classList.remove('hidden');
+    }
+    const field = (k,v) => `<div>${label(k)}<div class="text-ink font-medium">${v}</div></div>`;
+    const label = (k) => `<div class="eyebrow mb-0.5" style="font-size:.6rem">${k}</div>`;
+    const btn = (fn, txt, color) => color==='brand'
+      ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
+      : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
+    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
+    function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
+    function refreshCurrent(){ const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
+
+    async function startTicket(id){ await act(id,'in-progress','Marked in progress'); }
+    async function confirmTicket(id){ await act(id,'confirm','Ticket closed'); }
+    async function escalateTicket(id){ await act(id,'escalate','Escalated'); }
+    async function resolveTicket(id){
+      const note = prompt('Resolution note (optional):') || '';
+      try { await api(`/tickets/${id}/resolve`, {method:'POST', body:{note}}); toast('Resolved — requester notified','success'); openDetail(id); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function reopenTicket(id){
+      const reason = prompt('Why is this not resolved? (optional)') || '';
+      try { await api(`/tickets/${id}/reopen`, {method:'POST', body:{reason}}); toast('Reopened','success'); openDetail(id); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function act(id, path, msg){
+      try { await api(`/tickets/${id}/${path}`, {method:'POST'}); toast(msg,'success'); openDetail(id); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    init().catch(e => { console.error(e); toast(e.message,'error'); });
+  </script>
+</body>
+</html>

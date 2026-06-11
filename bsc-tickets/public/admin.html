@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BSC Tickets — Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { brand: { 50:'#EAF2F8',100:'#D5E6F1',300:'#7FB3D5',500:'#1B7BC0',600:'#0E6AA6',700:'#0A557F',800:'#0A4566',ink:'#112532' },
+                ink:'#112532', mist:'#F5F8FB', line:'#E6EDF3' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui','sans-serif'],
+                    display:['Space Grotesk','ui-sans-serif','sans-serif'],
+                    mono:['Space Mono','ui-monospace','monospace'] }
+    } } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
+    .lbl{display:block;font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-mute);margin-bottom:.25rem}
+    .inp{width:100%;border-radius:11px;border:1px solid var(--line);font-size:.85rem;padding:.5rem .7rem;color:var(--ink)}
+    .inp:focus{outline:none;border-color:var(--steel);box-shadow:0 0 0 3px rgba(27,123,192,.16)}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/app.html" class="text-brand-600 font-semibold hover:text-brand-700">Raise / my tickets</a>
+        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6">
+    <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
+      <button data-tab="dash" data-active="true" class="tabBtn tab">Dashboard</button>
+      <button data-tab="emp" data-active="false" class="tabBtn tab">Employees</button>
+      <button data-tab="cat" data-active="false" class="tabBtn tab">Categories &amp; routing</button>
+      <button data-tab="loc" data-active="false" class="tabBtn tab">Locations</button>
+    </div>
+
+    <!-- DASHBOARD -->
+    <section id="tab-dash">
+      <div class="flex items-end gap-2 mb-4">
+        <div><label class="lbl">From</label><input id="d_from" type="date" class="inp" /></div>
+        <div><label class="lbl">To</label><input id="d_to" type="date" class="inp" /></div>
+        <button onclick="loadDash()" class="btn-ghost text-sm">Apply</button>
+        <a href="/api/admin/export.xlsx"
+           class="ml-auto inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+          ⬇ Download full log (.xlsx)
+        </a>
+      </div>
+      <div id="kpis" class="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-5"></div>
+      <div class="grid lg:grid-cols-2 gap-4 mb-5">
+        <div class="card p-4"><h3 class="font-bold text-sm mb-3">Tickets by Category</h3><canvas id="catChart" height="170"></canvas></div>
+        <div class="card p-4"><h3 class="font-bold text-sm mb-3">By Priority</h3><canvas id="priChart" height="170"></canvas></div>
+      </div>
+      <div class="card p-4 mb-5">
+        <h3 class="font-bold text-sm mb-3">Avg Resolution Time by Category</h3>
+        <div id="catTable" class="overflow-x-auto"></div>
+      </div>
+      <div class="card p-4">
+        <h3 class="font-bold text-sm mb-3">Recent Tickets</h3>
+        <div id="recentTable" class="overflow-x-auto"></div>
+      </div>
+    </section>
+
+    <!-- EMPLOYEES -->
+    <section id="tab-emp" class="hidden">
+      <div class="card p-4 mb-4">
+        <h3 class="font-bold text-sm mb-3">Add Employee</h3>
+        <div class="grid sm:grid-cols-3 gap-3">
+          <input id="e_no" class="inp" placeholder="Employee No *" />
+          <input id="e_name" class="inp" placeholder="Full name *" />
+          <input id="e_email" class="inp" placeholder="Email" />
+          <input id="e_phone" class="inp" placeholder="Mobile (e.g. 9444085016)" />
+          <input id="e_dept" class="inp" placeholder="Department" />
+          <label class="flex items-center gap-2 text-sm"><input id="e_admin" type="checkbox" /> Admin access</label>
+        </div>
+        <button onclick="addEmp()" class="mt-3 btn text-sm">Add (default password Bsc@123)</button>
+      </div>
+      <div class="card p-4"><div id="empTable" class="overflow-x-auto"></div></div>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section id="tab-cat" class="hidden">
+      <div class="card p-4 mb-4">
+        <h3 class="font-bold text-sm mb-3">Add Category</h3>
+        <div class="grid sm:grid-cols-4 gap-3 items-end">
+          <input id="c_name" class="inp" placeholder="Category name *" />
+          <label class="flex items-center gap-2 text-sm"><input id="c_trades" type="checkbox" /> Has trades</label>
+          <div><label class="lbl">Wait L1→L2 (min)</label><input id="c_w1" type="number" class="inp" value="120" /></div>
+          <div><label class="lbl">Wait L2→L3 (min)</label><input id="c_w2" type="number" class="inp" value="120" /></div>
+        </div>
+        <button onclick="addCat()" class="mt-3 btn text-sm">Add category</button>
+        <p class="text-[11px] text-slate-400 mt-2">After adding, set handlers and (if it has trades) add trades below.</p>
+      </div>
+      <div id="catList" class="space-y-4"></div>
+    </section>
+
+    <!-- LOCATIONS -->
+    <section id="tab-loc" class="hidden">
+      <div class="card p-4 mb-4 flex gap-2">
+        <input id="l_name" class="inp" placeholder="New location name" />
+        <button onclick="addLoc()" class="btn text-sm shrink-0">Add</button>
+      </div>
+      <div class="card p-4"><div id="locTable"></div></div>
+    </section>
+  </main>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let employees = [], charts = {};
+
+    async function init() {
+      const me = await api('/me');
+      if (!me.is_admin) { location.href = '/app.html'; return; }
+      document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
+      const today = new Date(), first = new Date(today.getFullYear(), today.getMonth(), 1);
+      document.getElementById('d_from').value = first.toISOString().slice(0,10);
+      document.getElementById('d_to').value = today.toISOString().slice(0,10);
+      document.querySelectorAll('.tabBtn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+      employees = await api('/admin/employees');
+      loadDash();
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('.tabBtn').forEach(b =>
+        b.setAttribute('data-active', b.dataset.tab === tab));
+      ['dash','emp','cat','loc'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      if (tab === 'emp') renderEmployees();
+      if (tab === 'cat') renderCategories();
+      if (tab === 'loc') renderLocations();
+    }
+
+    // ---------- DASHBOARD ----------
+    async function loadDash() {
+      const from = document.getElementById('d_from').value, to = document.getElementById('d_to').value;
+      const d = await api(`/admin/dashboard?from=${from}&to=${to}`);
+      const k = d.totals;
+      const kpi = (n,l,c='text-ink') => `<div class="card p-4 text-center"><div class="kpi ${c}">${n}</div><div class="eyebrow mt-1.5" style="color:var(--ink-mute)">${l}</div></div>`;
+      document.getElementById('kpis').innerHTML =
+        kpi(k.total,'Total') + kpi(k.open,'Open','text-amber-600') + kpi(k.resolved,'Resolved','text-violet-600') +
+        kpi(k.closed,'Closed','text-emerald-600') + kpi(k.escalated,'Escalated','text-red-600') +
+        kpi(fmtDuration(d.avg_downtime_mins),'Avg Resolve');
+
+      drawBar('catChart', d.byCategory.map(x=>x.category), d.byCategory.map(x=>x.count));
+      drawDoughnut('priChart', d.byPriority.map(x=>x.priority), d.byPriority.map(x=>x.count));
+
+      document.getElementById('catTable').innerHTML = table(
+        ['Category','Tickets','Avg Resolution'],
+        d.byCategory.map(x => [x.category, x.count, fmtDuration(x.avg_downtime_mins)]));
+
+      document.getElementById('recentTable').innerHTML = table(
+        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime'],
+        d.recent.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
+          STATUS_STYLE[t.status]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
+          t.status==='closed'?fmtDuration(t.downtime_mins):'—']));
+    }
+    function drawBar(id, labels, data) {
+      if (charts[id]) charts[id].destroy();
+      charts[id] = new Chart(document.getElementById(id), { type:'bar',
+        data:{ labels, datasets:[{ data, backgroundColor:'#0E6AA6', borderRadius:4 }] },
+        options:{ plugins:{legend:{display:false}}, scales:{ y:{ beginAtZero:true, ticks:{precision:0} } } } });
+    }
+    function drawDoughnut(id, labels, data) {
+      if (charts[id]) charts[id].destroy();
+      charts[id] = new Chart(document.getElementById(id), { type:'doughnut',
+        data:{ labels, datasets:[{ data, backgroundColor:['#94a3b8','#0ea5e9','#f59e0b','#ef4444'] }] },
+        options:{ plugins:{legend:{position:'bottom'}} } });
+    }
+    function table(head, rows) {
+      if (!rows.length) return '<div class="text-sm text-slate-400 py-6 text-center">No data.</div>';
+      return `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">${head.map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map(r=>`<tr class="border-b border-slate-100">${r.map(c=>`<td class="py-2 pr-3">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    }
+
+    // ---------- EMPLOYEES ----------
+    function empOptions(sel) {
+      return '<option value="">— none —</option>' + employees.filter(e=>e.active)
+        .map(e => `<option value="${e.id}" ${e.id===sel?'selected':''}>${e.name} (${e.emp_no})</option>`).join('');
+    }
+    async function renderEmployees() {
+      employees = await api('/admin/employees');
+      document.getElementById('empTable').innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
+        ${['Emp No','Name','Dept','Mobile','Admin','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${employees.map(e=>`<tr class="border-b border-slate-100">
+          <td class="py-2 pr-3 font-mono text-xs">${e.emp_no}</td><td class="py-2 pr-3">${e.name}</td>
+          <td class="py-2 pr-3 text-slate-500">${e.department||''}</td><td class="py-2 pr-3 text-slate-500">${e.phone||''}</td>
+          <td class="py-2 pr-3">${e.is_admin?'<span class="text-brand-600 font-semibold">Yes</span>':'—'}</td>
+          <td class="py-2 pr-3">${e.active?'<span class="text-emerald-600">Active</span>':'<span class="text-slate-400">Inactive</span>'}</td>
+          <td class="py-2 pr-3 whitespace-nowrap">
+            <button onclick="resetPw(${e.id},'${e.emp_no}')" class="text-xs text-slate-600 hover:underline mr-2">Reset PW</button>
+            <button onclick="toggleAdmin(${e.id},${!e.is_admin})" class="text-xs text-brand-600 hover:underline mr-2">${e.is_admin?'Revoke admin':'Make admin'}</button>
+            <button onclick="toggleActive(${e.id},${!e.active})" class="text-xs ${e.active?'text-red-600':'text-emerald-600'} hover:underline">${e.active?'Deactivate':'Activate'}</button>
+          </td></tr>`).join('')}</tbody></table>`;
+    }
+    async function addEmp() {
+      const body = { emp_no:val('e_no'), name:val('e_name'), email:val('e_email'),
+        phone:val('e_phone'), department:val('e_dept'), is_admin:document.getElementById('e_admin').checked };
+      if (!body.emp_no || !body.name) return toast('Employee number and name required','error');
+      try { await api('/admin/employees',{method:'POST',body}); toast('Employee added','success');
+        ['e_no','e_name','e_email','e_phone','e_dept'].forEach(id=>document.getElementById(id).value='');
+        document.getElementById('e_admin').checked=false; renderEmployees(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function resetPw(id, no) {
+      if (!confirm(`Reset password for ${no} to default and force change on next login?`)) return;
+      const r = await api(`/admin/employees/${id}/reset-password`,{method:'POST'});
+      toast(`Password reset to ${r.default_password}`,'success');
+    }
+    async function toggleActive(id, makeActive) {
+      await api(`/admin/employees/${id}/${makeActive?'activate':'deactivate'}`,{method:'POST'});
+      toast(makeActive?'Activated':'Deactivated','success'); renderEmployees();
+    }
+    async function toggleAdmin(id, makeAdmin) {
+      await api(`/admin/employees/${id}`,{method:'PUT',body:{is_admin:makeAdmin}});
+      toast('Updated','success'); renderEmployees();
+    }
+
+    // ---------- CATEGORIES / ROUTING ----------
+    async function renderCategories() {
+      employees = await api('/admin/employees');
+      const cats = await api('/admin/categories');
+      document.getElementById('catList').innerHTML = cats.map(c => `
+        <div class="card p-4">
+          <div class="flex items-center justify-between mb-3">
+            <div class="font-bold">${c.name} ${c.active?'':'<span class="text-xs text-slate-400">(inactive)</span>'}</div>
+            <div class="text-xs text-slate-400">${c.has_trades?'Has trades':'Single L1'}</div>
+          </div>
+          <div class="grid sm:grid-cols-5 gap-3 items-end">
+            ${c.has_trades ? '<div class="text-xs text-slate-500 sm:col-span-1 self-center">L1 set per trade ↓</div>'
+              : `<div><label class="lbl">L1</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>`}
+            <div><label class="lbl">L2</label><select class="inp" id="c${c.id}_l2">${empOptions(c.l2_emp_id)}</select></div>
+            <div><label class="lbl">L3</label><select class="inp" id="c${c.id}_l3">${empOptions(c.l3_emp_id)}</select></div>
+            <div><label class="lbl">Wait L1→L2</label><input type="number" class="inp" id="c${c.id}_w1" value="${c.wait_l1_l2_mins}" /></div>
+            <div><label class="lbl">Wait L2→L3</label><input type="number" class="inp" id="c${c.id}_w2" value="${c.wait_l2_l3_mins}" /></div>
+          </div>
+          <div class="flex gap-2 mt-3">
+            <button onclick="saveCat(${c.id},${c.has_trades})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
+            <button onclick="toggleCat(${c.id},${!c.active})" class="text-xs ${c.active?'text-red-600':'text-emerald-600'} hover:underline px-2">${c.active?'Deactivate':'Activate'}</button>
+          </div>
+          ${c.has_trades ? `<div class="mt-4 border-t border-slate-100 pt-3">
+            <div class="text-xs font-semibold text-slate-500 mb-2">Trades</div>
+            ${c.trades.map(t=>`<div class="flex items-center gap-2 mb-2"><span class="text-sm w-28">${t.name}</span>
+              <select class="inp max-w-xs" id="t${t.id}_l1">${empOptions(t.l1_emp_id)}</select>
+              <button onclick="saveTrade(${t.id})" class="text-xs text-brand-600 hover:underline">Save</button></div>`).join('')}
+            <div class="flex gap-2 mt-2"><input class="inp max-w-[140px]" id="nt_${c.id}" placeholder="New trade name" />
+              <button onclick="addTrade(${c.id})" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg">Add trade</button></div>
+          </div>`:''}
+        </div>`).join('');
+    }
+    async function saveCat(id, hasTrades) {
+      const body = { l2_emp_id:+gv(`c${id}_l2`)||null, l3_emp_id:+gv(`c${id}_l3`)||null,
+        wait_l1_l2_mins:+gv(`c${id}_w1`), wait_l2_l3_mins:+gv(`c${id}_w2`) };
+      if (!hasTrades) body.l1_emp_id = +gv(`c${id}_l1`)||null;
+      await api(`/admin/categories/${id}`,{method:'PUT',body}); toast('Routing saved','success');
+    }
+    async function toggleCat(id, active){ await api(`/admin/categories/${id}`,{method:'PUT',body:{active}}); toast('Updated','success'); renderCategories(); }
+    async function addCat() {
+      const name = val('c_name'); if(!name) return toast('Name required','error');
+      await api('/admin/categories',{method:'POST',body:{ name, has_trades:document.getElementById('c_trades').checked,
+        wait_l1_l2_mins:+val('c_w1'), wait_l2_l3_mins:+val('c_w2') }});
+      toast('Category added','success'); document.getElementById('c_name').value=''; renderCategories();
+    }
+    async function saveTrade(id){ await api(`/admin/trades/${id}`,{method:'PUT',body:{l1_emp_id:+gv(`t${id}_l1`)||null}}); toast('Saved','success'); }
+    async function addTrade(cid){ const name=gv(`nt_${cid}`); if(!name) return toast('Trade name required','error');
+      await api('/admin/trades',{method:'POST',body:{category_id:cid,name}}); toast('Trade added','success'); renderCategories(); }
+
+    // ---------- LOCATIONS ----------
+    async function renderLocations() {
+      const locs = await api('/admin/locations');
+      document.getElementById('locTable').innerHTML = `<table class="w-full text-sm"><tbody>
+        ${locs.map(l=>`<tr class="border-b border-slate-100"><td class="py-2">${l.name}</td>
+          <td class="py-2 text-right"><span class="text-xs ${l.active?'text-emerald-600':'text-slate-400'} mr-3">${l.active?'Active':'Inactive'}</span>
+          <button onclick="toggleLoc(${l.id},${!l.active})" class="text-xs text-brand-600 hover:underline">${l.active?'Hide':'Show'}</button></td></tr>`).join('')}
+        </tbody></table>`;
+    }
+    async function addLoc(){ const name=val('l_name'); if(!name) return toast('Name required','error');
+      await api('/admin/locations',{method:'POST',body:{name}}); toast('Added','success'); document.getElementById('l_name').value=''; renderLocations(); }
+    async function toggleLoc(id, active){ await api(`/admin/locations/${id}`,{method:'PUT',body:{active}}); renderLocations(); }
+
+    const val = id => document.getElementById(id).value.trim();
+    const gv = id => document.getElementById(id).value;
+    async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    init().catch(e=>{ console.error(e); toast(e.message,'error'); });
+  </script>
+</body>
+</html>
