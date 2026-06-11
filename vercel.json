@@ -2,7 +2,7 @@
   "version": 2,
   "functions": { "api/index.js": { "maxDuration": 30 } },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" }
+    { "source": "/(.*)", "destination": "/api/index" }
   ],
   "crons": [
     { "path": "/api/cron/auto-close", "schedule": "0 1 * * *" }
