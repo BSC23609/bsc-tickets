@@ -13,12 +13,11 @@
   </script>
   <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}</style>
 </head>
-<body class="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+<body class="min-h-screen bg-slate-100 flex flex-col p-4">
+  <main class="flex-1 flex flex-col items-center justify-center w-full">
   <div class="w-full max-w-sm">
     <div class="text-center mb-6">
-      <div class="inline-flex items-center justify-center bg-white rounded-2xl px-5 py-4 shadow-sm border border-slate-200">
-        <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-11" />
-      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-12 mx-auto" />
       <h1 class="mt-4 text-lg font-bold text-slate-800">Ticket Management System</h1>
     </div>
 
@@ -47,11 +46,12 @@
       <button onclick="doChange()" class="w-full bg-brand-600 hover:bg-brand-700 text-white font-semibold py-2.5 rounded-lg shadow">Save & continue</button>
     </div>
   </div>
+  </main>
 
-  <div class="max-w-sm mx-auto mt-6 flex flex-col items-center gap-1.5">
+  <footer class="py-2 flex flex-col items-center gap-1">
     <span class="text-[10px] uppercase tracking-widest text-slate-400">A unit of</span>
-    <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 opacity-70" />
-  </div>
+    <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-6 opacity-80" />
+  </footer>
 
   <script src="/js/common.js"></script>
   <script>
