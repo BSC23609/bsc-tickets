@@ -2,6 +2,7 @@ const express = require('express');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const { downtimeMins } = require('../lib/util');
+const excel = require('../lib/excel');
 const router = express.Router();
 
 router.use(auth.requireAuth, auth.requireAdmin);
@@ -172,6 +173,16 @@ router.get('/dashboard', async (req, res) => {
     totals, byCategory, byPriority, avg_downtime_mins: avgAll,
     recent: recent.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })),
   });
+});
+
+// ===================== EXCEL EXPORT (on demand) =====================
+router.get('/export.xlsx', async (req, res) => {
+  try {
+    const buf = await excel.buildWorkbookBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Ticket Log.xlsx"');
+    res.send(buf);
+  } catch (e) { console.error('export', e); res.status(500).json({ error: 'Export failed' }); }
 });
 
 module.exports = router;

@@ -50,10 +50,10 @@ const PRIORITY_STYLE = {
 };
 function statusBadge(s) {
   const [cls, label] = STATUS_STYLE[s] || ['bg-slate-100 text-slate-700', s];
-  return `<span class="text-xs font-semibold px-2 py-0.5 rounded ${cls}">${label}</span>`;
+  return `<span class="pill ${cls}"><span class="dot"></span>${label}</span>`;
 }
 function priorityBadge(p) {
-  return `<span class="text-xs font-semibold px-2 py-0.5 rounded ${PRIORITY_STYLE[p] || ''}">${p}</span>`;
+  return `<span class="pill ${PRIORITY_STYLE[p] || ''}">${p}</span>`;
 }
 
 // Upload a File straight to OneDrive using a Graph upload session URL minted by the

@@ -15,7 +15,7 @@ Tailwind frontend · Microsoft Graph (OneDrive/Excel/mail) · WATI (WhatsApp).
 1. **Neon `DATABASE_URL`** — create a free project at neon.tech, copy the **pooled**
    connection string (host contains `-pooler`).
 2. **Microsoft Graph app registration** — Azure app with **application** permissions
-   `Files.ReadWrite.All` + `Mail.Send` (admin-consented), for the `hr@bharatsteels.in`
+   `Files.ReadWrite.All` (admin-consented) — Mail.Send is NOT needed (no email), for the `hr@bharatsteels.in`
    mailbox/drive. Gives you `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET`.
 3. **WATI** — `WATI_BASE_URL` + `WATI_TOKEN`, and five pre-approved WhatsApp templates
    (see below).

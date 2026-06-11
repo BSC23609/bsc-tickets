@@ -32,6 +32,8 @@ app.all('/api/cron/auto-close', async (req, res) => {
   for (const r of rows) {
     await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'auto_closed','Auto-closed after 48h no response')`, [r.id]);
   }
+  // Safety-net rebuild of the OneDrive Excel log from the DB (covers any missed sync).
+  try { await require('../lib/excel').syncLogToOneDrive(); } catch (e) { console.error('cron log sync', e); }
   res.json({ ok: true, auto_closed: rows.length });
 });
 

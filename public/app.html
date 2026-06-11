@@ -4,97 +4,111 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BSC Tickets</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    tailwind.config = { theme: { extend: { colors: { brand: {
-      50:'#EAF2F8', 100:'#D5E6F1', 300:'#7FB3D5', 500:'#1B7BC0',
-      600:'#0E6AA6', 700:'#0A557F', 800:'#0A4566', ink:'#112532'
-    } } } } };
+    tailwind.config = { theme: { extend: {
+      colors: { brand: { 50:'#EAF2F8',100:'#D5E6F1',300:'#7FB3D5',500:'#1B7BC0',600:'#0E6AA6',700:'#0A557F',800:'#0A4566',ink:'#112532' },
+                ink:'#112532', mist:'#F5F8FB', line:'#E6EDF3' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui','sans-serif'],
+                    display:['Space Grotesk','ui-sans-serif','sans-serif'],
+                    mono:['Space Mono','ui-monospace','monospace'] }
+    } } };
   </script>
   <style>body{font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}[x-cloak]{display:none}</style>
 </head>
-<body class="min-h-screen bg-slate-100 text-slate-800">
+<body class="min-h-screen bg-white text-ink">
 
   <!-- Header -->
-  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
     <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
       <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
-      <div class="flex items-center gap-3 text-sm">
-        <a id="adminLink" href="/admin.html" class="hidden text-brand-600 font-semibold">Admin Dashboard</a>
-        <span id="who" class="hidden sm:inline text-slate-500"></span>
-        <button onclick="logout()" class="text-slate-500 hover:text-slate-800">Sign out</button>
+      <div class="flex items-center gap-4 text-sm">
+        <a id="adminLink" href="/admin.html" class="hidden text-brand-600 font-semibold hover:text-brand-700">Admin dashboard</a>
+        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
       </div>
       <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
     </div>
+    <div class="seam"></div>
   </header>
 
-  <main class="max-w-5xl mx-auto px-4 py-6">
+  <main class="max-w-5xl mx-auto px-4 py-7">
     <!-- Tabs -->
-    <div class="flex gap-1 border-b border-slate-200 mb-5">
-      <button data-tab="raise" class="tabBtn px-4 py-2.5 text-sm font-semibold border-b-2 border-brand-600 text-brand-600">Raise Ticket</button>
-      <button data-tab="mine" class="tabBtn px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-500">My Tickets</button>
-      <button data-tab="assigned" id="assignedTab" class="tabBtn hidden px-4 py-2.5 text-sm font-semibold border-b-2 border-transparent text-slate-500">Assigned to Me</button>
+    <div class="flex gap-6 border-b border-line mb-6">
+      <button data-tab="raise" data-active="true" class="tabBtn tab">Raise a ticket</button>
+      <button data-tab="mine" data-active="false" class="tabBtn tab">My tickets</button>
+      <button data-tab="assigned" id="assignedTab" data-active="false" class="tabBtn tab hidden">Assigned to me</button>
     </div>
 
     <!-- RAISE -->
-    <section id="tab-raise">
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-5 max-w-2xl">
-        <h2 class="font-bold mb-4">New Ticket</h2>
+    <section id="tab-raise" class="in">
+      <div class="card p-6 max-w-2xl">
+        <div class="eyebrow">New request</div>
+        <h2 class="font-display text-xl font-bold text-ink mb-5">Raise a ticket</h2>
         <div class="grid sm:grid-cols-2 gap-4">
           <div>
-            <label class="lbl">Category *</label>
-            <select id="f_category" class="inp" onchange="onCategoryChange()"></select>
+            <label class="fieldlabel">Category *</label>
+            <select id="f_category" class="field" onchange="onCategoryChange()"></select>
           </div>
           <div id="tradeWrap" class="hidden">
-            <label class="lbl">Trade *</label>
-            <select id="f_trade" class="inp"></select>
+            <label class="fieldlabel">Trade *</label>
+            <select id="f_trade" class="field"></select>
           </div>
           <div>
-            <label class="lbl">Priority</label>
-            <select id="f_priority" class="inp">
+            <label class="fieldlabel">Priority</label>
+            <select id="f_priority" class="field">
               <option>Low</option><option selected>Medium</option><option>High</option><option>Critical</option>
             </select>
           </div>
           <div>
-            <label class="lbl">Location</label>
-            <select id="f_location" class="inp"><option value="">— select —</option></select>
+            <label class="fieldlabel">Location</label>
+            <select id="f_location" class="field"><option value="">Select a location</option></select>
           </div>
           <div class="sm:col-span-2">
-            <label class="lbl">Subject *</label>
-            <input id="f_subject" class="inp" placeholder="Short summary of the issue" />
+            <label class="fieldlabel">Subject *</label>
+            <input id="f_subject" class="field" placeholder="A short summary of the issue" />
           </div>
           <div class="sm:col-span-2">
-            <label class="lbl">Description</label>
-            <textarea id="f_description" rows="3" class="inp" placeholder="Detail of the complaint"></textarea>
+            <label class="fieldlabel">Description</label>
+            <textarea id="f_description" rows="3" class="field" placeholder="What's happening? Add any detail that helps."></textarea>
           </div>
           <div class="sm:col-span-2">
-            <label class="lbl">Photos <span class="text-slate-400 font-normal normal-case">(up to 5 — camera or gallery)</span></label>
-            <input id="f_photos" type="file" accept="image/*" capture="environment" multiple
-                   class="block w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-brand-50 file:text-brand-700 file:font-semibold" />
-            <div id="photoPreview" class="flex gap-2 flex-wrap mt-2"></div>
+            <label class="fieldlabel">Photos <span class="text-slate-400 font-normal normal-case">— up to 5</span></label>
+            <div class="flex gap-2 flex-wrap items-center">
+              <button type="button" onclick="document.getElementById('f_camera').click()" class="btn-ghost text-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>
+                Take photo
+              </button>
+              <button type="button" onclick="document.getElementById('f_gallery').click()" class="btn-ghost text-sm">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+                Choose from gallery
+              </button>
+              <span id="photoCount" class="text-xs text-slate-400"></span>
+            </div>
+            <input id="f_camera" type="file" accept="image/*" capture="environment" class="hidden" />
+            <input id="f_gallery" type="file" accept="image/*" multiple class="hidden" />
+            <div id="photoPreview" class="flex gap-2 flex-wrap mt-3"></div>
           </div>
         </div>
-        <div class="mt-5 flex justify-end">
-          <button id="submitBtn" onclick="submitTicket()" class="bg-brand-600 hover:bg-brand-700 text-white font-semibold px-6 py-2.5 rounded-lg shadow">Submit ticket</button>
+        <div class="mt-6 flex justify-end">
+          <button id="submitBtn" onclick="submitTicket()" class="btn">Submit ticket</button>
         </div>
       </div>
     </section>
 
     <!-- MINE / ASSIGNED share a list renderer -->
-    <section id="tab-mine" class="hidden"><div id="mineList" class="space-y-2"></div></section>
-    <section id="tab-assigned" class="hidden"><div id="assignedList" class="space-y-2"></div></section>
+    <section id="tab-mine" class="hidden"><div id="mineList" class="space-y-3"></div></section>
+    <section id="tab-assigned" class="hidden"><div id="assignedList" class="space-y-3"></div></section>
   </main>
 
   <!-- Detail modal -->
-  <div id="detail" class="hidden fixed inset-0 bg-black/50 z-40 flex items-start justify-center p-4 overflow-y-auto" onclick="if(event.target===this)closeDetail()">
-    <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8" id="detailInner"></div>
+  <div id="detail" class="hidden fixed inset-0 bg-ink/50 backdrop-blur-sm z-40 flex items-start justify-center p-4 overflow-y-auto" onclick="if(event.target===this)closeDetail()">
+    <div class="card modal-in max-w-2xl w-full my-8" id="detailInner"></div>
   </div>
-
-  <style>
-    .lbl{display:block;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#64748b;margin-bottom:.25rem}
-    .inp{width:100%;border-radius:.5rem;border-color:#cbd5e1;font-size:.875rem}
-    .inp:focus{border-color:#0E6AA6;box-shadow:0 0 0 1px #0E6AA6}
-  </style>
 
   <script src="/js/common.js"></script>
   <script>
@@ -117,12 +131,13 @@
 
     function fillForm() {
       const c = document.getElementById('f_category');
-      c.innerHTML = '<option value="">— select —</option>' +
+      c.innerHTML = '<option value="">Select a category</option>' +
         meta.categories.map(x => `<option value="${x.id}" data-trades="${x.has_trades}">${x.name}</option>`).join('');
       const l = document.getElementById('f_location');
-      l.innerHTML = '<option value="">— select —</option>' +
+      l.innerHTML = '<option value="">Select a location</option>' +
         meta.locations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
-      document.getElementById('f_photos').addEventListener('change', onPhotoPick);
+      document.getElementById('f_camera').addEventListener('change', onPhotoInput);
+      document.getElementById('f_gallery').addEventListener('change', onPhotoInput);
     }
 
     function onCategoryChange() {
@@ -138,12 +153,24 @@
       } else { wrap.classList.add('hidden'); t.innerHTML = ''; }
     }
 
-    function onPhotoPick(e) {
-      selectedPhotos = Array.from(e.target.files).slice(0, 5);
-      const p = document.getElementById('photoPreview');
-      p.innerHTML = selectedPhotos.map(f => `<span class="text-xs bg-slate-100 px-2 py-1 rounded">${f.name}</span>`).join('');
-      if (e.target.files.length > 5) toast('Only the first 5 photos will be uploaded', 'info');
+    // Accumulate across taps (camera fires one at a time) instead of replacing.
+    function onPhotoInput(e) {
+      for (const f of Array.from(e.target.files)) {
+        if (selectedPhotos.length >= 5) { toast('Up to 5 photos', 'info'); break; }
+        selectedPhotos.push(f);
+      }
+      e.target.value = '';               // reset so the same file/next shot fires change again
+      renderPhotos();
     }
+    function renderPhotos() {
+      const p = document.getElementById('photoPreview');
+      p.innerHTML = selectedPhotos.map((f, i) =>
+        `<div class="thumb"><img src="${URL.createObjectURL(f)}" alt="" />` +
+        `<button type="button" onclick="removePhoto(${i})" aria-label="Remove">&times;</button></div>`).join('');
+      document.getElementById('photoCount').textContent =
+        selectedPhotos.length ? `${selectedPhotos.length}/5 added` : '';
+    }
+    function removePhoto(i) { selectedPhotos.splice(i, 1); renderPhotos(); }
 
     async function submitTicket() {
       const category_id = +document.getElementById('f_category').value;
@@ -163,9 +190,10 @@
           subject, description: document.getElementById('f_description').value.trim(),
           location_id: +document.getElementById('f_location').value || null,
         }});
-        // upload photos (direct to OneDrive) after the ticket exists
-        for (const f of selectedPhotos) {
-          try { await uploadPhotoToOneDrive(r.id, f, 'issue'); } catch (e) { toast('Photo: ' + e.message, 'error'); }
+        // upload photos straight to OneDrive in parallel (fast) after the ticket exists
+        if (selectedPhotos.length) {
+          await Promise.all(selectedPhotos.map(f =>
+            uploadPhotoToOneDrive(r.id, f, 'issue').catch(e => toast('Photo: ' + e.message, 'error'))));
         }
         toast(`Ticket ${r.ref_no} created`, 'success');
         resetForm();
@@ -179,9 +207,8 @@
       document.getElementById('f_category').value = '';
       document.getElementById('f_location').value = '';
       document.getElementById('tradeWrap').classList.add('hidden');
-      document.getElementById('f_photos').value = '';
-      document.getElementById('photoPreview').innerHTML = '';
       selectedPhotos = [];
+      renderPhotos();
     }
 
     // ---- tabs ----
@@ -190,11 +217,8 @@
         b.addEventListener('click', () => switchTab(b.dataset.tab)));
     }
     function switchTab(tab) {
-      document.querySelectorAll('.tabBtn').forEach(b => {
-        const on = b.dataset.tab === tab;
-        b.classList.toggle('border-brand-600', on); b.classList.toggle('text-brand-600', on);
-        b.classList.toggle('border-transparent', !on); b.classList.toggle('text-slate-500', !on);
-      });
+      document.querySelectorAll('.tabBtn').forEach(b =>
+        b.setAttribute('data-active', b.dataset.tab === tab));
       ['raise','mine','assigned'].forEach(t =>
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab));
       if (tab === 'mine') loadList('mine', 'mineList');
@@ -211,18 +235,18 @@
 
     function card(t, scope) {
       const who = scope === 'assigned' ? `From ${t.requester_name}` : (t.l1_name ? `Handler: ${t.l1_name}` : '');
-      return `<div onclick="openDetail(${t.id})" class="bg-white rounded-xl border border-slate-200 p-4 hover:border-brand-300 cursor-pointer">
+      return `<div onclick="openDetail(${t.id})" class="card lift p-4">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-mono text-[11px] text-slate-400">${t.ref_no}</span>
+              <span class="mono text-[11px] text-slate-400">${t.ref_no}</span>
               ${statusBadge(t.status)} ${priorityBadge(t.priority)}
-              ${t.escalation_level ? `<span class="text-[11px] font-semibold text-red-600">↑ L${t.escalation_level}</span>` : ''}
+              ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">↑ L${t.escalation_level}</span>` : ''}
             </div>
-            <div class="font-semibold text-slate-800 mt-1 truncate">${t.subject}</div>
-            <div class="text-xs text-slate-500 mt-0.5">${t.category_name}${t.trade_name ? ' · ' + t.trade_name : ''} · ${who}</div>
+            <div class="font-semibold text-ink mt-1.5 truncate">${t.subject}</div>
+            <div class="text-xs text-slate-500 mt-1">${t.category_name}${t.trade_name ? ' · ' + t.trade_name : ''}${who ? ' · ' + who : ''}</div>
           </div>
-          <div class="text-right text-[11px] text-slate-400 shrink-0">
+          <div class="text-right text-[11px] text-slate-400 shrink-0 mono">
             <div>${fmtDateTime(t.raised_at)}</div>
             ${t.status==='closed' ? `<div class="text-emerald-600 font-semibold mt-1">${fmtDuration(t.downtime_mins)}</div>` : ''}
           </div>
@@ -255,14 +279,15 @@
       const resPhotos = t.photos.filter(x => x.kind === 'resolution');
 
       document.getElementById('detailInner').innerHTML = `
-        <div class="p-5 border-b border-slate-200 flex items-start justify-between">
+        <div class="seam rounded-t-2xl"></div>
+        <div class="p-5 border-b border-line flex items-start justify-between">
           <div>
-            <div class="font-mono text-[11px] text-slate-400">${t.ref_no}</div>
-            <h3 class="font-bold text-lg">${t.subject}</h3>
-            <div class="flex items-center gap-2 mt-1">${statusBadge(t.status)} ${priorityBadge(t.priority)}
-              ${t.escalation_level ? `<span class="text-[11px] font-semibold text-red-600">Escalated → L${t.escalation_level}</span>` : ''}</div>
+            <div class="mono text-[11px] text-slate-400">${t.ref_no}</div>
+            <h3 class="font-display font-bold text-lg text-ink mt-0.5">${t.subject}</h3>
+            <div class="flex items-center gap-2 mt-2">${statusBadge(t.status)} ${priorityBadge(t.priority)}
+              ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">Escalated → L${t.escalation_level}</span>` : ''}</div>
           </div>
-          <button onclick="closeDetail()" class="text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
+          <button onclick="closeDetail()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
         </div>
         <div class="p-5 space-y-4 text-sm">
           <div class="grid grid-cols-2 gap-3">
@@ -284,9 +309,11 @@
         </div>`;
       document.getElementById('detail').classList.remove('hidden');
     }
-    const field = (k,v) => `<div>${label(k)}<div class="text-slate-700">${v}</div></div>`;
-    const label = (k) => `<div class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-0.5">${k}</div>`;
-    const btn = (fn, txt, color) => `<button onclick="${fn}" class="bg-${color}-600 hover:bg-${color}-700 text-white text-sm font-semibold px-4 py-2 rounded-lg">${txt}</button>`;
+    const field = (k,v) => `<div>${label(k)}<div class="text-ink font-medium">${v}</div></div>`;
+    const label = (k) => `<div class="eyebrow mb-0.5" style="font-size:.6rem">${k}</div>`;
+    const btn = (fn, txt, color) => color==='brand'
+      ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
+      : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
     const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
     function refreshCurrent(){ const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }

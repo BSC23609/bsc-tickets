@@ -3,6 +3,8 @@ const { q, pool } = require('../lib/db');
 const auth = require('../lib/auth');
 const graph = require('../lib/graph');
 const wati = require('../lib/wati');
+const excel = require('../lib/excel');
+const { background } = require('../lib/bg');
 const { nextRefNo, escalationState, downtimeMins } = require('../lib/util');
 const router = express.Router();
 
@@ -76,18 +78,15 @@ router.post('/', async (req, res) => {
       `INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'raised',$2,$3)`,
       [t.id, req.user.id, subject]);
     await client.query('COMMIT');
-
-    // Fire-and-forget notifications + log (never block the response).
-    const l1 = await empById(route.l1);
-    const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
-    if (l1) wati.notify.raised(l1, enriched).catch(() => {});
-    graph.appendLogRow([
-      ref, new Date(t.raised_at).toLocaleString('en-IN'), req.user.name, req.user.department,
-      route.category_name, '', pri, locText || '', subject, 'open', '0',
-      l1 ? l1.name : '', '', '', '', '', '', '',
-    ]).catch(() => {});
-
     res.json({ ok: true, id: t.id, ref_no: ref });
+
+    // After responding: notify L1 + rebuild the Excel log (reliable via waitUntil).
+    background((async () => {
+      const l1 = await empById(route.l1);
+      const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
+      if (l1) await wati.notify.raised(l1, enriched);
+      await excel.syncLogToOneDrive();
+    })());
   } catch (e) {
     await client.query('ROLLBACK');
     console.error('create ticket', e);
@@ -194,6 +193,7 @@ router.post('/:id/in-progress', async (req, res) => {
   if (!['open', 'reopened'].includes(t.status)) return res.status(400).json({ error: 'Not in an open state' });
   await q(`UPDATE tickets SET status='in_progress', in_progress_at=COALESCE(in_progress_at,now()) WHERE id=$1`, [t.id]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'in_progress',$2)`, [t.id, req.user.id]);
+  background(excel.syncLogToOneDrive());
   res.json({ ok: true });
 });
 
@@ -208,7 +208,8 @@ router.post('/:id/resolve', async (req, res) => {
   await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`,
     [t.id, req.user.id, note]);
-  wati.notify.resolved({ name: t.requester_name, phone: t.requester_phone }, t, req.user.name).catch(() => {});
+  background(wati.notify.resolved({ name: t.requester_name, phone: t.requester_phone }, t, req.user.name));
+  background(excel.syncLogToOneDrive());
   res.json({ ok: true });
 });
 
@@ -221,6 +222,7 @@ router.post('/:id/confirm', async (req, res) => {
   if (t.status !== 'resolved') return res.status(400).json({ error: 'Ticket is not awaiting confirmation' });
   await q(`UPDATE tickets SET status='closed', closed_at=now() WHERE id=$1`, [t.id]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'confirmed_closed',$2)`, [t.id, req.user.id]);
+  background(excel.syncLogToOneDrive());
   res.json({ ok: true });
 });
 
@@ -236,7 +238,8 @@ router.post('/:id/reopen', async (req, res) => {
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'reopened',$2,$3)`,
     [t.id, req.user.id, reason]);
   const l1 = await empById(t.l1_emp_id);
-  if (l1) wati.notify.reopened(l1, { ...t, requester_name: t.requester_name }).catch(() => {});
+  if (l1) background(wati.notify.reopened(l1, { ...t, requester_name: t.requester_name }));
+  background(excel.syncLogToOneDrive());
   res.json({ ok: true });
 });
 
@@ -253,14 +256,16 @@ router.post('/:id/escalate', async (req, res) => {
     await q(`UPDATE tickets SET escalation_level=2, escalated_l2_at=now() WHERE id=$1`, [t.id]);
     await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'escalated_l2',$2)`, [t.id, req.user.id]);
     const l2 = await empById(t.l2_emp_id);
-    if (l2) wati.notify.escalatedL2(l2, t).catch(() => {});
+    if (l2) background(wati.notify.escalatedL2(l2, t));
+    background(excel.syncLogToOneDrive());
     return res.json({ ok: true, level: 2 });
   }
   if (esc.canEscalateL3 && t.l3_emp_id) {
     await q(`UPDATE tickets SET escalation_level=3, escalated_l3_at=now() WHERE id=$1`, [t.id]);
     await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'escalated_l3',$2)`, [t.id, req.user.id]);
     const l3 = await empById(t.l3_emp_id);
-    if (l3) wati.notify.escalatedL3(l3, t).catch(() => {});
+    if (l3) background(wati.notify.escalatedL3(l3, t));
+    background(excel.syncLogToOneDrive());
     return res.json({ ok: true, level: 3 });
   }
   return res.status(400).json({ error: 'Escalation not available yet' });
