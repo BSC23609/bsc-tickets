@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "functions": { "api/index.js": { "maxDuration": 30 } },
+  "functions": { "api/index.js": { "maxDuration": 30, "includeFiles": "{lib/fonts/**,public/img/**}" } },
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ],

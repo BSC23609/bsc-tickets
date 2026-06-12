@@ -97,3 +97,70 @@ CREATE INDEX IF NOT EXISTS idx_tickets_requester ON tickets(requester_id);
 CREATE INDEX IF NOT EXISTS idx_tickets_status    ON tickets(status);
 CREATE INDEX IF NOT EXISTS idx_tickets_l1        ON tickets(l1_emp_id);
 CREATE INDEX IF NOT EXISTS idx_events_ticket     ON ticket_events(ticket_id);
+
+-- ===================== OUTPASS / GATEPASS =====================
+CREATE TABLE IF NOT EXISTS outpass_approvers (
+  id         SERIAL PRIMARY KEY,
+  label      TEXT NOT NULL,                  -- shown in the requester's picker (e.g. "Bakthavachalam", "HR")
+  emp_id     INT REFERENCES employees(id),   -- who receives the request and approves it
+  active     BOOLEAN DEFAULT TRUE,
+  sort_order INT DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS outpass_requests (
+  id               SERIAL PRIMARY KEY,
+  ref_no           TEXT UNIQUE NOT NULL,
+  type             TEXT NOT NULL DEFAULT 'outpass',   -- outpass | gatepass
+  on_duty          BOOLEAN DEFAULT FALSE,
+  req_date         DATE NOT NULL,
+  requester_id     INT REFERENCES employees(id),
+  purpose          TEXT,
+  out_time         TEXT,                              -- 'HH:MM AM/PM' display string
+  in_time          TEXT,                              -- gatepass only
+  approver_id      INT REFERENCES employees(id),      -- routed-to approver
+  approver_label   TEXT,                              -- chosen label (for log/display)
+  status           TEXT NOT NULL DEFAULT 'pending',   -- pending | approved | rejected
+  actioned_by_id   INT REFERENCES employees(id),
+  actioned_by_name TEXT,
+  actioned_at      TIMESTAMPTZ,
+  reject_reason    TEXT,
+  pdf_token        TEXT,                              -- unguessable token for the public download link
+  created_at       TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_outpass_requester ON outpass_requests(requester_id);
+CREATE INDEX IF NOT EXISTS idx_outpass_approver  ON outpass_requests(approver_id);
+CREATE INDEX IF NOT EXISTS idx_outpass_status    ON outpass_requests(status);
+
+-- ===================== EXPENSE REIMBURSEMENT =====================
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS expense_category TEXT;   -- 'CAT1' | 'CAT2' (NULL = CAT2)
+
+-- Admin-editable policy numbers (per-km rates + daily category limits).
+CREATE TABLE IF NOT EXISTS expense_policy (
+  key   TEXT PRIMARY KEY,
+  value NUMERIC NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS expense_submissions (
+  id             SERIAL PRIMARY KEY,
+  ref_no         TEXT UNIQUE NOT NULL,
+  employee_id    INT REFERENCES employees(id),
+  form_type      TEXT NOT NULL,                       -- conveyance | outstation | misc
+  period         TEXT,                                -- YYYY-MM (the travel month)
+  payload        JSONB NOT NULL DEFAULT '{}'::jsonb,  -- entries/trips/items (+ per-line bill refs)
+  total_amount   NUMERIC NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'draft',       -- draft | pending | approved | rejected | generated
+  flags          JSONB,                               -- over-limit notes for HR
+  reviewed_by_id INT REFERENCES employees(id),
+  reviewed_by_name TEXT,
+  reviewed_at    TIMESTAMPTZ,
+  review_note    TEXT,
+  pdf_token      TEXT,                                -- public download token
+  pdf_url        TEXT,                                -- OneDrive webUrl once saved
+  created_at     TIMESTAMPTZ DEFAULT now(),
+  updated_at     TIMESTAMPTZ DEFAULT now(),
+  submitted_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);
+CREATE INDEX IF NOT EXISTS idx_exp_status ON expense_submissions(status);
+CREATE INDEX IF NOT EXISTS idx_exp_form   ON expense_submissions(form_type);

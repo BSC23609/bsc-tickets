@@ -14,9 +14,59 @@ app.get('/api/health', (req, res) =>
 app.get('/t/:id', (req, res) =>
   res.redirect('/?t=' + encodeURIComponent(req.params.id)));
 
+// Outpass approver deep link: /og/<id> -> login -> approval page for that request.
+app.get('/og/:id', (req, res) =>
+  res.redirect('/?og=' + encodeURIComponent(req.params.id)));
+
+// Public, no-login PDF download for an approved pass (token from the WhatsApp button).
+// The slip is regenerated from the DB on demand, so the link always works.
+app.get('/dl/:token', async (req, res) => {
+  try {
+    const o = (await q(
+      `SELECT o.*, r.emp_no AS req_code, r.name AS req_name, r.job_title AS designation
+       FROM outpass_requests o JOIN employees r ON r.id = o.requester_id
+       WHERE o.pdf_token=$1 AND o.status='approved'`, [req.params.token])).rows[0];
+    if (!o) return res.status(404).send('Pass not found.');
+    const { buildOutpassPDF } = require('../lib/outpass_pdf');
+    const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+    const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const pdf = await buildOutpassPDF({
+      type: o.type, on_duty: o.on_duty, date: fmtDate(o.req_date), emp_code: o.req_code,
+      name: o.req_name, designation: o.designation || '', purpose: o.purpose, out_time: o.out_time,
+      in_time: o.in_time, ref_no: o.ref_no, approver: o.actioned_by_name, approved_at: fmtDateTime(o.actioned_at) });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${o.req_name} ${o.ref_no.replace(/\//g, '-')}.pdf"`);
+    res.send(pdf);
+  } catch (e) { console.error('dl', e); res.status(500).send('Could not generate the pass.'); }
+});
+
 app.use('/api', require('../routes/auth.routes'));
 app.use('/api/tickets', require('../routes/tickets.routes'));
+app.use('/api/outpass', require('../routes/outpass.routes'));
+app.use('/api/expense', require('../routes/expense.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
+
+// Public, no-login download of an expense PDF (token from the portal / email).
+app.get('/dlx/:token', async (req, res) => {
+  try {
+    const exp = require('../routes/expense.routes')._internal;
+    const row = (await q(`SELECT s.*, e.name AS emp_name, e.emp_no AS emp_code, e.job_title AS designation,
+      e.expense_category FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
+      WHERE s.pdf_token=$1`, [req.params.token])).rows[0];
+    if (!row) return res.status(404).send('Not found.');
+    let pdf;
+    const approved = row.status === 'approved';
+    const approver = approved ? row.reviewed_by_name : undefined;
+    const approvedAt = approved && row.reviewed_at ? new Date(row.reviewed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined;
+    if (row.form_type === 'conveyance') pdf = await exp.conveyancePdf(row, row.status, approver, approvedAt);
+    else if (row.form_type === 'outstation') pdf = await exp.outstationPdf(row, row.status, approver, approvedAt);
+    else if (row.form_type === 'misc') pdf = await exp.miscPdf(row);
+    else return res.status(404).send('Not available.');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${row.emp_name} ${row.ref_no.replace(/\//g, '-')}.pdf"`);
+    res.send(pdf);
+  } catch (e) { console.error('dlx', e); res.status(500).send('Could not generate the PDF.'); }
+});
 
 // ---- Cron: 48-hr auto-confirm-close of resolved tickets ----
 // Triggered daily by Vercel Cron (see vercel.json). Protected by CRON_SECRET.

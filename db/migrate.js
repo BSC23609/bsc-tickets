@@ -83,6 +83,25 @@ async function main() {
       }
     }
 
+    console.log('→ Seeding outpass approvers…');
+    for (let i = 0; i < (cfg.outpass_approvers || []).length; i++) {
+      const a = cfg.outpass_approvers[i];
+      const { rowCount } = await client.query('SELECT 1 FROM outpass_approvers WHERE label=$1', [a.label]);
+      if (!rowCount) await client.query(
+        'INSERT INTO outpass_approvers(label,emp_id,sort_order) VALUES($1,$2,$3)', [a.label, id(a.emp_no), i]);
+    }
+
+    console.log('→ Seeding expense policy defaults…');
+    const policyDefaults = {
+      rate_bike: 3.5, rate_car: 5,
+      cat1_food: 750, cat1_accom: 1500,
+      cat2_food: 500, cat2_accom: 1000,
+    };
+    for (const [k, v] of Object.entries(policyDefaults)) {
+      await client.query(
+        `INSERT INTO expense_policy(key,value) VALUES($1,$2) ON CONFLICT (key) DO NOTHING`, [k, v]);
+    }
+
     console.log('✓ Seed complete.');
     console.log(`  Default login password: ${DEFAULT_PASSWORD} (must reset on first login).`);
   } finally {

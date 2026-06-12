@@ -29,6 +29,7 @@
     <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
       <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
       <div class="flex items-center gap-4 text-sm">
+        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
         <a href="/app.html" class="text-brand-600 font-semibold hover:text-brand-700">Raise / my tickets</a>
         <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
         <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
@@ -44,6 +45,8 @@
       <button data-tab="emp" data-active="false" class="tabBtn tab">Employees</button>
       <button data-tab="cat" data-active="false" class="tabBtn tab">Categories &amp; routing</button>
       <button data-tab="loc" data-active="false" class="tabBtn tab">Locations</button>
+      <button data-tab="ogappr" data-active="false" class="tabBtn tab">Outpass approvers</button>
+      <button data-tab="exp" data-active="false" class="tabBtn tab">Expense policy</button>
     </div>
 
     <!-- DASHBOARD -->
@@ -113,6 +116,42 @@
       </div>
       <div class="card p-4"><div id="locTable"></div></div>
     </section>
+
+    <!-- OUTPASS APPROVERS -->
+    <section id="tab-ogappr" class="hidden">
+      <div class="card p-4 mb-4">
+        <div class="text-xs text-slate-500 mb-3">These names appear in the Outpass/Gatepass approver picker. Each routes the WhatsApp and approval to the chosen employee. Add an <b>HR</b> entry here pointing to whoever should approve HR requests.</div>
+        <div class="flex flex-wrap gap-2 items-end">
+          <div><label class="lbl">Label shown</label><input id="oa_label" class="inp" placeholder="e.g. HR" /></div>
+          <div><label class="lbl">Employee</label><select id="oa_emp" class="inp min-w-[16rem]"></select></div>
+          <button onclick="addApprover()" class="btn text-sm shrink-0">Add approver</button>
+        </div>
+      </div>
+      <div class="card p-4"><div id="ogApprTable"></div></div>
+    </section>
+
+    <!-- EXPENSE POLICY -->
+    <section id="tab-exp" class="hidden">
+      <div class="card p-5 max-w-2xl">
+        <div class="eyebrow">Conveyance rates</div>
+        <div class="grid grid-cols-2 gap-4 mt-2 mb-5">
+          <div><label class="lbl">Bike ₹/km</label><input id="p_bike" type="number" step="0.5" class="inp"></div>
+          <div><label class="lbl">Car ₹/km</label><input id="p_car" type="number" step="0.5" class="inp"></div>
+        </div>
+        <div class="eyebrow">Category 1 daily limits</div>
+        <div class="grid grid-cols-2 gap-4 mt-2 mb-5">
+          <div><label class="lbl">Food / day</label><input id="p_c1food" type="number" class="inp"></div>
+          <div><label class="lbl">Accommodation / day</label><input id="p_c1accom" type="number" class="inp"></div>
+        </div>
+        <div class="eyebrow">Category 2 daily limits</div>
+        <div class="grid grid-cols-2 gap-4 mt-2 mb-5">
+          <div><label class="lbl">Food / day</label><input id="p_c2food" type="number" class="inp"></div>
+          <div><label class="lbl">Accommodation / day</label><input id="p_c2accom" type="number" class="inp"></div>
+        </div>
+        <div class="flex justify-end"><button onclick="savePolicy()" class="btn text-sm">Save policy</button></div>
+        <p class="text-xs text-slate-400 mt-3">Set each employee's Category (1 / 2) in the Employees tab.</p>
+      </div>
+    </section>
   </main>
 
   <script src="/js/common.js"></script>
@@ -134,10 +173,12 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['dash','emp','cat','loc'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      ['dash','emp','cat','loc','ogappr','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'emp') renderEmployees();
       if (tab === 'cat') renderCategories();
       if (tab === 'loc') renderLocations();
+      if (tab === 'ogappr') renderApprovers();
+      if (tab === 'exp') loadPolicy();
     }
 
     // ---------- DASHBOARD ----------
@@ -190,11 +231,12 @@
     async function renderEmployees() {
       employees = await api('/admin/employees');
       document.getElementById('empTable').innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
-        ${['Emp No','Name','Dept','Mobile','Admin','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${['Emp No','Name','Dept','Mobile','Admin','Expense','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
         ${employees.map(e=>`<tr class="border-b border-slate-100">
           <td class="py-2 pr-3 font-mono text-xs">${e.emp_no}</td><td class="py-2 pr-3">${e.name}</td>
           <td class="py-2 pr-3 text-slate-500">${e.department||''}</td><td class="py-2 pr-3 text-slate-500">${e.phone||''}</td>
           <td class="py-2 pr-3">${e.is_admin?'<span class="text-brand-600 font-semibold">Yes</span>':'—'}</td>
+          <td class="py-2 pr-3"><button onclick="setExpCat(${e.id},'${e.expense_category==='CAT1'?'CAT2':'CAT1'}')" class="pill ${e.expense_category==='CAT1'?'bg-brand-50 text-brand-700':'bg-slate-100 text-slate-600'} hover:opacity-80">${e.expense_category==='CAT1'?'Cat 1':'Cat 2'}</button></td>
           <td class="py-2 pr-3">${e.active?'<span class="text-emerald-600">Active</span>':'<span class="text-slate-400">Inactive</span>'}</td>
           <td class="py-2 pr-3 whitespace-nowrap">
             <button onclick="resetPw(${e.id},'${e.emp_no}')" class="text-xs text-slate-600 hover:underline mr-2">Reset PW</button>
@@ -291,6 +333,69 @@
     const gv = id => document.getElementById(id).value;
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e=>{ console.error(e); toast(e.message,'error'); });
+    // ---------- OUTPASS APPROVERS ----------
+    async function renderApprovers() {
+      const sel = document.getElementById('oa_emp');
+      sel.innerHTML = '<option value="">Select employee</option>' +
+        employees.filter(e => e.active).map(e => `<option value="${e.id}">${e.name} (${e.emp_no})</option>`).join('');
+      const rows = await api('/admin/outpass-approvers');
+      const el = document.getElementById('ogApprTable');
+      if (!rows.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">No approvers yet.</div>'; return; }
+      el.innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-line">
+          <th class="pb-2 fieldlabel">Label</th><th class="pb-2 fieldlabel">Employee</th>
+          <th class="pb-2 fieldlabel">Mobile</th><th class="pb-2 fieldlabel">Status</th><th></th></tr></thead><tbody>` +
+        rows.map(a => `<tr class="border-b border-line hover:bg-mist">
+          <td class="py-2 font-semibold text-ink">${a.label}</td>
+          <td class="py-2">${a.name || '—'} <span class="mono text-[11px] text-slate-400">${a.emp_no || ''}</span></td>
+          <td class="py-2 mono text-xs">${a.phone || '—'}</td>
+          <td class="py-2">${a.active ? '<span class="pill bg-emerald-100 text-emerald-700">Active</span>' : '<span class="pill bg-slate-100 text-slate-500">Off</span>'}</td>
+          <td class="py-2 text-right whitespace-nowrap">
+            <button onclick="toggleApprover(${a.id}, ${!a.active})" class="text-xs text-brand-600 hover:underline mr-3">${a.active ? 'Disable' : 'Enable'}</button>
+            <button onclick="removeApprover(${a.id})" class="text-xs text-red-600 hover:underline">Remove</button>
+          </td></tr>`).join('') + '</tbody></table>';
+    }
+    async function addApprover() {
+      const label = document.getElementById('oa_label').value.trim();
+      const emp_id = +document.getElementById('oa_emp').value;
+      if (!label || !emp_id) return toast('Enter a label and pick an employee', 'error');
+      try { await api('/admin/outpass-approvers', { method: 'POST', body: { label, emp_id } });
+        toast('Approver added', 'success');
+        document.getElementById('oa_label').value = ''; document.getElementById('oa_emp').value = '';
+        renderApprovers();
+      } catch (e) { toast(e.message, 'error'); }
+    }
+    async function toggleApprover(id, active) {
+      await api('/admin/outpass-approvers/' + id, { method: 'PUT', body: { active } });
+      toast(active ? 'Enabled' : 'Disabled', 'success'); renderApprovers();
+    }
+    async function removeApprover(id) {
+      if (!confirm('Remove this approver from the picker?')) return;
+      await api('/admin/outpass-approvers/' + id, { method: 'DELETE' });
+      toast('Removed', 'success'); renderApprovers();
+    }
+
+    // ---------- EXPENSE ----------
+    async function setExpCat(id, cat){
+      await api('/admin/employees/'+id+'/expense-category',{method:'PUT',body:{category:cat}});
+      toast('Set to '+(cat==='CAT1'?'Category 1':'Category 2'),'success'); renderEmployees();
+    }
+    async function loadPolicy(){
+      const p=await api('/admin/expense-policy');
+      document.getElementById('p_bike').value=p.rate_bike ?? 3.5;
+      document.getElementById('p_car').value=p.rate_car ?? 5;
+      document.getElementById('p_c1food').value=p.cat1_food ?? 750;
+      document.getElementById('p_c1accom').value=p.cat1_accom ?? 1500;
+      document.getElementById('p_c2food').value=p.cat2_food ?? 500;
+      document.getElementById('p_c2accom').value=p.cat2_accom ?? 1000;
+    }
+    async function savePolicy(){
+      const body={ rate_bike:+v('p_bike'), rate_car:+v('p_car'),
+        cat1_food:+v('p_c1food'), cat1_accom:+v('p_c1accom'),
+        cat2_food:+v('p_c2food'), cat2_accom:+v('p_c2accom') };
+      function v(id){ return document.getElementById(id).value; }
+      try{ await api('/admin/expense-policy',{method:'PUT',body}); toast('Policy saved','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
   </script>
 </body>
 </html>

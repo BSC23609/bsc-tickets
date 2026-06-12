@@ -2,6 +2,14 @@
 // Routing references employees by emp_no (resolved to ids during seed).
 
 module.exports = {
+  // Outpass/Gatepass approvers (admin-editable). HR is added later via the admin panel.
+  outpass_approvers: [
+    { label: 'Bakthavachalam', emp_no: 'BSC/006' },
+    { label: 'Kannan',         emp_no: 'BSC/098' },
+    { label: 'Goverdhan',      emp_no: 'CMD' },
+    { label: 'Gourav',         emp_no: 'CEO' },
+  ],
+
   locations: [
     'Office (Sales)', 'Office (Accounts)', 'Office (Reception)',
     "Office (Chairman's Cabin)", 'Office (Cafeteria)', 'PDQC Room',

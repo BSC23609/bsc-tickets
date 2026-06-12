@@ -70,13 +70,13 @@ domain from the start: templates are read-only once submitted.
 
 | Template name (underscores) | To | Variables to name |
 |---|---|---|
-| `ticket_raised` | L1 | name, ref, requester, category, priority, subject, ticketid |
-| `ticket_escalated_l2` | L2 | name, ref, requester, category, priority, subject, ticketid |
-| `ticket_escalated_l3` | L3 | name, ref, requester, category, priority, subject, ticketid |
-| `ticket_resolved` | requester | name, ref, subject, resolver, ticketid |
-| `ticket_reopened` | L1 | name, ref, subject, requester, ticketid |
+| `ticket_raised1` | L1 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_escalated_l2_1` | L2 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_escalated_l3_1` | L3 | name, ref, requester, category, priority, subject, ticketid |
+| `ticket_resolved1` | requester | name, ref, subject, resolver, ticketid |
+| `ticket_reopened1` | L1 | name, ref, subject, requester, ticketid |
 
-Suggested `ticket_raised` body (Utility tone):
+Suggested `ticket_raised1` body (Utility tone):
 > Hi {{name}}, ticket {{ref}} has been raised by {{requester}} under {{category}} ({{priority}} priority). Issue: {{subject}}. Tap below to view and action it.
 
 `ticketid` is the value used by the button URL; the app passes it automatically. Until

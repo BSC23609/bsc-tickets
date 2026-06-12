@@ -74,10 +74,11 @@
     let _isAdmin = false;
     // Deep link: /t/<id> redirects here as /?t=<id>. Carry it through login.
     const targetTicket = new URLSearchParams(location.search).get('t');
+    const targetOg = new URLSearchParams(location.search).get('og');
 
     // If a valid session already exists and we have a deep-link target, skip login.
     (async () => {
-      if (!targetTicket) return;
+      if (!targetTicket && !targetOg) return;
       try {
         const r = await fetch('/api/me', { credentials: 'same-origin' });
         if (r.ok) go();
@@ -106,7 +107,9 @@
       catch (e) { toast(e.message, 'error'); }
     }
     function go() {
-      location.href = '/app.html' + (targetTicket ? ('?t=' + encodeURIComponent(targetTicket)) : '');
+      if (targetTicket) location.href = '/app.html?t=' + encodeURIComponent(targetTicket);
+      else if (targetOg) location.href = '/outpass.html?id=' + encodeURIComponent(targetOg);
+      else location.href = '/home.html';
     }
   </script>
 </body>

@@ -10,7 +10,7 @@ router.use(auth.requireAuth, auth.requireAdmin);
 // ===================== EMPLOYEES =====================
 router.get('/employees', async (req, res) => {
   const { rows } = await q(
-    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset
+    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category
      FROM employees ORDER BY emp_no`);
   res.json(rows);
 });
@@ -28,7 +28,8 @@ router.post('/employees', async (req, res) => {
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Employee number already exists' });
-    throw e;
+    console.error('[add-employee] failed:', e.code, e.message);
+    return res.status(400).json({ error: 'Could not add employee: ' + (e.detail || e.message) });
   }
 });
 
@@ -183,6 +184,71 @@ router.get('/export.xlsx', async (req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="Ticket Log.xlsx"');
     res.send(buf);
   } catch (e) { console.error('export', e); res.status(500).json({ error: 'Export failed' }); }
+});
+
+// ===================== OUTPASS APPROVERS =====================
+router.get('/outpass-approvers', async (req, res) => {
+  const { rows } = await q(
+    `SELECT a.id, a.label, a.emp_id, a.active, a.sort_order, e.emp_no, e.name, e.phone
+     FROM outpass_approvers a LEFT JOIN employees e ON e.id = a.emp_id
+     ORDER BY a.sort_order, a.label`);
+  res.json(rows);
+});
+
+router.post('/outpass-approvers', async (req, res) => {
+  const { label, emp_id } = req.body || {};
+  if (!label || !emp_id) return res.status(400).json({ error: 'Label and employee are required' });
+  const { rows } = await q(
+    `INSERT INTO outpass_approvers(label, emp_id, sort_order)
+     VALUES($1,$2,COALESCE((SELECT MAX(sort_order)+1 FROM outpass_approvers),0)) RETURNING id`,
+    [String(label).trim(), emp_id]);
+  res.json({ ok: true, id: rows[0].id });
+});
+
+router.put('/outpass-approvers/:id', async (req, res) => {
+  const { label, emp_id, active } = req.body || {};
+  await q(`UPDATE outpass_approvers SET label=COALESCE($2,label), emp_id=COALESCE($3,emp_id),
+           active=COALESCE($4,active) WHERE id=$1`, [req.params.id, label, emp_id, active]);
+  res.json({ ok: true });
+});
+
+router.delete('/outpass-approvers/:id', async (req, res) => {
+  await q('DELETE FROM outpass_approvers WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// On-demand download of the Outpass/Gatepass register.
+router.get('/outpass-export.xlsx', async (req, res) => {
+  try {
+    const buf = await require('../lib/outpass_excel').buildOutpassWorkbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Outpass Log.xlsx"');
+    res.send(buf);
+  } catch (e) { console.error('outpass export', e); res.status(500).json({ error: 'Export failed' }); }
+});
+
+// ===================== EXPENSE POLICY & CATEGORY =====================
+router.get('/expense-policy', async (req, res) => {
+  const { rows } = await q('SELECT key, value FROM expense_policy');
+  const m = {}; for (const r of rows) m[r.key] = Number(r.value);
+  res.json(m);
+});
+router.put('/expense-policy', async (req, res) => {
+  const allowed = ['rate_bike', 'rate_car', 'cat1_food', 'cat1_accom', 'cat2_food', 'cat2_accom'];
+  for (const k of allowed) {
+    if (req.body[k] != null && !isNaN(parseFloat(req.body[k]))) {
+      await q(`INSERT INTO expense_policy(key,value) VALUES($1,$2)
+               ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [k, parseFloat(req.body[k])]);
+    }
+  }
+  require('../lib/expense_policy').invalidate();
+  res.json({ ok: true });
+});
+// Set an employee's expense category (CAT1 / CAT2).
+router.put('/employees/:id/expense-category', async (req, res) => {
+  const cat = req.body.category === 'CAT1' ? 'CAT1' : 'CAT2';
+  await q('UPDATE employees SET expense_category=$2 WHERE id=$1', [req.params.id, cat]);
+  res.json({ ok: true, category: cat });
 });
 
 module.exports = router;
