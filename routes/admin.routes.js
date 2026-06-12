@@ -34,14 +34,23 @@ router.post('/employees', async (req, res) => {
 });
 
 router.put('/employees/:id', async (req, res) => {
-  const { name, email, phone, department, job_title, is_admin, active } = req.body || {};
-  await q(
-    `UPDATE employees SET name=COALESCE($2,name), email=$3, phone=$4,
-       department=$5, job_title=$6, is_admin=COALESCE($7,is_admin), active=COALESCE($8,active)
-     WHERE id=$1`,
-    [req.params.id, name, email || null, normPhone(phone), department || null,
-     job_title || null, is_admin, active]);
-  res.json({ ok: true });
+  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category } = req.body || {};
+  const cat = ['CAT1', 'CAT2'].includes(expense_category) ? expense_category : null;
+  try {
+    await q(
+      `UPDATE employees SET
+         emp_no=COALESCE($2,emp_no), name=COALESCE($3,name), email=$4, phone=$5,
+         department=$6, job_title=$7, is_admin=COALESCE($8,is_admin),
+         active=COALESCE($9,active), expense_category=COALESCE($10,expense_category)
+       WHERE id=$1`,
+      [req.params.id, emp_no ? String(emp_no).trim() : null, name, email || null, normPhone(phone),
+       department || null, job_title || null, is_admin, active, cat]);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'That employee code is already in use' });
+    console.error('[edit-employee] failed:', e.code, e.message);
+    return res.status(400).json({ error: 'Could not save: ' + (e.detail || e.message) });
+  }
 });
 
 // Deactivate (soft) — preserves ticket history.

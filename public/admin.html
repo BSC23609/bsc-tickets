@@ -85,6 +85,7 @@
           <input id="e_email" class="inp" placeholder="Email" />
           <input id="e_phone" class="inp" placeholder="Mobile (e.g. 9444085016)" />
           <input id="e_dept" class="inp" placeholder="Department" />
+          <input id="e_title" class="inp" placeholder="Designation" />
           <label class="flex items-center gap-2 text-sm"><input id="e_admin" type="checkbox" /> Admin access</label>
         </div>
         <button onclick="addEmp()" class="mt-3 btn text-sm">Add (default password Bsc@123)</button>
@@ -231,25 +232,27 @@
     async function renderEmployees() {
       employees = await api('/admin/employees');
       document.getElementById('empTable').innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
-        ${['Emp No','Name','Dept','Mobile','Admin','Expense','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${['Emp No','Name','Designation','Dept','Mobile','Admin','Expense','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
         ${employees.map(e=>`<tr class="border-b border-slate-100">
-          <td class="py-2 pr-3 font-mono text-xs">${e.emp_no}</td><td class="py-2 pr-3">${e.name}</td>
-          <td class="py-2 pr-3 text-slate-500">${e.department||''}</td><td class="py-2 pr-3 text-slate-500">${e.phone||''}</td>
+          <td class="py-2 pr-3 font-mono text-xs">${esc(e.emp_no)}</td><td class="py-2 pr-3">${esc(e.name)}</td>
+          <td class="py-2 pr-3 text-slate-500">${esc(e.job_title)}</td>
+          <td class="py-2 pr-3 text-slate-500">${esc(e.department)}</td><td class="py-2 pr-3 text-slate-500">${esc(e.phone)}</td>
           <td class="py-2 pr-3">${e.is_admin?'<span class="text-brand-600 font-semibold">Yes</span>':'—'}</td>
           <td class="py-2 pr-3"><button onclick="setExpCat(${e.id},'${e.expense_category==='CAT1'?'CAT2':'CAT1'}')" class="pill ${e.expense_category==='CAT1'?'bg-brand-50 text-brand-700':'bg-slate-100 text-slate-600'} hover:opacity-80">${e.expense_category==='CAT1'?'Cat 1':'Cat 2'}</button></td>
           <td class="py-2 pr-3">${e.active?'<span class="text-emerald-600">Active</span>':'<span class="text-slate-400">Inactive</span>'}</td>
           <td class="py-2 pr-3 whitespace-nowrap">
-            <button onclick="resetPw(${e.id},'${e.emp_no}')" class="text-xs text-slate-600 hover:underline mr-2">Reset PW</button>
-            <button onclick="toggleAdmin(${e.id},${!e.is_admin})" class="text-xs text-brand-600 hover:underline mr-2">${e.is_admin?'Revoke admin':'Make admin'}</button>
+            <button onclick="editEmp(${e.id})" class="text-xs font-semibold text-brand-600 hover:underline mr-2">Edit</button>
+            <button onclick="resetPw(${e.id},'${esc(e.emp_no)}')" class="text-xs text-slate-600 hover:underline mr-2">Reset PW</button>
             <button onclick="toggleActive(${e.id},${!e.active})" class="text-xs ${e.active?'text-red-600':'text-emerald-600'} hover:underline">${e.active?'Deactivate':'Activate'}</button>
           </td></tr>`).join('')}</tbody></table>`;
     }
     async function addEmp() {
       const body = { emp_no:val('e_no'), name:val('e_name'), email:val('e_email'),
-        phone:val('e_phone'), department:val('e_dept'), is_admin:document.getElementById('e_admin').checked };
+        phone:val('e_phone'), department:val('e_dept'), job_title:val('e_title'),
+        is_admin:document.getElementById('e_admin').checked };
       if (!body.emp_no || !body.name) return toast('Employee number and name required','error');
       try { await api('/admin/employees',{method:'POST',body}); toast('Employee added','success');
-        ['e_no','e_name','e_email','e_phone','e_dept'].forEach(id=>document.getElementById(id).value='');
+        ['e_no','e_name','e_email','e_phone','e_dept','e_title'].forEach(id=>document.getElementById(id).value='');
         document.getElementById('e_admin').checked=false; renderEmployees(); }
       catch(e){ toast(e.message,'error'); }
     }
@@ -330,6 +333,56 @@
     async function toggleLoc(id, active){ await api(`/admin/locations/${id}`,{method:'PUT',body:{active}}); renderLocations(); }
 
     const val = id => document.getElementById(id).value.trim();
+    const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+
+    function editEmp(id){
+      const e = employees.find(x=>x.id===id); if(!e) return;
+      const w = document.createElement('div');
+      w.id = 'empEditModal';
+      w.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
+      w.onclick = ev => { if(ev.target===w) w.remove(); };
+      w.innerHTML = `<div class="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+        <div class="p-4 border-b border-slate-200 flex items-center justify-between">
+          <h3 class="font-bold">Edit employee</h3>
+          <button onclick="document.getElementById('empEditModal').remove()" class="text-slate-400 text-2xl leading-none">&times;</button>
+        </div>
+        <div class="p-4 grid sm:grid-cols-2 gap-3">
+          <div><label class="lbl">Employee code</label><input id="ed_no" class="inp" value="${esc(e.emp_no)}"></div>
+          <div><label class="lbl">Full name</label><input id="ed_name" class="inp" value="${esc(e.name)}"></div>
+          <div><label class="lbl">Designation</label><input id="ed_title" class="inp" value="${esc(e.job_title)}"></div>
+          <div><label class="lbl">Department</label><input id="ed_dept" class="inp" value="${esc(e.department)}"></div>
+          <div><label class="lbl">Mobile</label><input id="ed_phone" class="inp" value="${esc(e.phone)}"></div>
+          <div><label class="lbl">Email</label><input id="ed_email" class="inp" value="${esc(e.email)}"></div>
+          <div><label class="lbl">Expense category</label><select id="ed_cat" class="inp">
+            <option value="CAT2" ${e.expense_category!=='CAT1'?'selected':''}>Cat 2 (≤ ₹50k)</option>
+            <option value="CAT1" ${e.expense_category==='CAT1'?'selected':''}>Cat 1 (&gt; ₹50k)</option></select></div>
+          <div class="flex items-end gap-5 pb-1">
+            <label class="flex items-center gap-2 text-sm"><input id="ed_admin" type="checkbox" ${e.is_admin?'checked':''}> Admin access</label>
+            <label class="flex items-center gap-2 text-sm"><input id="ed_active" type="checkbox" ${e.active?'checked':''}> Active</label>
+          </div>
+        </div>
+        <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
+          <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
+          <button onclick="saveEmp(${e.id})" class="btn text-sm">Save changes</button>
+        </div></div>`;
+      document.body.appendChild(w);
+    }
+    async function saveEmp(id){
+      const body = {
+        emp_no: val('ed_no'), name: val('ed_name'), job_title: val('ed_title'),
+        department: val('ed_dept'), phone: val('ed_phone'), email: val('ed_email'),
+        expense_category: document.getElementById('ed_cat').value,
+        is_admin: document.getElementById('ed_admin').checked,
+        active: document.getElementById('ed_active').checked,
+      };
+      if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
+      try{
+        await api(`/admin/employees/${id}`,{method:'PUT',body});
+        toast('Employee updated','success');
+        const m = document.getElementById('empEditModal'); if(m) m.remove();
+        renderEmployees();
+      }catch(e){ toast(e.message,'error'); }
+    }
     const gv = id => document.getElementById(id).value;
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e=>{ console.error(e); toast(e.message,'error'); });
