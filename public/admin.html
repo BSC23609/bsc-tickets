@@ -311,11 +311,11 @@
         return `<div class="card p-4">
           <div class="flex items-center justify-between mb-3 gap-2">
             <div class="font-bold">${esc(c.name)} ${c.active?'':'<span class="text-xs text-slate-400">(inactive)</span>'}</div>
-            <select class="inp max-w-[220px]" id="c${c.id}_pat">
+            <select class="inp max-w-[220px]" id="c${c.id}_pat" onchange="togglePattern(${c.id})">
               <option value="assign" ${isAssign?'selected':''}>L2 assigns</option>
               <option value="direct" ${!isAssign?'selected':''}>Direct to L1</option></select>
           </div>
-          ${isAssign ? `
+          <div id="assignFields_${c.id}" class="${isAssign?'':'hidden'}">
             <div class="grid sm:grid-cols-2 gap-3 items-end mb-3">
               <div><label class="lbl">L2 — receives &amp; assigns</label><select class="inp" id="c${c.id}_l2">${empOptions(c.l2_emp_id)}</select></div>
               <div><label class="lbl">L3 — escalation (optional)</label><select class="inp" id="c${c.id}_l3">${empOptions(c.l3_emp_id)}</select></div>
@@ -326,12 +326,14 @@
               <div><label class="lbl">Nudge L2 until assigned (min)</label><input type="number" class="inp" id="c${c.id}_wu" value="${c.wait_unassigned_mins}"></div>
               <div><label class="lbl">L1+L2 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wc" value="${c.wait_cycle_mins}"></div>
               <div><label class="lbl">Add L3 after (min)</label><input type="number" class="inp" id="c${c.id}_wl3" value="${c.wait_l3_mins}"></div>
-            </div>`
-          : `
+            </div>
+          </div>
+          <div id="directFields_${c.id}" class="${isAssign?'hidden':''}">
             <div class="grid sm:grid-cols-2 gap-3 items-end">
               <div><label class="lbl">L1 — handler</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>
-              <div><label class="lbl">L1 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wc" value="${c.wait_cycle_mins}"></div>
-            </div>`}
+              <div><label class="lbl">L1 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wcd" value="${c.wait_cycle_mins}"></div>
+            </div>
+          </div>
           <div class="flex gap-2 mt-3">
             <button onclick="saveCat(${c.id})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
             <button onclick="toggleCat(${c.id},${!c.active})" class="text-xs ${c.active?'text-red-600':'text-emerald-600'} hover:underline px-2">${c.active?'Deactivate':'Activate'}</button>
@@ -339,15 +341,22 @@
         </div>`;
       }).join('');
     }
+    function togglePattern(id) {
+      const direct = gv(`c${id}_pat`) === 'direct';
+      document.getElementById(`assignFields_${id}`).classList.toggle('hidden', direct);
+      document.getElementById(`directFields_${id}`).classList.toggle('hidden', !direct);
+    }
     async function saveCat(id) {
       const pattern = gv(`c${id}_pat`);
-      const body = { pattern, wait_cycle_mins: +gv(`c${id}_wc`) || 120 };
+      const body = { pattern };
       if (pattern === 'direct') {
         body.l1_emp_id = +gv(`c${id}_l1`) || null;
+        body.wait_cycle_mins = +gv(`c${id}_wcd`) || 120;
       } else {
         body.l2_emp_id = +gv(`c${id}_l2`) || null;
         body.l3_emp_id = +gv(`c${id}_l3`) || null;
         body.wait_unassigned_mins = +gv(`c${id}_wu`) || 60;
+        body.wait_cycle_mins = +gv(`c${id}_wc`) || 120;
         body.wait_l3_mins = +gv(`c${id}_wl3`) || 240;
       }
       try {
@@ -430,7 +439,7 @@
         renderEmployees();
       }catch(e){ toast(e.message,'error'); }
     }
-    const gv = id => document.getElementById(id).value;
+    const gv = id => { const e = document.getElementById(id); return e ? e.value : ''; };
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e=>{ console.error(e); toast(e.message,'error'); });
     // ---------- OUTPASS APPROVERS (department head + fallback) ----------

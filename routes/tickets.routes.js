@@ -146,6 +146,7 @@ router.get('/:id', async (req, res) => {
      LEFT JOIN employees emp ON emp.id=e.by_emp_id WHERE e.ticket_id=$1 ORDER BY e.at`, [t.id])).rows;
 
   const isL2 = t.l2_emp_id === req.user.id;
+  const isL1 = t.l1_emp_id === req.user.id;
   const isOpen = ['open', 'reopened', 'in_progress'].includes(t.status);
   const canAssign = (isL2 || req.user.is_admin) && t.pattern === 'assign' && isOpen;
   let pool = [];
@@ -156,7 +157,7 @@ router.get('/:id', async (req, res) => {
   }
 
   res.json({ ...t, downtime_mins: downtimeMins(t), photos, events, pool,
-    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL2, canAssign } });
+    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL1: isL1 || req.user.is_admin, isL2, canAssign } });
 });
 
 // ---- photos: mint upload session (browser uploads straight to OneDrive) ----
@@ -192,6 +193,9 @@ async function loadTicket(id) {
   return rows[0] || null;
 }
 const isHandlerOf = (t, u) => [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(u.id) || u.is_admin;
+// Only the assigned L1 (the actual fixer) — or an admin — can start work / resolve.
+// L2 routes/assigns but does not work the ticket.
+const isL1Of = (t, u) => t.l1_emp_id === u.id || u.is_admin;
 
 // ---- L2 assigns the ticket to an L1 from the category pool ----
 router.post('/:id/assign', async (req, res) => {
@@ -222,7 +226,7 @@ router.post('/:id/assign', async (req, res) => {
 router.post('/:id/in-progress', async (req, res) => {
   const t = await loadTicket(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  if (!isHandlerOf(t, req.user)) return res.status(403).json({ error: 'Handlers only' });
+  if (!isL1Of(t, req.user)) return res.status(403).json({ error: 'Only the assigned L1 can start work' });
   if (!['open', 'reopened'].includes(t.status)) return res.status(400).json({ error: 'Not in an open state' });
   await q(`UPDATE tickets SET status='in_progress', in_progress_at=COALESCE(in_progress_at,now()) WHERE id=$1`, [t.id]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'in_progress',$2)`, [t.id, req.user.id]);
@@ -234,7 +238,7 @@ router.post('/:id/in-progress', async (req, res) => {
 router.post('/:id/resolve', async (req, res) => {
   const t = await loadTicket(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
-  if (!isHandlerOf(t, req.user)) return res.status(403).json({ error: 'Handlers only' });
+  if (!isL1Of(t, req.user)) return res.status(403).json({ error: 'Only the assigned L1 can resolve' });
   if (!['open', 'in_progress', 'reopened'].includes(t.status))
     return res.status(400).json({ error: 'Cannot resolve from current state' });
   const note = (req.body && req.body.note) || null;

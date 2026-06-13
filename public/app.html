@@ -261,9 +261,9 @@
       const p = t.perms;
       const actions = [];
 
-      if (p.isHandler && ['open','reopened'].includes(t.status))
+      if (p.isL1 && ['open','reopened'].includes(t.status))
         actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
-      if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
+      if (p.isL1 && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
       if (p.isRequester && t.status === 'resolved') {
         actions.push(btn(`confirmTicket(${id})`, 'Confirm & close', 'emerald'));
