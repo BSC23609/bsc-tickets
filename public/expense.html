@@ -35,47 +35,67 @@
   </header>
 
   <main class="max-w-5xl mx-auto px-4 py-7">
-    <div class="mb-5">
-      <div class="eyebrow">Expense Reimbursement</div>
-      <h1 class="font-display text-2xl font-bold text-ink mt-0.5">Claims &amp; conveyance</h1>
+    <div class="mb-6 flex items-center gap-3">
+      <button id="backBtn" onclick="showLauncher()" class="hidden btn-ghost text-sm">← Back</button>
+      <div>
+        <div class="eyebrow">Expense Reimbursement</div>
+        <h1 id="pageTitle" class="font-display text-2xl font-bold text-ink mt-0.5">Claims &amp; conveyance</h1>
+      </div>
     </div>
 
-    <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
-      <button data-tab="conv" data-active="true" class="tabBtn tab">Local Conveyance</button>
-      <button data-tab="out" data-active="false" class="tabBtn tab">Outstation</button>
-      <button data-tab="misc" data-active="false" class="tabBtn tab">Miscellaneous</button>
-      <button data-tab="mine" data-active="false" class="tabBtn tab">My submissions</button>
-      <button data-tab="appr" id="apprTab" data-active="false" class="tabBtn tab hidden">Approvals <span id="apprCount" class="pill bg-amber-100 text-amber-700 ml-1 hidden"></span></button>
+    <!-- LAUNCHER (tiles) -->
+    <div id="launcher">
+      <div class="grid sm:grid-cols-3 gap-4">
+        <button onclick="showForm('conv')" class="card lift p-5 text-left">
+          <div class="text-3xl leading-none">🚗</div>
+          <div class="font-display font-bold text-ink mt-3">Local Conveyance</div>
+          <div class="text-slate-500 text-xs mt-1">Daily bike / car trips, reimbursed per km.</div>
+        </button>
+        <button onclick="showForm('out')" class="card lift p-5 text-left">
+          <div class="text-3xl leading-none">🧳</div>
+          <div class="font-display font-bold text-ink mt-3">Outstation</div>
+          <div class="text-slate-500 text-xs mt-1">Travel, stay, food &amp; more for trips away.</div>
+        </button>
+        <button onclick="showForm('misc')" class="card lift p-5 text-left">
+          <div class="text-3xl leading-none">🧾</div>
+          <div class="font-display font-bold text-ink mt-3">Miscellaneous</div>
+          <div class="text-slate-500 text-xs mt-1">One-off expenses with bills. Self-service PDF.</div>
+        </button>
+      </div>
+      <div class="flex gap-2 mt-4">
+        <button onclick="showForm('mine')" class="btn-ghost text-sm">My submissions</button>
+        <button id="apprTab" onclick="showForm('appr')" class="btn-ghost text-sm hidden">Approvals <span id="apprCount" class="pill bg-amber-100 text-amber-700 ml-1 hidden"></span></button>
+        <button id="finalTab" onclick="showForm('final')" class="btn-ghost text-sm hidden">Final approvals <span id="finalCount" class="pill bg-indigo-100 text-indigo-700 ml-1 hidden"></span></button>
+      </div>
     </div>
 
     <!-- LOCAL CONVEYANCE -->
-    <section id="tab-conv" class="in">
-      <div class="card p-5 mb-4 flex flex-wrap items-end gap-4">
-        <div>
+    <section id="tab-conv" class="hidden">
+      <div class="infobar mb-4">
+        <div class="ic">₹</div>
+        <div class="text-sm leading-tight">
+          <div class="font-semibold text-ink" id="cv_cat"></div>
+          <div class="text-slate-500 text-xs mt-0.5">Rates · <span id="cv_rates" class="mono"></span></div>
+        </div>
+      </div>
+
+      <div class="card p-5 mb-4">
+        <div class="sechead"><span class="t">Period</span></div>
+        <div class="max-w-xs">
           <label class="fieldlabel">Month</label>
           <input id="cv_month" type="month" class="field" onchange="loadConveyance()" />
-        </div>
-        <div class="text-sm">
-          <div class="text-slate-400 text-xs">Your category &amp; rates</div>
-          <div class="font-semibold mt-0.5"><span id="cv_cat"></span> · <span id="cv_rates" class="mono"></span></div>
-        </div>
-        <div class="ml-auto text-right">
-          <div class="text-slate-400 text-xs">Month total</div>
-          <div class="kpi text-brand-600" id="cv_total">₹0</div>
         </div>
       </div>
 
       <div id="cv_locked" class="hidden card p-4 mb-4 bg-amber-50 border-amber-200 text-sm text-amber-800"></div>
 
-      <div class="card p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="font-display font-bold text-ink">Daily entries</h3>
-          <button onclick="addRow()" id="cv_add" class="btn-ghost text-sm">+ Add day</button>
-        </div>
+      <div class="card p-5 mb-4">
+        <div class="sechead"><span class="t">Daily entries</span></div>
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead><tr class="text-left border-b border-line">
               <th class="pb-2 fieldlabel">Date</th><th class="pb-2 fieldlabel">From</th><th class="pb-2 fieldlabel">To</th>
+              <th class="pb-2 fieldlabel">Purpose</th>
               <th class="pb-2 fieldlabel">Vehicle</th><th class="pb-2 fieldlabel text-right">KM</th>
               <th class="pb-2 fieldlabel text-right">Amount</th><th></th>
             </tr></thead>
@@ -83,51 +103,71 @@
           </table>
         </div>
         <div id="cv_empty" class="text-center text-slate-400 text-sm py-8 hidden">No entries yet — add your first day.</div>
+        <button onclick="addRow()" id="cv_add" class="addrow mt-3">+ Add day</button>
+      </div>
 
-        <div class="flex justify-end gap-2 mt-5">
-          <button onclick="saveConveyance()" id="cv_save" class="btn-ghost text-sm">Save draft</button>
-          <button onclick="submitConveyance()" id="cv_submit" class="btn text-sm">Submit to HR</button>
+      <div class="claimbar">
+        <div>
+          <div class="cap">Total claim</div>
+          <div class="amt" id="cv_total">₹0</div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="saveConveyance()" id="cv_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
+          <button onclick="submitConveyance()" id="cv_submit" class="btn text-sm">Submit for approval</button>
         </div>
       </div>
     </section>
 
     <!-- OUTSTATION -->
     <section id="tab-out" class="hidden">
-      <div class="card p-5 mb-4 flex flex-wrap items-end gap-4">
-        <div><label class="fieldlabel">Month</label><input id="ot_month" type="month" class="field" onchange="loadOutstation()" /></div>
-        <div class="text-sm"><div class="text-slate-400 text-xs">Daily limits (your category)</div>
-          <div class="font-semibold mt-0.5" id="ot_limits"></div></div>
-        <div class="ml-auto text-right"><div class="text-slate-400 text-xs">Claim total</div>
-          <div class="kpi text-brand-600" id="ot_total">₹0</div></div>
+      <div class="infobar mb-4">
+        <div class="ic">₹</div>
+        <div class="text-sm leading-tight">
+          <div class="font-semibold text-ink">Daily limits · your category</div>
+          <div class="text-slate-500 text-xs mt-0.5" id="ot_limits"></div>
+        </div>
       </div>
+
+      <div class="card p-5 mb-4">
+        <div class="sechead"><span class="t">Reporting month</span></div>
+        <div class="max-w-xs">
+          <label class="fieldlabel">Month</label>
+          <input id="ot_month" type="month" class="field" onchange="loadOutstation()" />
+        </div>
+      </div>
+
       <div id="ot_locked" class="hidden card p-4 mb-4 bg-amber-50 border-amber-200 text-sm text-amber-800"></div>
       <div id="ot_trips" class="space-y-4"></div>
-      <div class="flex items-center justify-between mt-4">
-        <button onclick="addTrip()" id="ot_addtrip" class="btn-ghost text-sm">+ Add trip</button>
+      <button onclick="addTrip()" id="ot_addtrip" class="addrow mt-4">+ Add trip</button>
+      <div id="ot_flags" class="mt-4"></div>
+
+      <div class="claimbar mt-4">
+        <div><div class="cap">Claim total</div><div class="amt" id="ot_total">₹0</div></div>
         <div class="flex gap-2">
-          <button onclick="saveOutstation()" id="ot_save" class="btn-ghost text-sm">Save draft</button>
+          <button onclick="saveOutstation()" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
           <button onclick="submitOutstation()" id="ot_submit" class="btn text-sm">Submit to HR</button>
         </div>
       </div>
-      <div id="ot_flags" class="mt-4"></div>
     </section>
 
     <!-- MISCELLANEOUS -->
     <section id="tab-misc" class="hidden">
-      <div class="card p-4 mb-4 bg-mist border-line text-sm text-slate-600 flex items-center justify-between gap-3">
-        <span>Self-service — generate a PDF with your bills to print. No HR approval needed; a copy is saved to OneDrive.</span>
+      <div class="infobar mb-4">
+        <div class="ic">i</div>
+        <div class="text-sm leading-tight flex-1">
+          <div class="font-semibold text-ink">Self-service reimbursement</div>
+          <div class="text-slate-500 text-xs mt-0.5">Generate a PDF with your bills to print. No HR approval needed; a copy is saved to OneDrive.</div>
+        </div>
         <button onclick="newMisc()" class="btn-ghost text-xs shrink-0">Start new</button>
       </div>
-      <div class="card p-5">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="font-display font-bold text-ink">Items</h3>
-          <div class="text-right"><span class="text-slate-400 text-xs mr-2">Total</span><span class="kpi text-brand-600" id="ms_total">₹0</span></div>
-        </div>
+      <div class="card p-5 mb-4">
+        <div class="sechead"><span class="t">Items</span></div>
         <div id="ms_rows" class="space-y-2"></div>
-        <button onclick="addMiscItem()" class="btn-ghost text-sm mt-3">+ Add item</button>
-        <div class="flex justify-end gap-2 mt-5">
-          <button onclick="generateMisc()" id="ms_gen" class="btn text-sm">Generate PDF</button>
-        </div>
+        <button onclick="addMiscItem()" class="addrow mt-3">+ Add item</button>
+      </div>
+      <div class="claimbar">
+        <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
+        <button onclick="submitMisc()" id="ms_gen" class="btn text-sm">Submit for approval</button>
       </div>
     </section>
 
@@ -135,6 +175,7 @@
     <section id="tab-mine" class="hidden"><div id="mineList" class="space-y-3"></div></section>
     <!-- APPROVALS -->
     <section id="tab-appr" class="hidden"><div id="apprList" class="space-y-3"></div></section>
+    <section id="tab-final" class="hidden"><div id="finalList" class="space-y-3"></div></section>
   </main>
 
   <!-- detail / approval modal -->
@@ -149,8 +190,10 @@
 
     const fmtMoney = n => '₹' + Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
     function statusPill(s){
-      const m={pending:['bg-amber-100 text-amber-700','Pending'],approved:['bg-emerald-100 text-emerald-700','Approved'],
-        rejected:['bg-red-100 text-red-700','Rejected'],draft:['bg-slate-100 text-slate-600','Draft']}[s]||['bg-slate-100 text-slate-600',s];
+      const m={draft:['bg-slate-100 text-slate-600','Draft'],generated:['bg-slate-100 text-slate-600','Generated'],
+        pending_hr:['bg-amber-100 text-amber-700','Pending HR'],pending_final:['bg-indigo-100 text-indigo-700','Pending final'],
+        approved:['bg-emerald-100 text-emerald-700','Approved'],returned:['bg-red-100 text-red-700','Returned'],
+        pending:['bg-amber-100 text-amber-700','Pending'],rejected:['bg-red-100 text-red-700','Rejected']}[s]||['bg-slate-100 text-slate-600',s];
       return `<span class="pill ${m[0]}"><span class="dot"></span>${m[1]}</span>`;
     }
 
@@ -159,21 +202,32 @@
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
       meta = await api('/expense/meta');
       document.getElementById('cv_cat').textContent = meta.category_label;
-      document.getElementById('cv_rates').textContent = `Bike ${fmtMoney(meta.rates.bike)}/km · Car ${fmtMoney(meta.rates.car)}/km`;
+      document.getElementById('cv_rates').textContent = `Bike ${fmtMoney(meta.rates.bike)}/km · Car ${fmtMoney(meta.rates.car)}/km · Log each day within ${meta.conveyance_log_hours||48}h`;
       document.getElementById('cv_month').value = new Date().toISOString().slice(0,7);
       document.getElementById('ot_month').value = new Date().toISOString().slice(0,7);
-      if (me.is_admin) { document.getElementById('apprTab').classList.remove('hidden'); refreshApprCount(); }
-      document.querySelectorAll('.tabBtn').forEach(b => b.addEventListener('click', ()=>switchTab(b.dataset.tab)));
-      loadConveyance();
+      if (meta.is_hr_approver) { document.getElementById('apprTab').classList.remove('hidden'); refreshApprCount(); }
+      if (meta.is_final_approver) { document.getElementById('finalTab').classList.remove('hidden'); refreshFinalCount(); }
+      showLauncher();
     }
 
-    function switchTab(tab){
-      document.querySelectorAll('.tabBtn').forEach(b=>b.setAttribute('data-active', b.dataset.tab===tab));
-      ['conv','out','misc','mine','appr'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==tab));
-      if (tab==='mine') loadMine();
-      if (tab==='appr') loadApprovals();
-      if (tab==='out') loadOutstation();
-      if (tab==='misc') ensureMisc();
+    const FORM_TITLES = { conv:'Local Conveyance', out:'Outstation', misc:'Miscellaneous', mine:'My submissions', appr:'Approvals', final:'Final approvals' };
+    function showForm(name){
+      document.getElementById('launcher').classList.add('hidden');
+      document.getElementById('backBtn').classList.remove('hidden');
+      document.getElementById('pageTitle').textContent = FORM_TITLES[name] || 'Expense';
+      ['conv','out','misc','mine','appr','final'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==name));
+      if (name==='conv') loadConveyance();
+      if (name==='out') loadOutstation();
+      if (name==='misc') ensureMisc();
+      if (name==='mine') loadMine();
+      if (name==='appr') loadApprovals();
+      if (name==='final') loadFinalApprovals();
+    }
+    function showLauncher(){
+      document.getElementById('launcher').classList.remove('hidden');
+      document.getElementById('backBtn').classList.add('hidden');
+      document.getElementById('pageTitle').textContent = 'Claims & conveyance';
+      ['conv','out','misc','mine','appr','final'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
     }
 
     // ---- conveyance ----
@@ -182,37 +236,47 @@
       if(!period) return;
       draft = await api('/expense/conveyance/' + period);
       rows = ((draft.payload && draft.payload.entries) || []).map(e=>({...e}));
-      const locked = draft.status !== 'draft';
+      const editable = ['draft','returned'].includes(draft.status);
+      const locked = !editable;
       document.getElementById('cv_add').disabled = locked;
       document.getElementById('cv_save').disabled = locked;
       const sb = document.getElementById('cv_submit');
       const lockBox = document.getElementById('cv_locked');
+      sb.classList.toggle('hidden', !(editable && draft.can_submit));
       if (locked) {
-        sb.classList.add('hidden');
         lockBox.classList.remove('hidden');
-        lockBox.textContent = `This month is ${draft.status}. ${statusText(draft.status)}`;
+        lockBox.textContent = `This month is ${pillText(draft.status)}. ${statusText(draft.status)}`;
+      } else if (draft.status==='returned') {
+        lockBox.classList.remove('hidden');
+        lockBox.innerHTML = `<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(draft.return_reason||'')} — fix and resubmit.`;
       } else if (!draft.can_submit) {
-        sb.classList.add('hidden');
         lockBox.classList.remove('hidden');
         const [y,m] = period.split('-').map(Number);
         const next = new Date(y, m, 1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent = `Keep adding entries through the month. The Submit button opens on ${next}.`;
       } else {
-        sb.classList.remove('hidden');
         lockBox.classList.add('hidden');
       }
       renderRows(locked);
     }
-    function statusText(s){ return s==='approved'?'It has been approved by HR.':s==='rejected'?'It was rejected by HR.':'It is awaiting HR approval.'; }
+    const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected'}[s]||s);
+    function statusText(s){ return ({
+      pending_hr:'It is with HR for review.',
+      pending_final:'HR approved it; it is with the final approver.',
+      approved:'It has been approved and sent to accounts for payment.',
+      returned:'It was returned for changes.',
+      rejected:'It was rejected.'
+    })[s]||'Submitted.'; }
 
     function renderRows(locked){
       const tb = document.getElementById('cv_rows');
       document.getElementById('cv_empty').classList.toggle('hidden', rows.length>0);
       tb.innerHTML = rows.map((e,i)=>`
         <tr class="border-b border-line">
-          <td class="py-1.5 pr-2"><input type="date" value="${e.date||''}" ${locked?'disabled':''} onchange="upd(${i},'date',this.value)" class="field !py-1 !rounded-lg text-xs"></td>
+          <td class="py-1.5 pr-2"><input type="date" value="${e.date||''}" ${locked?'disabled':''} onchange="upd(${i},'date',this.value)" class="field !py-1 !rounded-lg text-xs">${isLateRow(e)?'<div class="text-[10px] text-red-600 font-semibold mt-0.5">\u26A0 logged late</div>':''}</td>
           <td class="py-1.5 pr-2"><input value="${e.from||''}" ${locked?'disabled':''} oninput="upd(${i},'from',this.value)" placeholder="From" class="field !py-1 !rounded-lg text-xs"></td>
           <td class="py-1.5 pr-2"><input value="${e.to||''}" ${locked?'disabled':''} oninput="upd(${i},'to',this.value)" placeholder="To" class="field !py-1 !rounded-lg text-xs"></td>
+          <td class="py-1.5 pr-2"><input value="${esc(e.purpose||'')}" ${locked?'disabled':''} oninput="upd(${i},'purpose',this.value)" placeholder="Purpose" class="field !py-1 !rounded-lg text-xs"></td>
           <td class="py-1.5 pr-2"><select ${locked?'disabled':''} onchange="upd(${i},'vehicle',this.value)" class="field !py-1 !rounded-lg text-xs">${VEH.map(([v,l])=>`<option value="${v}" ${e.vehicle===v?'selected':''}>${l}</option>`).join('')}</select></td>
           <td class="py-1.5 pr-2"><input type="number" min="0" step="any" value="${e.km||''}" ${locked?'disabled':''} oninput="upd(${i},'km',this.value)" class="field !py-1 !rounded-lg text-xs text-right w-20"></td>
           <td class="py-1.5 text-right mono font-semibold whitespace-nowrap">${fmtMoney(amountOf(e))}</td>
@@ -221,21 +285,22 @@
       recalc();
     }
     function amountOf(e){ const km=parseFloat(e.km); const rate=meta.rates[e.vehicle==='car'?'car':'bike']; return km>0?+(km*rate).toFixed(2):0; }
+    function isLateRow(e){ const h=meta.conveyance_log_hours||48; if(!e.date||!e.logged_at) return false; const trip=new Date(e.date+'T00:00:00+05:30').getTime(); return (new Date(e.logged_at).getTime()-trip) > h*3600000; }
     function recalc(){ const total=rows.reduce((s,e)=>s+amountOf(e),0); document.getElementById('cv_total').textContent = fmtMoney(total); }
     function upd(i,k,v){ rows[i][k]=v; if(k==='km'||k==='vehicle'){ renderRows(false); } else recalc(); }
-    function addRow(){ rows.push({date:document.getElementById('cv_month').value+'-01',from:'',to:'',vehicle:'bike',km:''}); renderRows(false); }
+    function addRow(){ rows.push({date:document.getElementById('cv_month').value+'-01',from:'',to:'',purpose:'',vehicle:'bike',km:''}); renderRows(false); }
     function delRow(i){ rows.splice(i,1); renderRows(false); }
 
-    async function saveConveyance(){
+    async function saveConveyance(silent){
       try{ const r=await api('/expense/conveyance/'+draft.id,{method:'PUT',body:{entries:rows}});
-        toast(`Saved — ${r.count} entries, ${fmtMoney(r.total)}`,'success');
-      }catch(e){ toast(e.message,'error'); }
+        if(!silent) toast(`Saved — ${r.count} entries, ${fmtMoney(r.total)}`,'success');
+      }catch(e){ if(!silent) toast(e.message,'error'); }
     }
     async function submitConveyance(){
-      await saveConveyance();
-      if(!confirm("Submit this month to HR? You will not be able to edit it after.")) return;
+      await saveConveyance(true);
+      if(!confirm("Submit this month for approval? It goes to HR for review, then final approval.")) return;
       try{ await api('/expense/conveyance/'+draft.id+'/submit',{method:'POST'});
-        toast('Submitted to HR','success'); loadConveyance();
+        toast('Submitted for approval','success'); loadConveyance();
       }catch(e){ toast(e.message,'error'); }
     }
 
@@ -250,8 +315,21 @@
             <span class="pill bg-brand-50 text-brand-700">${formLabel(s.form_type)}</span></div>
           <div class="text-sm font-semibold text-ink mt-1">${s.period_label||''} · ${fmtMoney(s.total_amount)}</div>
         </div>
-        ${s.pdf_token?`<a href="/dlx/${s.pdf_token}" target="_blank" onclick="event.stopPropagation()" class="btn-ghost text-xs">PDF</a>`:''}
+        <div class="flex items-center gap-2">
+          ${s.status==='returned'?`<button onclick="event.stopPropagation();reopenReturned(${s.id},'${s.form_type}','${s.period||''}')" class="btn text-xs" style="padding:.4rem .8rem">Edit &amp; resubmit</button>`:''}
+          ${s.pdf_token?`<a href="/dlx/${s.pdf_token}" target="_blank" onclick="event.stopPropagation()" class="btn-ghost text-xs">PDF</a>`:''}
+        </div>
       </div>`).join('');
+    }
+    async function reopenReturned(id, form, period){
+      if(form==='conveyance'){ document.getElementById('cv_month').value=period; showForm('conv'); }
+      else if(form==='outstation'){ document.getElementById('ot_month').value=period; showForm('out'); }
+      else {
+        const s=await api('/expense/'+id);
+        msDraft={ id:s.id, ref_no:s.ref_no };
+        msItems=((s.payload&&s.payload.items)||[]).map(i=>({date:i.date||'',desc:i.desc||'',amount:i.amount||'',bill:i.bill||null}));
+        showForm('misc');
+      }
     }
     const formLabel=t=>({conveyance:'Conveyance',outstation:'Outstation',misc:'Miscellaneous'}[t]||t);
 
@@ -268,8 +346,22 @@
         <span class="text-brand-600 text-sm font-semibold">Review →</span></div>`).join('');
     }
 
+    // ---- final approvals (stage 2) ----
+    async function refreshFinalCount(){ const l=await api('/expense/final-approvals'); const el=document.getElementById('finalCount'); el.textContent=l.length; el.classList.toggle('hidden', l.length===0); }
+    async function loadFinalApprovals(){
+      const el=document.getElementById('finalList');
+      const list=await api('/expense/final-approvals');
+      if(!list.length){ el.innerHTML='<div class="text-sm text-slate-400 py-12 text-center">Nothing waiting for final approval.</div>'; return; }
+      el.innerHTML=list.map(s=>`<div onclick="openDetail(${s.id})" class="card lift p-4 flex items-center justify-between gap-3">
+        <div><div class="flex items-center gap-2 flex-wrap"><span class="mono text-[11px] text-slate-400">${s.ref_no}</span>${statusPill(s.status)}
+          <span class="pill bg-brand-50 text-brand-700">${formLabel(s.form_type)}</span></div>
+          <div class="text-sm font-semibold text-ink mt-1">${s.emp_name} · ${s.period_label||''} · ${fmtMoney(s.total_amount)}</div>
+          ${s.hr_by_name?`<div class="text-xs text-slate-400 mt-0.5">HR: ${esc(s.hr_by_name)}</div>`:''}</div>
+        <span class="text-brand-600 text-sm font-semibold">Review →</span></div>`).join('');
+    }
+
     function detailBody(s){
-      const catL={accommodation:'Accommodation',food:'Food',conveyance:'Conveyance',others:'Others'};
+      const catL={long_distance:'Long-Distance Travel',accommodation:'Accommodation',food:'Food',conveyance:'Local Conveyance',others:'Other'};
       if(s.form_type==='conveyance'){
         const entries=(s.payload&&s.payload.entries)||[];
         return `<table class="w-full text-sm mt-2"><thead><tr class="text-left border-b border-line">
@@ -302,11 +394,25 @@
     async function openDetail(id){
       const s=await api('/expense/'+id);
       const table=detailBody(s);
-      const actions = s.can_action ? `<div class="flex gap-2 pt-3">
-          <button onclick="approve(${s.id})" class="btn text-sm" style="padding:.55rem 1.1rem">Approve</button>
-          <button onclick="showReject(${s.id})" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Reject</button></div>` : '';
+      const p=s.perms||{};
+      let approvers=[];
+      if(p.can_hr){ try{ approvers=await api('/expense/chain-approvers'); }catch(e){} }
+      let actions='';
+      if(p.can_hr){
+        actions=`<div class="border-t border-line pt-3 mt-3">
+          <label class="fieldlabel">Route to final approver</label>
+          <select id="finalSel" class="field">${approvers.map(a=>`<option value="${a.id}">${esc(a.name)} (${esc(a.emp_no)})</option>`).join('')||'<option value="">No approvers configured</option>'}</select>
+          <div class="flex gap-2 pt-3">
+            <button onclick="hrApprove(${s.id})" class="btn text-sm" style="padding:.55rem 1.1rem">Approve &amp; send</button>
+            <button onclick="showReturn(${s.id},'hr')" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Return</button></div></div>`;
+      } else if(p.can_final){
+        actions=`<div class="flex gap-2 pt-3 border-t border-line mt-3">
+          <button onclick="finalApprove(${s.id})" class="btn text-sm" style="padding:.55rem 1.1rem">Approve for payment</button>
+          <button onclick="showReturn(${s.id},'final')" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Return</button></div>`;
+      }
       const dl = s.pdf_token ? `<a href="/dlx/${s.pdf_token}" target="_blank" class="btn-ghost text-sm inline-flex">Download PDF</a>` : '';
-      const rej = s.status==='rejected' ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm"><div class="eyebrow" style="color:#b91c1c">Rejected</div><div class="mt-0.5">${s.review_note||''}</div></div>`:'';
+      const ret = s.status==='returned' ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm mt-3"><div class="eyebrow" style="color:#b91c1c">Returned by ${s.return_stage==='final'?'final approver':'HR'}</div><div class="mt-0.5">${esc(s.return_reason||'')}</div></div>`:'';
+      const trail = [s.hr_by_name?`HR ✓ ${esc(s.hr_by_name)}`:'', s.final_by_name?`Final ✓ ${esc(s.final_by_name)}`:''].filter(Boolean).join(' · ');
       document.getElementById('expModalInner').innerHTML=`
         <div class="seam rounded-t-2xl"></div>
         <div class="p-5 border-b border-line flex items-start justify-between">
@@ -316,19 +422,23 @@
           <button onclick="closeModal()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
         </div>
         <div class="p-5 text-sm">
-          <div class="flex items-center justify-between"><div class="eyebrow">Entries</div><div class="font-display font-bold text-lg">${fmtMoney(s.total_amount)}</div></div>
-          ${table}${rej}
-          <div class="mt-3 flex items-center justify-between">${dl}${s.reviewed_at?`<span class="text-xs text-slate-400">${s.status} by ${s.reviewed_by_name}</span>`:''}</div>
-          ${actions}<div id="rejArea"></div>
+          <div class="flex items-center justify-between"><div class="eyebrow">Claim</div><div class="font-display font-bold text-lg">${fmtMoney(s.total_amount)}</div></div>
+          ${table}${ret}
+          <div class="mt-3 flex items-center justify-between">${dl}${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
+          ${actions}<div id="retArea"></div>
         </div>`;
       document.getElementById('expModal').classList.remove('hidden');
     }
-    function showReject(id){ document.getElementById('rejArea').innerHTML=`<div class="border border-line rounded-xl p-3 mt-3">
-      <label class="fieldlabel">Reason</label><textarea id="rjr" rows="2" class="field"></textarea>
-      <div class="flex justify-end mt-2"><button onclick="reject(${id})" class="text-white text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700">Send rejection</button></div></div>`; }
-    async function approve(id){ try{ await api('/expense/'+id+'/approve',{method:'POST'}); toast('Approved','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
-    async function reject(id){ const note=(document.getElementById('rjr').value||'').trim(); if(!note)return toast('Add a reason','error');
-      try{ await api('/expense/'+id+'/reject',{method:'POST',body:{note}}); toast('Rejected','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
+    function showReturn(id,stage){ document.getElementById('retArea').innerHTML=`<div class="border border-line rounded-xl p-3 mt-3">
+      <label class="fieldlabel">Reason for returning</label><textarea id="rjr" rows="2" class="field"></textarea>
+      <div class="flex justify-end mt-2"><button onclick="doReturn(${id},'${stage}')" class="text-white text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700">Send back to employee</button></div></div>`; }
+    async function hrApprove(id){ const fid=document.getElementById('finalSel').value; if(!fid) return toast('Pick a final approver','error');
+      try{ await api('/expense/'+id+'/hr-approve',{method:'POST',body:{final_approver_id:+fid}}); toast('Approved & sent to final approver','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
+    async function finalApprove(id){ try{ await api('/expense/'+id+'/final-approve',{method:'POST'}); toast('Approved for payment','success'); closeModal(); refreshFinalCount(); loadFinalApprovals(); }catch(e){toast(e.message,'error');} }
+    async function doReturn(id,stage){ const reason=(document.getElementById('rjr').value||'').trim(); if(!reason) return toast('Add a reason','error');
+      const ep = stage==='final'?'/final-return':'/hr-return';
+      try{ await api('/expense/'+id+ep,{method:'POST',body:{reason}}); toast('Returned to employee','success'); closeModal();
+        refreshApprCount(); refreshFinalCount(); (stage==='final'?loadFinalApprovals:loadApprovals)(); }catch(e){toast(e.message,'error');} }
     function closeModal(){ document.getElementById('expModal').classList.add('hidden'); }
 
     // ===== shared helpers =====
@@ -351,8 +461,15 @@
     // ===== OUTSTATION =====
     let otDraft=null, otTrips=[];
     const OUT_CATS=[['accommodation','Accommodation'],['food','Food'],['conveyance','Conveyance'],['others','Others']];
-    const blankTrip=()=>({place:'',from_date:'',to_date:'',reason:'',items:[]});
-    const blankItem=()=>({category:'food',date:'',desc:'',amount:'',bill:null});
+    const OUT_BLOCKS=[
+      ['long_distance','Long-Distance Travel',''],
+      ['accommodation','Accommodation',''],
+      ['food','Food','food'],
+      ['conveyance','Local Conveyance',''],
+      ['others','Other',''],
+    ];
+    const blankTrip=()=>({place:'',from_date:'',to_date:'',reason:'',approved_by:'',items:[]});
+    const blankItem=()=>({category:'others',date:'',desc:'',amount:'',bill:null});
     const otTotal=()=>otTrips.reduce((s,t)=>s+t.items.reduce((a,i)=>a+(parseFloat(i.amount)||0),0),0);
 
     async function loadOutstation(){
@@ -362,14 +479,17 @@
       otDraft=await api('/expense/outstation/'+period);
       otTrips=((otDraft.payload&&otDraft.payload.trips)||[]).map(t=>({...t, items:(t.items||[]).map(i=>({...i}))}));
       if(!otTrips.length) otTrips=[blankTrip()];
-      const locked=otDraft.status!=='draft';
+      const editable=['draft','returned'].includes(otDraft.status);
+      const locked=!editable;
       const lockBox=document.getElementById('ot_locked'), sb=document.getElementById('ot_submit');
       document.getElementById('ot_addtrip').disabled=locked; document.getElementById('ot_save').disabled=locked;
-      if(locked){ sb.classList.add('hidden'); lockBox.classList.remove('hidden'); lockBox.textContent=`This month is ${otDraft.status}. ${statusText(otDraft.status)}`; }
-      else if(!otDraft.can_submit){ sb.classList.add('hidden'); lockBox.classList.remove('hidden');
+      sb.classList.toggle('hidden', !(editable && otDraft.can_submit));
+      if(locked){ lockBox.classList.remove('hidden'); lockBox.textContent=`This month is ${pillText(otDraft.status)}. ${statusText(otDraft.status)}`; }
+      else if(otDraft.status==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(otDraft.return_reason||'')} — fix and resubmit.`; }
+      else if(!otDraft.can_submit){ lockBox.classList.remove('hidden');
         const [y,m]=period.split('-').map(Number); const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding through the month. The Submit button opens on ${next}.`; }
-      else { sb.classList.remove('hidden'); lockBox.classList.add('hidden'); }
+      else { lockBox.classList.add('hidden'); }
       refreshOut(locked);
     }
     function computeFlags(){
@@ -381,30 +501,37 @@
     }
     function refreshOut(locked){ computeFlags(); renderTrips(!!locked); renderFlagsList(); document.getElementById('ot_total').textContent=fmtMoney(otTotal()); }
     function renderTrips(locked){
+      const lim=meta.limits[meta.category];
       document.getElementById('ot_trips').innerHTML=otTrips.map((t,ti)=>`
-        <div class="card p-4">
-          <div class="flex items-center justify-between mb-3"><div class="eyebrow">Trip ${ti+1}</div>
-            ${locked||otTrips.length<2?'':`<button onclick="delTrip(${ti})" class="text-red-500 text-xs hover:underline">Remove trip</button>`}</div>
-          <div class="grid sm:grid-cols-2 gap-3 mb-3">
-            <div><label class="fieldlabel">Place</label><input value="${esc(t.place)}" ${locked?'disabled':''} oninput="updTrip(${ti},'place',this.value)" class="field" placeholder="Destination"></div>
-            <div><label class="fieldlabel">Reason for travel</label><input value="${esc(t.reason)}" ${locked?'disabled':''} oninput="updTrip(${ti},'reason',this.value)" class="field" placeholder="Purpose"></div>
+        <div class="card p-5">
+          <div class="sechead"><span class="t">Trip ${ti+1}</span>
+            ${locked||otTrips.length<2?'':`<button onclick="delTrip(${ti})" class="x text-red-500 text-xs hover:underline">Remove trip</button>`}</div>
+          <div class="grid sm:grid-cols-2 gap-3 mb-4">
+            <div><label class="fieldlabel">Destination</label><input value="${esc(t.place)}" ${locked?'disabled':''} oninput="updTrip(${ti},'place',this.value)" class="field" placeholder="e.g. Mumbai"></div>
+            <div><label class="fieldlabel">Purpose</label><input value="${esc(t.reason)}" ${locked?'disabled':''} oninput="updTrip(${ti},'reason',this.value)" class="field" placeholder="e.g. Client meeting"></div>
             <div><label class="fieldlabel">From date</label><input type="date" value="${t.from_date||''}" ${locked?'disabled':''} onchange="updTrip(${ti},'from_date',this.value)" class="field"></div>
-            <div><label class="fieldlabel">To date</label><input type="date" value="${t.to_date||''}" ${locked?'disabled':''} onchange="updTrip(${ti},'to_date',this.value)" class="field"></div></div>
-          <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line">
-            <th class="pb-2 fieldlabel">Category</th><th class="pb-2 fieldlabel">Date</th><th class="pb-2 fieldlabel">Description</th>
-            <th class="pb-2 fieldlabel text-right">Amount</th><th class="pb-2 fieldlabel">Bill</th><th></th></tr></thead>
-            <tbody>${t.items.map((it,ii)=>otRow(ti,ii,it,locked)).join('')}</tbody></table></div>
-          ${locked?'':`<button onclick="addItem(${ti})" class="btn-ghost text-xs mt-2">+ Add line</button>`}
+            <div><label class="fieldlabel">To date</label><input type="date" value="${t.to_date||''}" ${locked?'disabled':''} onchange="updTrip(${ti},'to_date',this.value)" class="field"></div>
+            <div class="sm:col-span-2"><label class="fieldlabel">Approved by (manager)</label><input value="${esc(t.approved_by||'')}" ${locked?'disabled':''} oninput="updTrip(${ti},'approved_by',this.value)" class="field" placeholder="Manager name + date"></div>
+          </div>
+          ${OUT_BLOCKS.map(([cat,label,note])=>otBlock(ti,t,cat,label,note,lim,locked)).join('')}
         </div>`).join('');
+    }
+    function otBlock(ti,t,cat,label,note,lim,locked){
+      const rowsIx=t.items.map((it,ii)=>({it,ii})).filter(x=>x.it.category===cat);
+      const noteHtml = note==='food' ? `<span class="text-[11px] text-slate-400">up to ${fmtMoney(lim.food)}/day</span>` : '';
+      return `<div class="rounded-xl border border-line bg-mist/50 p-3 mb-3">
+        <div class="flex items-center justify-between mb-1.5"><div class="eyebrow">${label}</div>${noteHtml}</div>
+        ${rowsIx.length?`<table class="w-full text-sm"><tbody>${rowsIx.map(({it,ii})=>otRow(ti,ii,it,locked)).join('')}</tbody></table>`:''}
+        ${locked?'':`<button onclick="addItem(${ti},'${cat}')" class="addrow mt-1">+ Add ${label.toLowerCase()} entry</button>`}
+      </div>`;
     }
     function otRow(ti,ii,it,locked){
       return `<tr class="border-b border-line ${it.flag?'bg-amber-50/60':''}">
-        <td class="py-1.5 pr-2"><select ${locked?'disabled':''} onchange="updItem(${ti},${ii},'category',this.value);refreshOut()" class="field !py-1 !rounded-lg text-xs">${OUT_CATS.map(([v,l])=>`<option value="${v}" ${it.category===v?'selected':''}>${l}</option>`).join('')}</select></td>
-        <td class="py-1.5 pr-2"><input type="date" value="${it.date||''}" ${locked?'disabled':''} onchange="updItem(${ti},${ii},'date',this.value);refreshOut()" class="field !py-1 !rounded-lg text-xs"></td>
-        <td class="py-1.5 pr-2"><input value="${esc(it.desc)}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'desc',this.value)" placeholder="Description" class="field !py-1 !rounded-lg text-xs"></td>
-        <td class="py-1.5 pr-2"><input type="number" min="0" step="any" value="${it.amount||''}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'amount',this.value)" onchange="refreshOut()" class="field !py-1 !rounded-lg text-xs text-right w-24">${it.flag?'<div class="text-[10px] text-amber-600 text-right mt-0.5">over limit</div>':''}</td>
-        <td class="py-1.5 pr-2">${billCell(it.bill,locked,`billOut(${ti},${ii})`)}</td>
-        <td class="py-1.5 text-right">${locked?'':`<button onclick="delItem(${ti},${ii})" class="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>`}</td></tr>`;
+        <td class="py-1.5 pr-2 w-32"><input type="date" value="${it.date||''}" ${locked?'disabled':''} onchange="updItem(${ti},${ii},'date',this.value);refreshOut()" class="field !py-1 !rounded-lg text-xs"></td>
+        <td class="py-1.5 pr-2"><input value="${esc(it.desc)}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'desc',this.value)" placeholder="Description / vendor" class="field !py-1 !rounded-lg text-xs"></td>
+        <td class="py-1.5 pr-2 w-28"><input type="number" min="0" step="any" value="${it.amount||''}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'amount',this.value)" onchange="refreshOut()" class="field !py-1 !rounded-lg text-xs text-right">${it.flag?'<div class="text-[10px] text-amber-600 text-right mt-0.5">over limit</div>':''}</td>
+        <td class="py-1.5 pr-1 w-16">${billCell(it.bill,locked,`billOut(${ti},${ii})`)}</td>
+        <td class="py-1.5 text-right w-6">${locked?'':`<button onclick="delItem(${ti},${ii})" class="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>`}</td></tr>`;
     }
     function renderFlagsList(){
       const lim=meta.limits[meta.category]; const msgs=[];
@@ -418,7 +545,7 @@
     function updItem(ti,ii,k,v){ otTrips[ti].items[ii][k]=v; document.getElementById('ot_total').textContent=fmtMoney(otTotal()); }
     function addTrip(){ otTrips.push(blankTrip()); refreshOut(false); }
     function delTrip(ti){ otTrips.splice(ti,1); if(!otTrips.length) otTrips=[blankTrip()]; refreshOut(false); }
-    function addItem(ti){ otTrips[ti].items.push(blankItem()); refreshOut(false); }
+    function addItem(ti,cat){ otTrips[ti].items.push({category:cat||'others',date:'',desc:'',amount:'',bill:null}); refreshOut(false); }
     function delItem(ti,ii){ otTrips[ti].items.splice(ii,1); refreshOut(false); }
     function billOut(ti,ii){ pickFile(async f=>{ try{ toast('Uploading bill…','info'); const bill=await uploadBill(otDraft.ref_no,f); otTrips[ti].items[ii].bill=bill; await saveOutstation(true); refreshOut(false); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }); }
     async function saveOutstation(silent){ try{ const r=await api('/expense/outstation/'+otDraft.id,{method:'PUT',body:{trips:otTrips}}); if(!silent) toast(`Saved — ${fmtMoney(r.total)}`,'success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); throw e; } }
@@ -451,11 +578,12 @@
     function delMisc(i){ msItems.splice(i,1); renderMisc(); }
     function billMisc(i){ pickFile(async f=>{ try{ await ensureMiscDraft(); toast('Uploading bill…','info'); const bill=await uploadBill(msDraft.ref_no,f); msItems[i].bill=bill; await saveMisc(true); renderMisc(); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }); }
     async function saveMisc(silent){ await ensureMiscDraft(); try{ const r=await api('/expense/misc/'+msDraft.id,{method:'PUT',body:{items:msItems}}); if(!silent) toast('Saved','success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); } }
-    async function generateMisc(){
+    async function submitMisc(){
       if(!msItems.length) return toast('Add at least one item','error');
       await saveMisc(true);
-      try{ const r=await api('/expense/misc/'+msDraft.id+'/generate',{method:'POST'});
-        toast('PDF ready — opening','success'); window.open('/dlx/'+r.pdf_token,'_blank');
+      if(!confirm("Submit this claim for approval? It goes to HR for review, then final approval.")) return;
+      try{ await api('/expense/misc/'+msDraft.id+'/submit',{method:'POST'});
+        toast('Submitted for approval','success'); showForm('mine');
       }catch(e){ toast(e.message,'error'); }
     }
 

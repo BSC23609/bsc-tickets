@@ -78,3 +78,28 @@ body{ color:var(--ink); background:#fff; }
 :focus-visible{ outline:2px solid var(--steel-bright); outline-offset:2px; }
 *::-webkit-scrollbar{ height:9px;width:9px } *::-webkit-scrollbar-thumb{ background:#cdd9e4;border-radius:6px } *::-webkit-scrollbar-thumb:hover{ background:#b3c4d3 }
 @media (prefers-reduced-motion: reduce){ *{ animation:none!important; transition:none!important } }
+
+/* ---- clean form components (expense reskin; BSC-branded) ---- */
+.sechead{ display:flex;align-items:center;gap:.6rem;margin-bottom:1.1rem;padding-bottom:.8rem;border-bottom:1px solid var(--line); }
+.sechead::before{ content:'';width:4px;height:1.05rem;border-radius:3px;flex:none;
+  background:linear-gradient(180deg,var(--steel-bright),var(--steel-deep)); }
+.sechead .t{ font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:var(--ink); }
+.sechead .x{ margin-left:auto; }
+
+.infobar{ display:flex;align-items:center;gap:.8rem;border-radius:14px;padding:.8rem 1rem;
+  background:linear-gradient(90deg,rgba(27,123,192,.08),rgba(27,123,192,.015));border:1px solid #d7e6f3; }
+.infobar .ic{ width:30px;height:30px;flex:none;border-radius:9px;display:grid;place-items:center;
+  background:var(--steel);color:#fff;font-weight:800;font-size:.95rem; }
+
+.claimbar{ display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  border-radius:16px;padding:1.05rem 1.3rem;color:#fff;
+  background:linear-gradient(135deg,var(--ink),#0a1a26);box-shadow:0 16px 40px -18px rgba(10,69,102,.7); }
+.claimbar .amt{ font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:2rem;line-height:1;letter-spacing:-.02em;color:#fff; }
+.claimbar .cap{ font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.16em;color:rgba(255,255,255,.55); }
+
+.addrow{ width:100%;border:1.5px dashed var(--line);border-radius:12px;padding:.7rem;font-size:.8rem;font-weight:600;
+  color:var(--ink-mute);background:none;cursor:pointer;transition:all .15s; }
+.addrow:hover{ border-color:var(--steel);color:var(--steel);background:var(--mist); }
+
+/* fieldlabel is display:block for form labels — but as a table header it must stay a cell */
+th.fieldlabel{ display:table-cell; margin:0; }

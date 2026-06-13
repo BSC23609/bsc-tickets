@@ -160,8 +160,27 @@
           <div><label class="lbl">Food / day</label><input id="p_c2food" type="number" class="inp"></div>
           <div><label class="lbl">Accommodation / day</label><input id="p_c2accom" type="number" class="inp"></div>
         </div>
+        <div class="eyebrow">Local Conveyance logging window</div>
+        <div class="grid grid-cols-2 gap-4 mt-2 mb-5">
+          <div><label class="lbl">Log within (hours)</label><input id="p_loghrs" type="number" min="1" step="1" class="inp"></div>
+          <div class="flex items-end pb-1"><p class="text-xs text-slate-400">Conveyance entries logged later than this after the trip date are flagged <b>LATE / not approved</b> on the report. Never blocks submission.</p></div>
+        </div>
         <div class="flex justify-end"><button onclick="savePolicy()" class="btn text-sm">Save policy</button></div>
         <p class="text-xs text-slate-400 mt-3">Set each employee's Category (1 / 2) in the Employees tab.</p>
+      </div>
+
+      <div class="card p-5 max-w-2xl mt-5">
+        <div class="eyebrow">Approval chain</div>
+        <p class="text-xs text-slate-500 mt-1 mb-4">Applies to Local Conveyance, Outstation and Misc. Employee submits → HR reviews → HR routes to a final approver → on final approval the report is emailed to accounts and a WhatsApp goes to the accounts contact.</p>
+        <div class="mb-4"><label class="lbl">HR approver(s) — receive new submissions</label>
+          <div id="ch_hr" class="grid grid-cols-2 gap-1 mt-1 max-h-40 overflow-y-auto border border-line rounded-lg p-2"></div></div>
+        <div class="mb-4"><label class="lbl">Final approvers — HR can route to any of these</label>
+          <div id="ch_final" class="grid grid-cols-2 gap-1 mt-1 max-h-40 overflow-y-auto border border-line rounded-lg p-2"></div></div>
+        <div class="grid grid-cols-2 gap-4 mb-4">
+          <div><label class="lbl">Accounts email (approved report)</label><input id="ch_email" class="inp" placeholder="accounts@bharatsteels.in"></div>
+          <div><label class="lbl">Accounts WhatsApp contact</label><select id="ch_notify" class="inp"></select></div>
+        </div>
+        <div class="flex justify-end"><button onclick="saveChain()" class="btn text-sm">Save chain</button></div>
       </div>
     </section>
   </main>
@@ -190,7 +209,7 @@
       if (tab === 'cat') renderCategories();
       if (tab === 'loc') renderLocations();
       if (tab === 'ogappr') renderApprovers();
-      if (tab === 'exp') loadPolicy();
+      if (tab === 'exp') { loadPolicy(); loadChain(); }
     }
 
     // ---------- DASHBOARD ----------
@@ -412,6 +431,9 @@
           <div><label class="lbl">Expense category</label><select id="ed_cat" class="inp">
             <option value="CAT2" ${e.expense_category!=='CAT1'?'selected':''}>Cat 2 (≤ ₹50k)</option>
             <option value="CAT1" ${e.expense_category==='CAT1'?'selected':''}>Cat 1 (&gt; ₹50k)</option></select></div>
+          <div><label class="lbl">Reporting manager <span class="text-slate-400 normal-case font-normal">(conveyance approver)</span></label>
+            <select id="ed_rm" class="inp"><option value="">— none —</option>
+            ${employees.filter(x=>x.id!==e.id).map(x=>`<option value="${x.id}" ${e.reporting_manager_emp_id===x.id?'selected':''}>${esc(x.name)} (${esc(x.emp_no)})</option>`).join('')}</select></div>
           <div class="flex items-end gap-5 pb-1">
             <label class="flex items-center gap-2 text-sm"><input id="ed_admin" type="checkbox" ${e.is_admin?'checked':''}> Admin access</label>
             <label class="flex items-center gap-2 text-sm"><input id="ed_active" type="checkbox" ${e.active?'checked':''}> Active</label>
@@ -428,6 +450,7 @@
         emp_no: val('ed_no'), name: val('ed_name'), job_title: val('ed_title'),
         department: val('ed_dept'), phone: val('ed_phone'), email: val('ed_email'),
         expense_category: document.getElementById('ed_cat').value,
+        reporting_manager_emp_id: document.getElementById('ed_rm').value || null,
         is_admin: document.getElementById('ed_admin').checked,
         active: document.getElementById('ed_active').checked,
       };
@@ -485,6 +508,29 @@
       await api('/admin/employees/'+id+'/expense-category',{method:'PUT',body:{category:cat}});
       toast('Set to '+(cat==='CAT1'?'Category 1':'Category 2'),'success'); renderEmployees();
     }
+    async function loadChain(){
+      const c = await api('/admin/expense-chain');
+      const act = employees.filter(e=>e.active);
+      const checks = (cid, sel) => act.map(e=>`<label class="flex items-center gap-1.5 text-xs"><input type="checkbox" value="${e.id}" ${sel.includes(e.id)?'checked':''}> ${esc(e.name)} <span class="text-slate-400">${esc(e.emp_no)}</span></label>`).join('');
+      document.getElementById('ch_hr').innerHTML = checks('ch_hr', c.hr_approver_ids||[]);
+      document.getElementById('ch_final').innerHTML = checks('ch_final', c.final_approver_ids||[]);
+      document.getElementById('ch_email').value = c.accounts_email || 'accounts@bharatsteels.in';
+      document.getElementById('ch_notify').innerHTML = '<option value="">— none —</option>' +
+        act.map(e=>`<option value="${e.id}" ${c.accounts_notify_id===e.id?'selected':''}>${esc(e.name)} (${esc(e.emp_no)})</option>`).join('');
+    }
+    function checkedVals(id){ return Array.from(document.querySelectorAll('#'+id+' input:checked')).map(i=>+i.value); }
+    async function saveChain(){
+      const body = {
+        hr_approver_ids: checkedVals('ch_hr'),
+        final_approver_ids: checkedVals('ch_final'),
+        accounts_email: document.getElementById('ch_email').value.trim(),
+        accounts_notify_id: document.getElementById('ch_notify').value || null,
+      };
+      if(!body.hr_approver_ids.length) return toast('Pick at least one HR approver','error');
+      if(!body.final_approver_ids.length) return toast('Pick at least one final approver','error');
+      try{ await api('/admin/expense-chain',{method:'PUT',body}); toast('Approval chain saved','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
     async function loadPolicy(){
       const p=await api('/admin/expense-policy');
       document.getElementById('p_bike').value=p.rate_bike ?? 3.5;
@@ -493,11 +539,13 @@
       document.getElementById('p_c1accom').value=p.cat1_accom ?? 1500;
       document.getElementById('p_c2food').value=p.cat2_food ?? 500;
       document.getElementById('p_c2accom').value=p.cat2_accom ?? 1000;
+      document.getElementById('p_loghrs').value=p.conveyance_log_hours ?? 48;
     }
     async function savePolicy(){
       const body={ rate_bike:+v('p_bike'), rate_car:+v('p_car'),
         cat1_food:+v('p_c1food'), cat1_accom:+v('p_c1accom'),
-        cat2_food:+v('p_c2food'), cat2_accom:+v('p_c2accom') };
+        cat2_food:+v('p_c2food'), cat2_accom:+v('p_c2accom'),
+        conveyance_log_hours:+v('p_loghrs') };
       function v(id){ return document.getElementById(id).value; }
       try{ await api('/admin/expense-policy',{method:'PUT',body}); toast('Policy saved','success'); }
       catch(e){ toast(e.message,'error'); }

@@ -212,6 +212,31 @@ CREATE TABLE IF NOT EXISTS expense_submissions (
   updated_at     TIMESTAMPTZ DEFAULT now(),
   submitted_at   TIMESTAMPTZ
 );
+
+-- Local Conveyance → Reporting Manager approval (one-tap WhatsApp).
+ALTER TABLE employees           ADD COLUMN IF NOT EXISTS reporting_manager_emp_id INT REFERENCES employees(id);
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS approver_emp_id          INT REFERENCES employees(id);
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS action_token             TEXT;
+
+-- Payment-approval chain: HR review → chosen final approver → accounts.
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_by_id          INT REFERENCES employees(id);
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_by_name        TEXT;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_at             TIMESTAMPTZ;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_approver_id INT REFERENCES employees(id);
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_by_name     TEXT;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_at          TIMESTAMPTZ;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS return_reason     TEXT;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS return_stage      TEXT;
+
+-- Seed the approval-chain config once (best-effort, by known emp_no; admin can edit).
+INSERT INTO app_settings(key, value)
+SELECT 'expense_chain', json_build_object(
+  'hr_approver_ids',    COALESCE((SELECT json_agg(id) FROM employees WHERE emp_no = 'BSC/125'), '[]'::json),
+  'final_approver_ids', COALESCE((SELECT json_agg(id) FROM employees WHERE emp_no IN ('BSC/017','CMD','CEO')), '[]'::json),
+  'accounts_email',     'accounts@bharatsteels.in',
+  'accounts_notify_id', NULL
+)::text
+WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'expense_chain');
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);
 CREATE INDEX IF NOT EXISTS idx_exp_status ON expense_submissions(status);
 CREATE INDEX IF NOT EXISTS idx_exp_form   ON expense_submissions(form_type);

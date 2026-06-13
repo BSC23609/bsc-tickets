@@ -65,6 +65,28 @@ app.get('/ogr/:token', async (req, res) => {
   } catch (e) { console.error('ogr', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again, or use the app.')); }
 });
 
+// ---- Local Conveyance: reporting-manager one-tap approve/reject ----
+app.get('/cva/:token', async (req, res) => {
+  try {
+    const conv = require('../routes/expense.routes')._internal;
+    const s = await conv.loadConvByToken(req.params.token);
+    if (!s) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This approval link is not recognised.'));
+    if (s.status !== 'pending') return res.send(actionPage(s.status === 'approved' ? '✅' : '⛔', `Already ${s.status}`, `This claim was already ${s.status}${s.reviewed_by_name ? ' by ' + s.reviewed_by_name : ''}.`));
+    await conv.applyConvApprove(s);
+    res.send(actionPage('✅', 'Approved', `${s.emp_name}'s conveyance claim ${s.ref_no} is approved. They have been notified.`));
+  } catch (e) { console.error('cva', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again.')); }
+});
+app.get('/cvr/:token', async (req, res) => {
+  try {
+    const conv = require('../routes/expense.routes')._internal;
+    const s = await conv.loadConvByToken(req.params.token);
+    if (!s) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This approval link is not recognised.'));
+    if (s.status !== 'pending') return res.send(actionPage(s.status === 'approved' ? '✅' : '⛔', `Already ${s.status}`, `This claim was already ${s.status}${s.reviewed_by_name ? ' by ' + s.reviewed_by_name : ''}.`));
+    await conv.applyConvReject(s);
+    res.send(actionPage('⛔', 'Rejected', `${s.emp_name}'s conveyance claim ${s.ref_no} has been rejected. They have been notified.`));
+  } catch (e) { console.error('cvr', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again.')); }
+});
+
 // Public, no-login PDF download for an approved pass (token from the WhatsApp button).
 // The slip is regenerated from the DB on demand, so the link always works.
 app.get('/dl/:token', async (req, res) => {
@@ -103,8 +125,8 @@ app.get('/dlx/:token', async (req, res) => {
     if (!row) return res.status(404).send('Not found.');
     let pdf;
     const approved = row.status === 'approved';
-    const approver = approved ? row.reviewed_by_name : undefined;
-    const approvedAt = approved && row.reviewed_at ? new Date(row.reviewed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined;
+    const approver = approved ? (row.final_by_name || row.reviewed_by_name) : undefined;
+    const approvedAt = approved && (row.final_at || row.reviewed_at) ? new Date(row.final_at || row.reviewed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined;
     if (row.form_type === 'conveyance') pdf = await exp.conveyancePdf(row, row.status, approver, approvedAt);
     else if (row.form_type === 'outstation') pdf = await exp.outstationPdf(row, row.status, approver, approvedAt);
     else if (row.form_type === 'misc') pdf = await exp.miscPdf(row);
