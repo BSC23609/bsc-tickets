@@ -107,6 +107,20 @@ CREATE TABLE IF NOT EXISTS outpass_approvers (
   sort_order INT DEFAULT 0
 );
 
+-- Outpass/Gatepass routing: approver is the requester's DEPARTMENT HEAD (auto).
+CREATE TABLE IF NOT EXISTS dept_approvers (
+  department  TEXT PRIMARY KEY,                 -- matches employees.department (case-insensitive)
+  head_emp_id INT REFERENCES employees(id),     -- the department head who approves
+  active      BOOLEAN DEFAULT TRUE,
+  updated_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- Small key/value store for app-wide settings (e.g. fallback approver).
+CREATE TABLE IF NOT EXISTS app_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS outpass_requests (
   id               SERIAL PRIMARY KEY,
   ref_no           TEXT UNIQUE NOT NULL,
@@ -131,6 +145,43 @@ CREATE TABLE IF NOT EXISTS outpass_requests (
 CREATE INDEX IF NOT EXISTS idx_outpass_requester ON outpass_requests(requester_id);
 CREATE INDEX IF NOT EXISTS idx_outpass_approver  ON outpass_requests(approver_id);
 CREATE INDEX IF NOT EXISTS idx_outpass_status    ON outpass_requests(status);
+
+-- ===================== OUTPASS: manager-on-leave routing =====================
+ALTER TABLE dept_approvers    ADD COLUMN IF NOT EXISTS leave_cover_emp_id INT REFERENCES employees(id);  -- per-dept leave cover (optional)
+ALTER TABLE outpass_requests  ADD COLUMN IF NOT EXISTS manager_on_leave BOOLEAN DEFAULT FALSE;            -- requester flagged head as on leave
+ALTER TABLE outpass_requests  ADD COLUMN IF NOT EXISTS action_token TEXT;                                 -- one-tap WhatsApp approve/reject token
+
+-- ===================== TICKET ROUTING (pattern + L1 pool + holidays) =====================
+-- pattern: 'assign' = L2 receives & assigns an L1 from the pool;  'direct' = straight to a single L1 (no L2).
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS pattern              TEXT DEFAULT 'assign';
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS wait_unassigned_mins INT  DEFAULT 60;   -- A: nudge L2 until they assign
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS wait_cycle_mins      INT  DEFAULT 120;  -- A: L1+L2 cycle after assign · B: L1 cycle
+ALTER TABLE categories ADD COLUMN IF NOT EXISTS wait_l3_mins         INT  DEFAULT 240;  -- A: include L3 from this point (if L3 set)
+
+-- L1 candidates an L2 can assign a ticket to (Pattern A).
+CREATE TABLE IF NOT EXISTS category_l1_pool (
+  category_id INT REFERENCES categories(id) ON DELETE CASCADE,
+  emp_id      INT REFERENCES employees(id) ON DELETE CASCADE,
+  PRIMARY KEY (category_id, emp_id)
+);
+
+-- Ticket assignment + reminder tracking (new escalation engine).
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_at      TIMESTAMPTZ;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS assigned_by_id   INT REFERENCES employees(id);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS last_reminder_at TIMESTAMPTZ;
+
+-- Working-calendar holidays (timers pause on these dates, like Sundays).
+CREATE TABLE IF NOT EXISTS holidays (
+  d     DATE PRIMARY KEY,
+  label TEXT
+);
+INSERT INTO holidays(d,label) VALUES
+  ('2026-08-15','Independence Day'),
+  ('2026-09-14','Holiday'),
+  ('2026-10-02','Gandhi Jayanti'),
+  ('2026-10-19','Holiday'),
+  ('2026-11-08','Holiday')
+ON CONFLICT (d) DO NOTHING;
 
 -- ===================== EXPENSE REIMBURSEMENT =====================
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS expense_category TEXT;   -- 'CAT1' | 'CAT2' (NULL = CAT2)

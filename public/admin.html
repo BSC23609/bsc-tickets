@@ -96,15 +96,25 @@
     <!-- CATEGORIES -->
     <section id="tab-cat" class="hidden">
       <div class="card p-4 mb-4">
-        <h3 class="font-bold text-sm mb-3">Add Category</h3>
-        <div class="grid sm:grid-cols-4 gap-3 items-end">
-          <input id="c_name" class="inp" placeholder="Category name *" />
-          <label class="flex items-center gap-2 text-sm"><input id="c_trades" type="checkbox" /> Has trades</label>
-          <div><label class="lbl">Wait L1→L2 (min)</label><input id="c_w1" type="number" class="inp" value="120" /></div>
-          <div><label class="lbl">Wait L2→L3 (min)</label><input id="c_w2" type="number" class="inp" value="120" /></div>
+        <h3 class="font-bold text-sm mb-1">Working-calendar holidays</h3>
+        <p class="text-[11px] text-slate-400 mb-3">Escalation timers pause on these dates (same as Sundays). Working hours are Mon–Sat 9:30–18:00.</p>
+        <div id="holList" class="flex flex-wrap gap-2 mb-3"></div>
+        <div class="flex flex-wrap gap-2 items-end">
+          <div><label class="lbl">Date</label><input id="hol_d" type="date" class="inp" /></div>
+          <div><label class="lbl">Label (optional)</label><input id="hol_label" class="inp" placeholder="e.g. Diwali" /></div>
+          <button onclick="addHoliday()" class="btn text-sm shrink-0">Add holiday</button>
         </div>
-        <button onclick="addCat()" class="mt-3 btn text-sm">Add category</button>
-        <p class="text-[11px] text-slate-400 mt-2">After adding, set handlers and (if it has trades) add trades below.</p>
+      </div>
+      <div class="card p-4 mb-4">
+        <h3 class="font-bold text-sm mb-3">Add category</h3>
+        <div class="grid sm:grid-cols-3 gap-3 items-end">
+          <input id="c_name" class="inp" placeholder="Category name *" />
+          <div><label class="lbl">Routing pattern</label><select id="c_pattern" class="inp">
+            <option value="assign">L2 assigns (L2 receives → picks an L1)</option>
+            <option value="direct">Direct to L1 (no L2)</option></select></div>
+          <button onclick="addCat()" class="btn text-sm">Add category</button>
+        </div>
+        <p class="text-[11px] text-slate-400 mt-2">After adding, set the handlers, L1 pool, and wait-times below.</p>
       </div>
       <div id="catList" class="space-y-4"></div>
     </section>
@@ -121,11 +131,12 @@
     <!-- OUTPASS APPROVERS -->
     <section id="tab-ogappr" class="hidden">
       <div class="card p-4 mb-4">
-        <div class="text-xs text-slate-500 mb-3">These names appear in the Outpass/Gatepass approver picker. Each routes the WhatsApp and approval to the chosen employee. Add an <b>HR</b> entry here pointing to whoever should approve HR requests.</div>
-        <div class="flex flex-wrap gap-2 items-end">
-          <div><label class="lbl">Label shown</label><input id="oa_label" class="inp" placeholder="e.g. HR" /></div>
-          <div><label class="lbl">Employee</label><select id="oa_emp" class="inp min-w-[16rem]"></select></div>
-          <button onclick="addApprover()" class="btn text-sm shrink-0">Add approver</button>
+        <div class="text-xs text-slate-500 mb-3">Outpass/Gatepass requests route automatically to the requester's <b>department head</b>. Set each department's head below. The <b>fallback approver</b> handles departments with no head set, and any case where the requester <i>is</i> the head. When a requester ticks <b>"manager on leave"</b>, the request goes to that department's <b>leave cover</b> (or the default leave cover if none is set).</div>
+        <div class="flex flex-wrap gap-4 items-end">
+          <div><label class="lbl">Fallback approver (e.g. HR)</label><select id="oa_fallback" class="inp min-w-[16rem]"></select></div>
+          <button onclick="saveFallback()" class="btn text-sm shrink-0">Save fallback</button>
+          <div><label class="lbl">Default leave-cover (e.g. Bakthavachalam)</label><select id="oa_leavecover" class="inp min-w-[16rem]"></select></div>
+          <button onclick="saveLeaveCover()" class="btn text-sm shrink-0">Save leave-cover</button>
         </div>
       </div>
       <div class="card p-4"><div id="ogApprTable"></div></div>
@@ -271,53 +282,89 @@
     }
 
     // ---------- CATEGORIES / ROUTING ----------
+    let holidays = [];
+    async function renderHolidays() {
+      holidays = await api('/admin/holidays');
+      document.getElementById('holList').innerHTML = holidays.length
+        ? holidays.map(h => `<span class="pill bg-slate-100 text-slate-700 inline-flex items-center gap-1.5">${h.d}${h.label?` · ${esc(h.label)}`:''}
+            <button onclick="delHoliday('${h.d}')" class="text-red-500 hover:text-red-700 font-bold">&times;</button></span>`).join('')
+        : '<span class="text-xs text-slate-400">No holidays set.</span>';
+    }
+    async function addHoliday() {
+      const d = val('hol_d'); if (!d) return toast('Pick a date', 'error');
+      try { await api('/admin/holidays', { method:'POST', body:{ d, label: val('hol_label') } });
+        document.getElementById('hol_d').value=''; document.getElementById('hol_label').value='';
+        renderHolidays(); toast('Holiday added', 'success'); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+    async function delHoliday(d) { await api('/admin/holidays/'+d, { method:'DELETE' }); renderHolidays(); }
+
     async function renderCategories() {
       employees = await api('/admin/employees');
       const cats = await api('/admin/categories');
-      document.getElementById('catList').innerHTML = cats.map(c => `
-        <div class="card p-4">
-          <div class="flex items-center justify-between mb-3">
-            <div class="font-bold">${c.name} ${c.active?'':'<span class="text-xs text-slate-400">(inactive)</span>'}</div>
-            <div class="text-xs text-slate-400">${c.has_trades?'Has trades':'Single L1'}</div>
+      renderHolidays();
+      document.getElementById('catList').innerHTML = cats.map(c => {
+        const isAssign = c.pattern !== 'direct';
+        const pool = c.l1_pool || [];
+        const poolBoxes = employees.map(e => `<label class="flex items-center gap-1.5 text-xs py-0.5">
+            <input type="checkbox" class="pool_${c.id}" value="${e.id}" ${pool.includes(e.id)?'checked':''}> ${esc(e.name)}</label>`).join('');
+        return `<div class="card p-4">
+          <div class="flex items-center justify-between mb-3 gap-2">
+            <div class="font-bold">${esc(c.name)} ${c.active?'':'<span class="text-xs text-slate-400">(inactive)</span>'}</div>
+            <select class="inp max-w-[220px]" id="c${c.id}_pat">
+              <option value="assign" ${isAssign?'selected':''}>L2 assigns</option>
+              <option value="direct" ${!isAssign?'selected':''}>Direct to L1</option></select>
           </div>
-          <div class="grid sm:grid-cols-5 gap-3 items-end">
-            ${c.has_trades ? '<div class="text-xs text-slate-500 sm:col-span-1 self-center">L1 set per trade ↓</div>'
-              : `<div><label class="lbl">L1</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>`}
-            <div><label class="lbl">L2</label><select class="inp" id="c${c.id}_l2">${empOptions(c.l2_emp_id)}</select></div>
-            <div><label class="lbl">L3</label><select class="inp" id="c${c.id}_l3">${empOptions(c.l3_emp_id)}</select></div>
-            <div><label class="lbl">Wait L1→L2</label><input type="number" class="inp" id="c${c.id}_w1" value="${c.wait_l1_l2_mins}" /></div>
-            <div><label class="lbl">Wait L2→L3</label><input type="number" class="inp" id="c${c.id}_w2" value="${c.wait_l2_l3_mins}" /></div>
-          </div>
+          ${isAssign ? `
+            <div class="grid sm:grid-cols-2 gap-3 items-end mb-3">
+              <div><label class="lbl">L2 — receives &amp; assigns</label><select class="inp" id="c${c.id}_l2">${empOptions(c.l2_emp_id)}</select></div>
+              <div><label class="lbl">L3 — escalation (optional)</label><select class="inp" id="c${c.id}_l3">${empOptions(c.l3_emp_id)}</select></div>
+            </div>
+            <div class="mb-3"><label class="lbl">L1 pool — handlers L2 can assign to</label>
+              <div class="grid sm:grid-cols-3 gap-x-4 max-h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 mt-1">${poolBoxes}</div></div>
+            <div class="grid sm:grid-cols-3 gap-3 items-end">
+              <div><label class="lbl">Nudge L2 until assigned (min)</label><input type="number" class="inp" id="c${c.id}_wu" value="${c.wait_unassigned_mins}"></div>
+              <div><label class="lbl">L1+L2 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wc" value="${c.wait_cycle_mins}"></div>
+              <div><label class="lbl">Add L3 after (min)</label><input type="number" class="inp" id="c${c.id}_wl3" value="${c.wait_l3_mins}"></div>
+            </div>`
+          : `
+            <div class="grid sm:grid-cols-2 gap-3 items-end">
+              <div><label class="lbl">L1 — handler</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>
+              <div><label class="lbl">L1 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wc" value="${c.wait_cycle_mins}"></div>
+            </div>`}
           <div class="flex gap-2 mt-3">
-            <button onclick="saveCat(${c.id},${c.has_trades})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
+            <button onclick="saveCat(${c.id})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
             <button onclick="toggleCat(${c.id},${!c.active})" class="text-xs ${c.active?'text-red-600':'text-emerald-600'} hover:underline px-2">${c.active?'Deactivate':'Activate'}</button>
           </div>
-          ${c.has_trades ? `<div class="mt-4 border-t border-slate-100 pt-3">
-            <div class="text-xs font-semibold text-slate-500 mb-2">Trades</div>
-            ${c.trades.map(t=>`<div class="flex items-center gap-2 mb-2"><span class="text-sm w-28">${t.name}</span>
-              <select class="inp max-w-xs" id="t${t.id}_l1">${empOptions(t.l1_emp_id)}</select>
-              <button onclick="saveTrade(${t.id})" class="text-xs text-brand-600 hover:underline">Save</button></div>`).join('')}
-            <div class="flex gap-2 mt-2"><input class="inp max-w-[140px]" id="nt_${c.id}" placeholder="New trade name" />
-              <button onclick="addTrade(${c.id})" class="text-xs bg-slate-800 text-white px-3 py-1.5 rounded-lg">Add trade</button></div>
-          </div>`:''}
-        </div>`).join('');
+        </div>`;
+      }).join('');
     }
-    async function saveCat(id, hasTrades) {
-      const body = { l2_emp_id:+gv(`c${id}_l2`)||null, l3_emp_id:+gv(`c${id}_l3`)||null,
-        wait_l1_l2_mins:+gv(`c${id}_w1`), wait_l2_l3_mins:+gv(`c${id}_w2`) };
-      if (!hasTrades) body.l1_emp_id = +gv(`c${id}_l1`)||null;
-      await api(`/admin/categories/${id}`,{method:'PUT',body}); toast('Routing saved','success');
+    async function saveCat(id) {
+      const pattern = gv(`c${id}_pat`);
+      const body = { pattern, wait_cycle_mins: +gv(`c${id}_wc`) || 120 };
+      if (pattern === 'direct') {
+        body.l1_emp_id = +gv(`c${id}_l1`) || null;
+      } else {
+        body.l2_emp_id = +gv(`c${id}_l2`) || null;
+        body.l3_emp_id = +gv(`c${id}_l3`) || null;
+        body.wait_unassigned_mins = +gv(`c${id}_wu`) || 60;
+        body.wait_l3_mins = +gv(`c${id}_wl3`) || 240;
+      }
+      try {
+        await api(`/admin/categories/${id}`, { method:'PUT', body });
+        if (pattern !== 'direct') {
+          const emp_ids = Array.from(document.querySelectorAll(`.pool_${id}:checked`)).map(x => +x.value);
+          await api(`/admin/categories/${id}/pool`, { method:'PUT', body:{ emp_ids } });
+        }
+        toast('Routing saved', 'success'); renderCategories();
+      } catch (e) { toast(e.message, 'error'); }
     }
     async function toggleCat(id, active){ await api(`/admin/categories/${id}`,{method:'PUT',body:{active}}); toast('Updated','success'); renderCategories(); }
     async function addCat() {
       const name = val('c_name'); if(!name) return toast('Name required','error');
-      await api('/admin/categories',{method:'POST',body:{ name, has_trades:document.getElementById('c_trades').checked,
-        wait_l1_l2_mins:+val('c_w1'), wait_l2_l3_mins:+val('c_w2') }});
+      await api('/admin/categories',{method:'POST',body:{ name, pattern: val('c_pattern') }});
       toast('Category added','success'); document.getElementById('c_name').value=''; renderCategories();
     }
-    async function saveTrade(id){ await api(`/admin/trades/${id}`,{method:'PUT',body:{l1_emp_id:+gv(`t${id}_l1`)||null}}); toast('Saved','success'); }
-    async function addTrade(cid){ const name=gv(`nt_${cid}`); if(!name) return toast('Trade name required','error');
-      await api('/admin/trades',{method:'POST',body:{category_id:cid,name}}); toast('Trade added','success'); renderCategories(); }
 
     // ---------- LOCATIONS ----------
     async function renderLocations() {
@@ -386,45 +433,42 @@
     const gv = id => document.getElementById(id).value;
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e=>{ console.error(e); toast(e.message,'error'); });
-    // ---------- OUTPASS APPROVERS ----------
+    // ---------- OUTPASS APPROVERS (department head + fallback) ----------
+    let apprData = { departments: [], employees: [], fallback_emp_id: null };
     async function renderApprovers() {
-      const sel = document.getElementById('oa_emp');
-      sel.innerHTML = '<option value="">Select employee</option>' +
-        employees.filter(e => e.active).map(e => `<option value="${e.id}">${e.name} (${e.emp_no})</option>`).join('');
-      const rows = await api('/admin/outpass-approvers');
+      apprData = await api('/admin/approvers');
+      const opts = (sel) => '<option value="">— none —</option>' +
+        apprData.employees.map(e => `<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}${e.department?` · ${esc(e.department)}`:''}</option>`).join('');
+      document.getElementById('oa_fallback').innerHTML = opts(apprData.fallback_emp_id);
+      document.getElementById('oa_leavecover').innerHTML = opts(apprData.leavecover_emp_id);
       const el = document.getElementById('ogApprTable');
-      if (!rows.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">No approvers yet.</div>'; return; }
-      el.innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-line">
-          <th class="pb-2 fieldlabel">Label</th><th class="pb-2 fieldlabel">Employee</th>
-          <th class="pb-2 fieldlabel">Mobile</th><th class="pb-2 fieldlabel">Status</th><th></th></tr></thead><tbody>` +
-        rows.map(a => `<tr class="border-b border-line hover:bg-mist">
-          <td class="py-2 font-semibold text-ink">${a.label}</td>
-          <td class="py-2">${a.name || '—'} <span class="mono text-[11px] text-slate-400">${a.emp_no || ''}</span></td>
-          <td class="py-2 mono text-xs">${a.phone || '—'}</td>
-          <td class="py-2">${a.active ? '<span class="pill bg-emerald-100 text-emerald-700">Active</span>' : '<span class="pill bg-slate-100 text-slate-500">Off</span>'}</td>
-          <td class="py-2 text-right whitespace-nowrap">
-            <button onclick="toggleApprover(${a.id}, ${!a.active})" class="text-xs text-brand-600 hover:underline mr-3">${a.active ? 'Disable' : 'Enable'}</button>
-            <button onclick="removeApprover(${a.id})" class="text-xs text-red-600 hover:underline">Remove</button>
-          </td></tr>`).join('') + '</tbody></table>';
+      el.innerHTML = apprData.departments.length ? `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
+          ${['Department','Department head','Leave cover','Routing'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+          ${apprData.departments.map((d,i)=>`<tr class="border-b border-slate-100">
+            <td class="py-2 pr-3 font-semibold">${esc(d.department)}</td>
+            <td class="py-2 pr-3"><select id="dh_${i}" onchange="saveDeptHead(${i})" class="inp min-w-[14rem]">${opts(d.head_emp_id)}</select></td>
+            <td class="py-2 pr-3"><select id="lc_${i}" onchange="saveDeptHead(${i})" class="inp min-w-[14rem]">${opts(d.leave_cover_emp_id)}</select></td>
+            <td class="py-2 pr-3">${d.head_emp_id?'<span class="pill bg-emerald-100 text-emerald-700">Head set</span>':'<span class="pill bg-slate-100 text-slate-500">→ fallback</span>'}</td>
+          </tr>`).join('')}</tbody></table>`
+        : '<div class="text-sm text-slate-400 py-6 text-center">No departments found — set Department on employees first (Employees tab).</div>';
     }
-    async function addApprover() {
-      const label = document.getElementById('oa_label').value.trim();
-      const emp_id = +document.getElementById('oa_emp').value;
-      if (!label || !emp_id) return toast('Enter a label and pick an employee', 'error');
-      try { await api('/admin/outpass-approvers', { method: 'POST', body: { label, emp_id } });
-        toast('Approver added', 'success');
-        document.getElementById('oa_label').value = ''; document.getElementById('oa_emp').value = '';
-        renderApprovers();
-      } catch (e) { toast(e.message, 'error'); }
+    async function saveDeptHead(i) {
+      const d = apprData.departments[i];
+      const head_emp_id = +document.getElementById('dh_'+i).value || null;
+      const leave_cover_emp_id = +document.getElementById('lc_'+i).value || null;
+      try { await api('/admin/approvers/dept', { method:'PUT', body:{ department:d.department, head_emp_id, leave_cover_emp_id } });
+        toast('Saved · '+d.department, 'success'); renderApprovers(); }
+      catch (e) { toast(e.message, 'error'); }
     }
-    async function toggleApprover(id, active) {
-      await api('/admin/outpass-approvers/' + id, { method: 'PUT', body: { active } });
-      toast(active ? 'Enabled' : 'Disabled', 'success'); renderApprovers();
+    async function saveFallback() {
+      const emp_id = +document.getElementById('oa_fallback').value || null;
+      try { await api('/admin/approvers/fallback', { method:'PUT', body:{ emp_id } }); toast('Fallback approver saved', 'success'); }
+      catch (e) { toast(e.message, 'error'); }
     }
-    async function removeApprover(id) {
-      if (!confirm('Remove this approver from the picker?')) return;
-      await api('/admin/outpass-approvers/' + id, { method: 'DELETE' });
-      toast('Removed', 'success'); renderApprovers();
+    async function saveLeaveCover() {
+      const emp_id = +document.getElementById('oa_leavecover').value || null;
+      try { await api('/admin/approvers/leavecover', { method:'PUT', body:{ emp_id } }); toast('Default leave-cover saved', 'success'); }
+      catch (e) { toast(e.message, 'error'); }
     }
 
     // ---------- EXPENSE ----------

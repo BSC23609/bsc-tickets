@@ -5,7 +5,7 @@ const graph = require('../lib/graph');
 const wati = require('../lib/wati');
 const excel = require('../lib/excel');
 const { background } = require('../lib/bg');
-const { nextRefNo, escalationState, downtimeMins } = require('../lib/util');
+const { nextRefNo, downtimeMins } = require('../lib/util');
 const router = express.Router();
 
 router.use(auth.requireAuth);
@@ -21,21 +21,19 @@ router.get('/meta', async (req, res) => {
   res.json({ categories: cats, trades, locations: locs, priorities: ['Low','Medium','High','Critical'] });
 });
 
-// Resolve the L1/L2/L3 assignment for a category (+trade).
-async function resolveRoute(category_id, trade_id) {
+// Resolve initial routing for a category by its pattern.
+//  direct: straight to the single L1.   assign: to L2, who later assigns an L1.
+async function resolveRoute(category_id) {
   const { rows } = await q('SELECT * FROM categories WHERE id=$1', [category_id]);
   const c = rows[0];
   if (!c) throw new Error('Unknown category');
-  let l1 = c.l1_emp_id;
-  if (c.has_trades) {
-    const { rows: tr } = await q('SELECT * FROM trades WHERE id=$1 AND category_id=$2', [trade_id, category_id]);
-    if (!tr.length) throw new Error('Trade required for this category');
-    l1 = tr[0].l1_emp_id;
-  }
+  const direct = c.pattern === 'direct';
   return {
-    l1, l2: c.l2_emp_id, l3: c.l3_emp_id,
-    waits: { wait_l1_l2_mins: c.wait_l1_l2_mins, wait_l2_l3_mins: c.wait_l2_l3_mins },
-    category_name: c.name, has_trades: c.has_trades,
+    pattern: direct ? 'direct' : 'assign',
+    l1: direct ? c.l1_emp_id : null,   // assign starts unassigned until L2 picks
+    l2: direct ? null : c.l2_emp_id,
+    l3: direct ? null : c.l3_emp_id,
+    category_name: c.name,
   };
 }
 
@@ -52,7 +50,7 @@ router.post('/', async (req, res) => {
   const pri = ['Low','Medium','High','Critical'].includes(priority) ? priority : 'Medium';
 
   let route;
-  try { route = await resolveRoute(category_id, trade_id || null); }
+  try { route = await resolveRoute(category_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   let locText = null;
@@ -80,11 +78,11 @@ router.post('/', async (req, res) => {
     await client.query('COMMIT');
     res.json({ ok: true, id: t.id, ref_no: ref });
 
-    // After responding: notify L1 + rebuild the Excel log (reliable via waitUntil).
+    // After responding: notify the initial recipient (L1 for direct, L2 for assign).
     background((async () => {
-      const l1 = await empById(route.l1);
+      const rec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
       const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
-      if (l1) await wati.notify.raised(l1, enriched);
+      if (rec) await wati.notify.raised(rec, enriched);
       await excel.syncLogToOneDrive();
     })());
   } catch (e) {
@@ -122,9 +120,9 @@ router.get('/', async (req, res) => {
 // ---- detail ----
 router.get('/:id', async (req, res) => {
   const { rows } = await q(
-    `SELECT t.*, c.name AS category_name, c.has_trades, c.wait_l1_l2_mins, c.wait_l2_l3_mins,
+    `SELECT t.*, c.name AS category_name, c.pattern,
             tr.name AS trade_name, r.name AS requester_name, r.department AS requester_dept, r.phone AS requester_phone,
-            l1.name AS l1_name, l2.name AS l2_name, l3.name AS l3_name
+            l1.name AS l1_name, l2.name AS l2_name, l3.name AS l3_name, ab.name AS assigned_by_name
      FROM tickets t
      JOIN categories c ON c.id=t.category_id
      LEFT JOIN trades tr ON tr.id=t.trade_id
@@ -132,6 +130,7 @@ router.get('/:id', async (req, res) => {
      LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
      LEFT JOIN employees l2 ON l2.id=t.l2_emp_id
      LEFT JOIN employees l3 ON l3.id=t.l3_emp_id
+     LEFT JOIN employees ab ON ab.id=t.assigned_by_id
      WHERE t.id=$1`, [req.params.id]);
   const t = rows[0];
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -145,10 +144,19 @@ router.get('/:id', async (req, res) => {
   const events = (await q(
     `SELECT e.event,e.note,e.at,emp.name AS by_name FROM ticket_events e
      LEFT JOIN employees emp ON emp.id=e.by_emp_id WHERE e.ticket_id=$1 ORDER BY e.at`, [t.id])).rows;
-  const esc = escalationState(t, { wait_l1_l2_mins: t.wait_l1_l2_mins, wait_l2_l3_mins: t.wait_l2_l3_mins });
 
-  res.json({ ...t, downtime_mins: downtimeMins(t), photos, events,
-    perms: { isRequester, isHandler, isAdmin: req.user.is_admin }, escalation: esc });
+  const isL2 = t.l2_emp_id === req.user.id;
+  const isOpen = ['open', 'reopened', 'in_progress'].includes(t.status);
+  const canAssign = (isL2 || req.user.is_admin) && t.pattern === 'assign' && isOpen;
+  let pool = [];
+  if (canAssign) {
+    pool = (await q(
+      `SELECT e.id, e.name FROM category_l1_pool p JOIN employees e ON e.id=p.emp_id
+       WHERE p.category_id=$1 AND e.active=TRUE ORDER BY e.name`, [t.category_id])).rows;
+  }
+
+  res.json({ ...t, downtime_mins: downtimeMins(t), photos, events, pool,
+    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL2, canAssign } });
 });
 
 // ---- photos: mint upload session (browser uploads straight to OneDrive) ----
@@ -184,6 +192,31 @@ async function loadTicket(id) {
   return rows[0] || null;
 }
 const isHandlerOf = (t, u) => [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(u.id) || u.is_admin;
+
+// ---- L2 assigns the ticket to an L1 from the category pool ----
+router.post('/:id/assign', async (req, res) => {
+  const t = await loadTicket(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  if (t.l2_emp_id !== req.user.id && !req.user.is_admin)
+    return res.status(403).json({ error: 'Only the L2 for this category can assign' });
+  if (!['open', 'reopened', 'in_progress'].includes(t.status))
+    return res.status(400).json({ error: 'Cannot assign in the current state' });
+  const l1_emp_id = +(req.body && req.body.l1_emp_id) || null;
+  if (!l1_emp_id) return res.status(400).json({ error: 'Pick an L1 handler' });
+  const inPool = (await q('SELECT 1 FROM category_l1_pool WHERE category_id=$1 AND emp_id=$2',
+    [t.category_id, l1_emp_id])).rows.length;
+  if (!inPool && !req.user.is_admin) return res.status(400).json({ error: "That handler isn't in this category's L1 pool" });
+
+  await q(`UPDATE tickets SET l1_emp_id=$2, assigned_at=now(), assigned_by_id=$3, last_reminder_at=NULL WHERE id=$1`,
+    [t.id, l1_emp_id, req.user.id]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'assigned',$2)`, [t.id, req.user.id]);
+  res.json({ ok: true });
+  background((async () => {
+    const l1 = await empById(l1_emp_id);
+    if (l1) await wati.notify.assigned(l1, { ...t, requester_name: t.requester_name });
+    await excel.syncLogToOneDrive();
+  })());
+});
 
 // ---- L1 marks In Progress ----
 router.post('/:id/in-progress', async (req, res) => {
@@ -241,34 +274,6 @@ router.post('/:id/reopen', async (req, res) => {
   if (l1) background(wati.notify.reopened(l1, { ...t, requester_name: t.requester_name }));
   background(excel.syncLogToOneDrive());
   res.json({ ok: true });
-});
-
-// ---- requester escalates (L2 or L3) after cooling time ----
-router.post('/:id/escalate', async (req, res) => {
-  const t = await loadTicket(req.params.id);
-  if (!t) return res.status(404).json({ error: 'Not found' });
-  if (t.requester_id !== req.user.id && !req.user.is_admin)
-    return res.status(403).json({ error: 'Requester only' });
-  const cat = (await q('SELECT wait_l1_l2_mins,wait_l2_l3_mins FROM categories WHERE id=$1', [t.category_id])).rows[0];
-  const esc = escalationState(t, cat);
-
-  if (esc.canEscalateL2 && t.l2_emp_id) {
-    await q(`UPDATE tickets SET escalation_level=2, escalated_l2_at=now() WHERE id=$1`, [t.id]);
-    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'escalated_l2',$2)`, [t.id, req.user.id]);
-    const l2 = await empById(t.l2_emp_id);
-    if (l2) background(wati.notify.escalatedL2(l2, t));
-    background(excel.syncLogToOneDrive());
-    return res.json({ ok: true, level: 2 });
-  }
-  if (esc.canEscalateL3 && t.l3_emp_id) {
-    await q(`UPDATE tickets SET escalation_level=3, escalated_l3_at=now() WHERE id=$1`, [t.id]);
-    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id) VALUES($1,'escalated_l3',$2)`, [t.id, req.user.id]);
-    const l3 = await empById(t.l3_emp_id);
-    if (l3) background(wati.notify.escalatedL3(l3, t));
-    background(excel.syncLogToOneDrive());
-    return res.json({ ok: true, level: 3 });
-  }
-  return res.status(400).json({ error: 'Escalation not available yet' });
 });
 
 module.exports = router;

@@ -259,7 +259,6 @@
     async function openDetail(id) {
       const t = await api('/tickets/' + id);
       const p = t.perms;
-      const esc = t.escalation;
       const actions = [];
 
       if (p.isHandler && ['open','reopened'].includes(t.status))
@@ -270,11 +269,20 @@
         actions.push(btn(`confirmTicket(${id})`, 'Confirm & close', 'emerald'));
         actions.push(btn(`reopenTicket(${id})`, 'Not resolved — reopen', 'orange'));
       }
-      if (p.isRequester && (esc.canEscalateL2 || esc.canEscalateL3))
-        actions.push(btn(`escalateTicket(${id})`, `Escalate to L${esc.canEscalateL2 ? 2 : 3}`, 'red'));
 
-      const escHint = (p.isRequester && !esc.canEscalateL2 && !esc.canEscalateL3 && esc.l2ReadyAt && t.escalation_level < 2)
-        ? `<div class="text-[11px] text-slate-400 mt-1">Escalation available after ${fmtDateTime(esc.l2ReadyAt)}</div>` : '';
+      // L2 assigns / reassigns an L1 from the category pool (assign-pattern only)
+      const assignBox = p.canAssign ? `
+        <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+          ${label(t.l1_name ? 'Reassign to another L1' : 'Assign to an L1 handler')}
+          <div class="flex gap-2 mt-1">
+            <select id="assignSel" class="inp flex-1">
+              <option value="">Select handler…</option>
+              ${t.pool.map(e=>`<option value="${e.id}" ${e.id===t.l1_emp_id?'selected':''}>${e.name}</option>`).join('')}
+            </select>
+            <button onclick="assignTicket(${id})" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 transition">Assign</button>
+          </div>
+          ${t.pool.length===0?'<div class="text-[11px] text-amber-700 mt-1">No L1 pool set for this category — add handlers in Admin → Categories &amp; routing.</div>':''}
+        </div>` : '';
 
       const photos = t.photos.filter(x => x.kind === 'issue');
       const resPhotos = t.photos.filter(x => x.kind === 'resolution');
@@ -296,7 +304,9 @@
             ${field('Location', t.location_text || '—')}
             ${field('Requester', `${t.requester_name} (${t.requester_dept || ''})`)}
             ${field('Raised', fmtDateTime(t.raised_at))}
-            ${field('Handler L1', t.l1_name || '—')}
+            ${field('Handler L1', t.l1_name || (t.pattern==='assign' ? '<span class="text-amber-600">awaiting assignment</span>' : '—'))}
+            ${t.l2_name ? field('Handler L2', t.l2_name) : ''}
+            ${t.assigned_at ? field('Assigned', `${t.assigned_by_name ? t.assigned_by_name+' · ' : ''}${fmtDateTime(t.assigned_at)}`) : ''}
             ${field('Downtime', t.status==='closed' ? fmtDuration(t.downtime_mins) : '—')}
           </div>
           ${t.description ? `<div>${label('Description')}<p class="text-slate-700 whitespace-pre-wrap">${t.description}</p></div>` : ''}
@@ -305,7 +315,7 @@
           <div>${label('Timeline')}
             <ol class="space-y-1.5">${t.events.map(ev => `<li class="flex gap-2 text-xs"><span class="text-slate-400 w-28 shrink-0">${fmtDateTime(ev.at)}</span><span class="text-slate-700"><b>${evLabel(ev.event)}</b>${ev.by_name ? ' · ' + ev.by_name : ''}${ev.note ? ' — ' + ev.note : ''}</span></li>`).join('')}</ol>
           </div>
-          ${escHint}
+          ${assignBox}
           <div class="flex flex-wrap gap-2 pt-2">${actions.join('')}</div>
         </div>`;
       document.getElementById('detail').classList.remove('hidden');
@@ -315,13 +325,19 @@
     const btn = (fn, txt, color) => color==='brand'
       ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
-    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
+    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
     function refreshCurrent(){ const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
 
     async function startTicket(id){ await act(id,'in-progress','Marked in progress'); }
     async function confirmTicket(id){ await act(id,'confirm','Ticket closed'); }
-    async function escalateTicket(id){ await act(id,'escalate','Escalated'); }
+    async function assignTicket(id){
+      const sel = document.getElementById('assignSel');
+      const l1 = sel && +sel.value;
+      if (!l1) return toast('Pick a handler first','error');
+      try { await api(`/tickets/${id}/assign`, {method:'POST', body:{l1_emp_id:l1}}); toast('Assigned — handler notified','success'); openDetail(id); }
+      catch(e){ toast(e.message,'error'); }
+    }
     async function resolveTicket(id){
       const note = prompt('Resolution note (optional):') || '';
       try { await api(`/tickets/${id}/resolve`, {method:'POST', body:{note}}); toast('Resolved — requester notified','success'); openDetail(id); }

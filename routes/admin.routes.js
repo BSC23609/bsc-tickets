@@ -98,31 +98,66 @@ router.put('/locations/:id', async (req, res) => {
 router.get('/categories', async (req, res) => {
   const cats = (await q(`SELECT * FROM categories ORDER BY sort_order,name`)).rows;
   const trades = (await q(`SELECT * FROM trades ORDER BY sort_order,name`)).rows;
-  res.json(cats.map((c) => ({ ...c, trades: trades.filter((t) => t.category_id === c.id) })));
+  const pool = (await q(`SELECT category_id, emp_id FROM category_l1_pool`)).rows;
+  res.json(cats.map((c) => ({
+    ...c,
+    trades: trades.filter((t) => t.category_id === c.id),
+    l1_pool: pool.filter((p) => p.category_id === c.id).map((p) => p.emp_id),
+  })));
 });
 
 router.post('/categories', async (req, res) => {
-  const { name, has_trades, l1_emp_id, l2_emp_id, l3_emp_id, wait_l1_l2_mins, wait_l2_l3_mins } = req.body || {};
+  const { name, pattern, wait_unassigned_mins, wait_cycle_mins, wait_l3_mins } = req.body || {};
   if (!name) return res.status(400).json({ error: 'Name required' });
+  const pat = pattern === 'direct' ? 'direct' : 'assign';
   const { rows } = await q('SELECT COALESCE(MAX(sort_order),0)+1 s FROM categories');
   const r = await q(
-    `INSERT INTO categories(name,has_trades,l1_emp_id,l2_emp_id,l3_emp_id,wait_l1_l2_mins,wait_l2_l3_mins,sort_order)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [name, !!has_trades, l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
-     wait_l1_l2_mins || 120, wait_l2_l3_mins || 120, rows[0].s]);
+    `INSERT INTO categories(name,pattern,wait_unassigned_mins,wait_cycle_mins,wait_l3_mins,sort_order)
+     VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [name, pat, wait_unassigned_mins || 60, wait_cycle_mins || 120, wait_l3_mins || 240, rows[0].s]);
   res.json({ ok: true, id: r.rows[0].id });
 });
 
-// Update routing + waits + activation for a category.
+// Update routing (pattern, levels, waits, activation) for a category.
 router.put('/categories/:id', async (req, res) => {
-  const { name, has_trades, l1_emp_id, l2_emp_id, l3_emp_id, wait_l1_l2_mins, wait_l2_l3_mins, active } = req.body || {};
+  const { name, pattern, l1_emp_id, l2_emp_id, l3_emp_id,
+    wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active } = req.body || {};
   await q(
-    `UPDATE categories SET name=COALESCE($2,name), has_trades=COALESCE($3,has_trades),
+    `UPDATE categories SET name=COALESCE($2,name), pattern=COALESCE($3,pattern),
        l1_emp_id=$4, l2_emp_id=$5, l3_emp_id=$6,
-       wait_l1_l2_mins=COALESCE($7,wait_l1_l2_mins), wait_l2_l3_mins=COALESCE($8,wait_l2_l3_mins),
-       active=COALESCE($9,active) WHERE id=$1`,
-    [req.params.id, name, has_trades, l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
-     wait_l1_l2_mins, wait_l2_l3_mins, active]);
+       wait_unassigned_mins=COALESCE($7,wait_unassigned_mins),
+       wait_cycle_mins=COALESCE($8,wait_cycle_mins),
+       wait_l3_mins=COALESCE($9,wait_l3_mins),
+       active=COALESCE($10,active) WHERE id=$1`,
+    [req.params.id, name, pattern, l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
+     wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active]);
+  res.json({ ok: true });
+});
+
+// Replace the L1 pool (assignable handlers) for a category.
+router.put('/categories/:id/pool', async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.emp_ids) ? req.body.emp_ids.filter(Boolean) : [];
+  await q('DELETE FROM category_l1_pool WHERE category_id=$1', [req.params.id]);
+  for (const eid of ids) {
+    await q('INSERT INTO category_l1_pool(category_id,emp_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
+      [req.params.id, eid]);
+  }
+  res.json({ ok: true });
+});
+
+// ---- Holidays (working-calendar) ----
+router.get('/holidays', async (req, res) => {
+  const rows = (await q(`SELECT to_char(d,'YYYY-MM-DD') AS d, label FROM holidays ORDER BY d`)).rows;
+  res.json(rows);
+});
+router.post('/holidays', async (req, res) => {
+  const { d, label } = req.body || {};
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'Valid date (YYYY-MM-DD) required' });
+  await q(`INSERT INTO holidays(d,label) VALUES($1,$2) ON CONFLICT (d) DO UPDATE SET label=EXCLUDED.label`, [d, (label || '').trim() || null]);
+  res.json({ ok: true });
+});
+router.delete('/holidays/:d', async (req, res) => {
+  await q('DELETE FROM holidays WHERE d=$1', [req.params.d]);
   res.json({ ok: true });
 });
 
@@ -196,33 +231,63 @@ router.get('/export.xlsx', async (req, res) => {
 });
 
 // ===================== OUTPASS APPROVERS =====================
-router.get('/outpass-approvers', async (req, res) => {
-  const { rows } = await q(
-    `SELECT a.id, a.label, a.emp_id, a.active, a.sort_order, e.emp_no, e.name, e.phone
-     FROM outpass_approvers a LEFT JOIN employees e ON e.id = a.emp_id
-     ORDER BY a.sort_order, a.label`);
-  res.json(rows);
+// Department -> head mapping + fallback approver for Outpass/Gatepass routing.
+router.get('/approvers', async (req, res) => {
+  const employees = (await q(
+    `SELECT id, emp_no, name, department FROM employees WHERE active = TRUE ORDER BY name`)).rows;
+  // every department that exists on an employee, plus any already-mapped one
+  const depts = (await q(
+    `SELECT d FROM (
+       SELECT DISTINCT NULLIF(TRIM(department),'') AS d FROM employees WHERE active = TRUE
+       UNION SELECT department FROM dept_approvers
+     ) x WHERE d IS NOT NULL ORDER BY d`)).rows.map(r => r.d);
+  const maps = (await q(
+    `SELECT d.department, d.head_emp_id, d.active, d.leave_cover_emp_id,
+            e.name AS head_name, lc.name AS leave_cover_name
+     FROM dept_approvers d
+     LEFT JOIN employees e  ON e.id  = d.head_emp_id
+     LEFT JOIN employees lc ON lc.id = d.leave_cover_emp_id`)).rows;
+  const mapBy = Object.fromEntries(maps.map(m => [m.department.toLowerCase(), m]));
+  const departments = depts.map(d => {
+    const m = mapBy[d.toLowerCase()] || {};
+    return { department: d, head_emp_id: m.head_emp_id || null, head_name: m.head_name || null,
+             leave_cover_emp_id: m.leave_cover_emp_id || null, leave_cover_name: m.leave_cover_name || null,
+             active: m.active !== false };
+  });
+  const fb = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_fallback_emp_id'`)).rows[0];
+  const lc = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_leavecover_emp_id'`)).rows[0];
+  res.json({ departments, employees,
+    fallback_emp_id: fb && fb.value ? Number(fb.value) : null,
+    leavecover_emp_id: lc && lc.value ? Number(lc.value) : null });
 });
 
-router.post('/outpass-approvers', async (req, res) => {
-  const { label, emp_id } = req.body || {};
-  if (!label || !emp_id) return res.status(400).json({ error: 'Label and employee are required' });
-  const { rows } = await q(
-    `INSERT INTO outpass_approvers(label, emp_id, sort_order)
-     VALUES($1,$2,COALESCE((SELECT MAX(sort_order)+1 FROM outpass_approvers),0)) RETURNING id`,
-    [String(label).trim(), emp_id]);
-  res.json({ ok: true, id: rows[0].id });
-});
-
-router.put('/outpass-approvers/:id', async (req, res) => {
-  const { label, emp_id, active } = req.body || {};
-  await q(`UPDATE outpass_approvers SET label=COALESCE($2,label), emp_id=COALESCE($3,emp_id),
-           active=COALESCE($4,active) WHERE id=$1`, [req.params.id, label, emp_id, active]);
+router.put('/approvers/dept', async (req, res) => {
+  const { department, head_emp_id, active, leave_cover_emp_id } = req.body || {};
+  if (!department || !String(department).trim()) return res.status(400).json({ error: 'Department is required' });
+  await q(
+    `INSERT INTO dept_approvers(department, head_emp_id, active, leave_cover_emp_id, updated_at)
+     VALUES($1,$2,COALESCE($3,TRUE),$4,now())
+     ON CONFLICT (department) DO UPDATE SET head_emp_id = EXCLUDED.head_emp_id,
+       active = COALESCE($3, dept_approvers.active),
+       leave_cover_emp_id = EXCLUDED.leave_cover_emp_id, updated_at = now()`,
+    [String(department).trim(), head_emp_id || null, active, leave_cover_emp_id || null]);
   res.json({ ok: true });
 });
 
-router.delete('/outpass-approvers/:id', async (req, res) => {
-  await q('DELETE FROM outpass_approvers WHERE id=$1', [req.params.id]);
+router.put('/approvers/fallback', async (req, res) => {
+  const { emp_id } = req.body || {};
+  await q(
+    `INSERT INTO app_settings(key, value) VALUES('outpass_fallback_emp_id', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [emp_id ? String(emp_id) : null]);
+  res.json({ ok: true });
+});
+router.put('/approvers/leavecover', async (req, res) => {
+  const { emp_id } = req.body || {};
+  await q(
+    `INSERT INTO app_settings(key, value) VALUES('outpass_leavecover_emp_id', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [emp_id ? String(emp_id) : null]);
   res.json({ ok: true });
 });
 

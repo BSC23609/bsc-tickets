@@ -27,6 +27,10 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.remove(), 4000);
 }
 
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
 function fmtDateTime(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
