@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "functions": { "api/index.js": { "maxDuration": 30, "includeFiles": "{lib/fonts/**,public/img/**}" } },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/api/cron/auto-close", "schedule": "0 1 * * *" }
+  ]
+}

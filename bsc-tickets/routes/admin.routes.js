@@ -1,0 +1,328 @@
+const express = require('express');
+const { q } = require('../lib/db');
+const auth = require('../lib/auth');
+const { downtimeMins } = require('../lib/util');
+const excel = require('../lib/excel');
+const router = express.Router();
+
+router.use(auth.requireAuth, auth.requireAdmin);
+
+// ===================== EMPLOYEES =====================
+router.get('/employees', async (req, res) => {
+  const { rows } = await q(
+    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category
+     FROM employees ORDER BY emp_no`);
+  res.json(rows);
+});
+
+router.post('/employees', async (req, res) => {
+  const { emp_no, name, email, phone, department, job_title, is_admin } = req.body || {};
+  if (!emp_no || !name) return res.status(400).json({ error: 'Employee number and name required' });
+  const hash = await auth.hashPw(process.env.DEFAULT_PASSWORD || 'Bsc@123');
+  try {
+    const { rows } = await q(
+      `INSERT INTO employees(emp_no,name,email,phone,department,job_title,is_admin,password_hash,must_reset)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING id`,
+      [String(emp_no).trim(), name, email || null, normPhone(phone), department || null,
+       job_title || null, !!is_admin, hash]);
+    res.json({ ok: true, id: rows[0].id });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'Employee number already exists' });
+    console.error('[add-employee] failed:', e.code, e.message);
+    return res.status(400).json({ error: 'Could not add employee: ' + (e.detail || e.message) });
+  }
+});
+
+router.put('/employees/:id', async (req, res) => {
+  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category } = req.body || {};
+  const cat = ['CAT1', 'CAT2'].includes(expense_category) ? expense_category : null;
+  try {
+    await q(
+      `UPDATE employees SET
+         emp_no=COALESCE($2,emp_no), name=COALESCE($3,name), email=$4, phone=$5,
+         department=$6, job_title=$7, is_admin=COALESCE($8,is_admin),
+         active=COALESCE($9,active), expense_category=COALESCE($10,expense_category)
+       WHERE id=$1`,
+      [req.params.id, emp_no ? String(emp_no).trim() : null, name, email || null, normPhone(phone),
+       department || null, job_title || null, is_admin, active, cat]);
+    res.json({ ok: true });
+  } catch (e) {
+    if (e.code === '23505') return res.status(409).json({ error: 'That employee code is already in use' });
+    console.error('[edit-employee] failed:', e.code, e.message);
+    return res.status(400).json({ error: 'Could not save: ' + (e.detail || e.message) });
+  }
+});
+
+// Deactivate (soft) — preserves ticket history.
+router.post('/employees/:id/deactivate', async (req, res) => {
+  await q('UPDATE employees SET active=FALSE WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+router.post('/employees/:id/activate', async (req, res) => {
+  await q('UPDATE employees SET active=TRUE WHERE id=$1', [req.params.id]);
+  res.json({ ok: true });
+});
+
+// Admin password reset -> back to default + force change on next login.
+router.post('/employees/:id/reset-password', async (req, res) => {
+  const hash = await auth.hashPw(process.env.DEFAULT_PASSWORD || 'Bsc@123');
+  await q('UPDATE employees SET password_hash=$1, must_reset=TRUE WHERE id=$2', [hash, req.params.id]);
+  res.json({ ok: true, default_password: process.env.DEFAULT_PASSWORD || 'Bsc@123' });
+});
+
+function normPhone(p) {
+  if (!p) return null;
+  let d = String(p).replace(/\D/g, '');
+  if (d.length === 10) d = '91' + d;
+  return d || null;
+}
+
+// ===================== LOCATIONS =====================
+router.get('/locations', async (req, res) =>
+  res.json((await q('SELECT * FROM locations ORDER BY sort_order,name')).rows));
+router.post('/locations', async (req, res) => {
+  const { name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  const { rows } = await q('SELECT COALESCE(MAX(sort_order),0)+1 s FROM locations');
+  await q('INSERT INTO locations(name,sort_order) VALUES($1,$2)', [name, rows[0].s]);
+  res.json({ ok: true });
+});
+router.put('/locations/:id', async (req, res) => {
+  const { name, active } = req.body || {};
+  await q('UPDATE locations SET name=COALESCE($2,name), active=COALESCE($3,active) WHERE id=$1',
+    [req.params.id, name, active]);
+  res.json({ ok: true });
+});
+
+// ===================== CATEGORIES + TRADES + ROUTING =====================
+router.get('/categories', async (req, res) => {
+  const cats = (await q(`SELECT * FROM categories ORDER BY sort_order,name`)).rows;
+  const trades = (await q(`SELECT * FROM trades ORDER BY sort_order,name`)).rows;
+  const pool = (await q(`SELECT category_id, emp_id FROM category_l1_pool`)).rows;
+  res.json(cats.map((c) => ({
+    ...c,
+    trades: trades.filter((t) => t.category_id === c.id),
+    l1_pool: pool.filter((p) => p.category_id === c.id).map((p) => p.emp_id),
+  })));
+});
+
+router.post('/categories', async (req, res) => {
+  const { name, pattern, wait_unassigned_mins, wait_cycle_mins, wait_l3_mins } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  const pat = pattern === 'direct' ? 'direct' : 'assign';
+  const { rows } = await q('SELECT COALESCE(MAX(sort_order),0)+1 s FROM categories');
+  const r = await q(
+    `INSERT INTO categories(name,pattern,wait_unassigned_mins,wait_cycle_mins,wait_l3_mins,sort_order)
+     VALUES($1,$2,$3,$4,$5,$6) RETURNING id`,
+    [name, pat, wait_unassigned_mins || 60, wait_cycle_mins || 120, wait_l3_mins || 240, rows[0].s]);
+  res.json({ ok: true, id: r.rows[0].id });
+});
+
+// Update routing (pattern, levels, waits, activation) for a category.
+router.put('/categories/:id', async (req, res) => {
+  const { name, pattern, l1_emp_id, l2_emp_id, l3_emp_id,
+    wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active } = req.body || {};
+  await q(
+    `UPDATE categories SET name=COALESCE($2,name), pattern=COALESCE($3,pattern),
+       l1_emp_id=$4, l2_emp_id=$5, l3_emp_id=$6,
+       wait_unassigned_mins=COALESCE($7,wait_unassigned_mins),
+       wait_cycle_mins=COALESCE($8,wait_cycle_mins),
+       wait_l3_mins=COALESCE($9,wait_l3_mins),
+       active=COALESCE($10,active) WHERE id=$1`,
+    [req.params.id, name, pattern, l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
+     wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active]);
+  res.json({ ok: true });
+});
+
+// Replace the L1 pool (assignable handlers) for a category.
+router.put('/categories/:id/pool', async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.emp_ids) ? req.body.emp_ids.filter(Boolean) : [];
+  await q('DELETE FROM category_l1_pool WHERE category_id=$1', [req.params.id]);
+  for (const eid of ids) {
+    await q('INSERT INTO category_l1_pool(category_id,emp_id) VALUES($1,$2) ON CONFLICT DO NOTHING',
+      [req.params.id, eid]);
+  }
+  res.json({ ok: true });
+});
+
+// ---- Holidays (working-calendar) ----
+router.get('/holidays', async (req, res) => {
+  const rows = (await q(`SELECT to_char(d,'YYYY-MM-DD') AS d, label FROM holidays ORDER BY d`)).rows;
+  res.json(rows);
+});
+router.post('/holidays', async (req, res) => {
+  const { d, label } = req.body || {};
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return res.status(400).json({ error: 'Valid date (YYYY-MM-DD) required' });
+  await q(`INSERT INTO holidays(d,label) VALUES($1,$2) ON CONFLICT (d) DO UPDATE SET label=EXCLUDED.label`, [d, (label || '').trim() || null]);
+  res.json({ ok: true });
+});
+router.delete('/holidays/:d', async (req, res) => {
+  await q('DELETE FROM holidays WHERE d=$1', [req.params.d]);
+  res.json({ ok: true });
+});
+
+router.post('/trades', async (req, res) => {
+  const { category_id, name, l1_emp_id } = req.body || {};
+  if (!category_id || !name) return res.status(400).json({ error: 'Category and name required' });
+  const { rows } = await q('SELECT COALESCE(MAX(sort_order),0)+1 s FROM trades WHERE category_id=$1', [category_id]);
+  await q('INSERT INTO trades(category_id,name,l1_emp_id,sort_order) VALUES($1,$2,$3,$4)',
+    [category_id, name, l1_emp_id || null, rows[0].s]);
+  res.json({ ok: true });
+});
+router.put('/trades/:id', async (req, res) => {
+  const { name, l1_emp_id, active } = req.body || {};
+  await q('UPDATE trades SET name=COALESCE($2,name), l1_emp_id=$3, active=COALESCE($4,active) WHERE id=$1',
+    [req.params.id, name, l1_emp_id || null, active]);
+  res.json({ ok: true });
+});
+
+// ===================== DASHBOARD =====================
+router.get('/dashboard', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-01-01';
+  const range = [from, to + ' 23:59:59'];
+
+  const totals = (await q(
+    `SELECT
+       COUNT(*)::int AS total,
+       COUNT(*) FILTER (WHERE status IN ('open','in_progress','reopened'))::int AS open,
+       COUNT(*) FILTER (WHERE status='resolved')::int AS resolved,
+       COUNT(*) FILTER (WHERE status='closed')::int AS closed,
+       COUNT(*) FILTER (WHERE escalation_level>0)::int AS escalated
+     FROM tickets WHERE raised_at BETWEEN $1 AND $2`, range)).rows[0];
+
+  const byCategory = (await q(
+    `SELECT c.name AS category, COUNT(*)::int AS count,
+            ROUND(AVG(EXTRACT(EPOCH FROM (t.closed_at - t.raised_at))/60)
+                  FILTER (WHERE t.closed_at IS NOT NULL))::int AS avg_downtime_mins
+     FROM tickets t JOIN categories c ON c.id=t.category_id
+     WHERE t.raised_at BETWEEN $1 AND $2
+     GROUP BY c.name ORDER BY count DESC`, range)).rows;
+
+  const byPriority = (await q(
+    `SELECT priority, COUNT(*)::int AS count FROM tickets
+     WHERE raised_at BETWEEN $1 AND $2 GROUP BY priority`, range)).rows;
+
+  const avgAll = (await q(
+    `SELECT ROUND(AVG(EXTRACT(EPOCH FROM (closed_at - raised_at))/60))::int AS m
+     FROM tickets WHERE closed_at IS NOT NULL AND raised_at BETWEEN $1 AND $2`, range)).rows[0].m;
+
+  const recent = (await q(
+    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.escalation_level,t.raised_at,t.closed_at,
+            c.name AS category_name, r.name AS requester_name, l1.name AS l1_name
+     FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
+     WHERE t.raised_at BETWEEN $1 AND $2 ORDER BY t.raised_at DESC LIMIT 200`, range)).rows;
+
+  res.json({
+    totals, byCategory, byPriority, avg_downtime_mins: avgAll,
+    recent: recent.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })),
+  });
+});
+
+// ===================== EXCEL EXPORT (on demand) =====================
+router.get('/export.xlsx', async (req, res) => {
+  try {
+    const buf = await excel.buildWorkbookBuffer();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Ticket Log.xlsx"');
+    res.send(buf);
+  } catch (e) { console.error('export', e); res.status(500).json({ error: 'Export failed' }); }
+});
+
+// ===================== OUTPASS APPROVERS =====================
+// Department -> head mapping + fallback approver for Outpass/Gatepass routing.
+router.get('/approvers', async (req, res) => {
+  const employees = (await q(
+    `SELECT id, emp_no, name, department FROM employees WHERE active = TRUE ORDER BY name`)).rows;
+  // every department that exists on an employee, plus any already-mapped one
+  const depts = (await q(
+    `SELECT d FROM (
+       SELECT DISTINCT NULLIF(TRIM(department),'') AS d FROM employees WHERE active = TRUE
+       UNION SELECT department FROM dept_approvers
+     ) x WHERE d IS NOT NULL ORDER BY d`)).rows.map(r => r.d);
+  const maps = (await q(
+    `SELECT d.department, d.head_emp_id, d.active, d.leave_cover_emp_id,
+            e.name AS head_name, lc.name AS leave_cover_name
+     FROM dept_approvers d
+     LEFT JOIN employees e  ON e.id  = d.head_emp_id
+     LEFT JOIN employees lc ON lc.id = d.leave_cover_emp_id`)).rows;
+  const mapBy = Object.fromEntries(maps.map(m => [m.department.toLowerCase(), m]));
+  const departments = depts.map(d => {
+    const m = mapBy[d.toLowerCase()] || {};
+    return { department: d, head_emp_id: m.head_emp_id || null, head_name: m.head_name || null,
+             leave_cover_emp_id: m.leave_cover_emp_id || null, leave_cover_name: m.leave_cover_name || null,
+             active: m.active !== false };
+  });
+  const fb = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_fallback_emp_id'`)).rows[0];
+  const lc = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_leavecover_emp_id'`)).rows[0];
+  res.json({ departments, employees,
+    fallback_emp_id: fb && fb.value ? Number(fb.value) : null,
+    leavecover_emp_id: lc && lc.value ? Number(lc.value) : null });
+});
+
+router.put('/approvers/dept', async (req, res) => {
+  const { department, head_emp_id, active, leave_cover_emp_id } = req.body || {};
+  if (!department || !String(department).trim()) return res.status(400).json({ error: 'Department is required' });
+  await q(
+    `INSERT INTO dept_approvers(department, head_emp_id, active, leave_cover_emp_id, updated_at)
+     VALUES($1,$2,COALESCE($3,TRUE),$4,now())
+     ON CONFLICT (department) DO UPDATE SET head_emp_id = EXCLUDED.head_emp_id,
+       active = COALESCE($3, dept_approvers.active),
+       leave_cover_emp_id = EXCLUDED.leave_cover_emp_id, updated_at = now()`,
+    [String(department).trim(), head_emp_id || null, active, leave_cover_emp_id || null]);
+  res.json({ ok: true });
+});
+
+router.put('/approvers/fallback', async (req, res) => {
+  const { emp_id } = req.body || {};
+  await q(
+    `INSERT INTO app_settings(key, value) VALUES('outpass_fallback_emp_id', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [emp_id ? String(emp_id) : null]);
+  res.json({ ok: true });
+});
+router.put('/approvers/leavecover', async (req, res) => {
+  const { emp_id } = req.body || {};
+  await q(
+    `INSERT INTO app_settings(key, value) VALUES('outpass_leavecover_emp_id', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [emp_id ? String(emp_id) : null]);
+  res.json({ ok: true });
+});
+
+// On-demand download of the Outpass/Gatepass register.
+router.get('/outpass-export.xlsx', async (req, res) => {
+  try {
+    const buf = await require('../lib/outpass_excel').buildOutpassWorkbook();
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="Outpass Log.xlsx"');
+    res.send(buf);
+  } catch (e) { console.error('outpass export', e); res.status(500).json({ error: 'Export failed' }); }
+});
+
+// ===================== EXPENSE POLICY & CATEGORY =====================
+router.get('/expense-policy', async (req, res) => {
+  const { rows } = await q('SELECT key, value FROM expense_policy');
+  const m = {}; for (const r of rows) m[r.key] = Number(r.value);
+  res.json(m);
+});
+router.put('/expense-policy', async (req, res) => {
+  const allowed = ['rate_bike', 'rate_car', 'cat1_food', 'cat1_accom', 'cat2_food', 'cat2_accom'];
+  for (const k of allowed) {
+    if (req.body[k] != null && !isNaN(parseFloat(req.body[k]))) {
+      await q(`INSERT INTO expense_policy(key,value) VALUES($1,$2)
+               ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value`, [k, parseFloat(req.body[k])]);
+    }
+  }
+  require('../lib/expense_policy').invalidate();
+  res.json({ ok: true });
+});
+// Set an employee's expense category (CAT1 / CAT2).
+router.put('/employees/:id/expense-category', async (req, res) => {
+  const cat = req.body.category === 'CAT1' ? 'CAT1' : 'CAT2';
+  await q('UPDATE employees SET expense_category=$2 WHERE id=$1', [req.params.id, cat]);
+  res.json({ ok: true, category: cat });
+});
+
+module.exports = router;

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BSC Tickets — Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { brand: { 50:'#EAF2F8',100:'#D5E6F1',300:'#7FB3D5',500:'#1B7BC0',600:'#0E6AA6',700:'#0A557F',800:'#0A4566',ink:'#112532' },
+                ink:'#112532', mist:'#F5F8FB', line:'#E6EDF3' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui','sans-serif'],
+                    display:['Space Grotesk','ui-sans-serif','sans-serif'],
+                    mono:['Space Mono','ui-monospace','monospace'] }
+    } } };
+  </script>
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}</style>
+</head>
+<body class="min-h-screen bg-white flex flex-col p-4 relative overflow-hidden">
+  <!-- signature: the bSc arc, oversized and faint, echoing the logo mark -->
+  <svg class="pointer-events-none absolute -top-40 -right-40 w-[34rem] h-[34rem] opacity-[0.06]" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+    <circle cx="100" cy="100" r="92" stroke="#0E6AA6" stroke-width="3"/>
+    <path d="M100 8 a92 92 0 0 1 92 92" stroke="#0A4566" stroke-width="14" stroke-linecap="round"/>
+    <circle cx="100" cy="100" r="64" stroke="#1B7BC0" stroke-width="2"/>
+  </svg>
+  <svg class="pointer-events-none absolute -bottom-44 -left-40 w-[32rem] h-[32rem] opacity-[0.05]" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+    <circle cx="100" cy="100" r="92" stroke="#0E6AA6" stroke-width="3"/>
+    <path d="M100 192 a92 92 0 0 1 -92 -92" stroke="#1B7BC0" stroke-width="12" stroke-linecap="round"/>
+  </svg>
+
+  <main class="flex-1 flex flex-col items-center justify-center w-full relative z-10">
+  <div class="w-full max-w-sm in">
+    <div class="text-center mb-7">
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-12 mx-auto" />
+      <div class="seam w-16 mx-auto mt-5 rounded-full"></div>
+      <div class="eyebrow mt-4">Internal Support</div>
+      <h1 class="font-display text-2xl font-bold text-ink mt-1">Ticket Management</h1>
+    </div>
+
+    <!-- Sign in -->
+    <div id="loginCard" class="card p-6">
+      <label class="fieldlabel">Employee Number</label>
+      <input id="empNo" placeholder="e.g. BSC/006" autocomplete="username" class="field mono mb-4" />
+      <label class="fieldlabel">Password</label>
+      <input id="pw" type="password" autocomplete="current-password" class="field mb-5"
+             onkeydown="if(event.key==='Enter')doLogin()" />
+      <button onclick="doLogin()" id="loginBtn" class="btn w-full">Sign in</button>
+      <p class="text-[11px] text-slate-400 mt-4 text-center">First time? Use the default password — you'll set your own next.</p>
+    </div>
+
+    <!-- Forced change -->
+    <div id="changeCard" class="hidden card p-6">
+      <div class="eyebrow mb-1">First sign-in</div>
+      <h2 class="font-display font-bold text-ink text-lg mb-1">Set your password</h2>
+      <p class="text-xs text-slate-500 mb-5">Choose a password only you know — at least 6 characters.</p>
+      <input id="newPw" type="password" placeholder="New password" class="field mb-3" />
+      <input id="newPw2" type="password" placeholder="Confirm new password" class="field mb-5" />
+      <button onclick="doChange()" class="btn w-full">Save and continue</button>
+    </div>
+  </div>
+  </main>
+
+  <footer class="py-2 flex flex-col items-center gap-1">
+    <span class="text-[10px] uppercase tracking-widest text-slate-400">A unit of</span>
+    <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-6 opacity-80" />
+  </footer>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let _isAdmin = false;
+    // Deep link: /t/<id> redirects here as /?t=<id>. Carry it through login.
+    const targetTicket = new URLSearchParams(location.search).get('t');
+    const targetOg = new URLSearchParams(location.search).get('og');
+
+    // If a valid session already exists and we have a deep-link target, skip login.
+    (async () => {
+      if (!targetTicket && !targetOg) return;
+      try {
+        const r = await fetch('/api/me', { credentials: 'same-origin' });
+        if (r.ok) go();
+      } catch {}
+    })();
+
+    async function doLogin() {
+      const emp_no = document.getElementById('empNo').value.trim();
+      const password = document.getElementById('pw').value;
+      if (!emp_no || !password) return toast('Enter employee number and password', 'error');
+      try {
+        const r = await api('/login', { method: 'POST', body: { emp_no, password } });
+        _isAdmin = r.is_admin;
+        if (r.must_reset) {
+          document.getElementById('loginCard').classList.add('hidden');
+          document.getElementById('changeCard').classList.remove('hidden');
+        } else { go(); }
+      } catch (e) { toast(e.message, 'error'); }
+    }
+    async function doChange() {
+      const a = document.getElementById('newPw').value, b = document.getElementById('newPw2').value;
+      if (a.length < 6) return toast('Password must be at least 6 characters', 'error');
+      if (a !== b) return toast('Passwords do not match', 'error');
+      try { await api('/change-password', { method: 'POST', body: { new_password: a } });
+        toast('Password set', 'success'); setTimeout(go, 500); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+    function go() {
+      if (targetTicket) location.href = '/app.html?t=' + encodeURIComponent(targetTicket);
+      else if (targetOg) location.href = '/outpass.html?id=' + encodeURIComponent(targetOg);
+      else location.href = '/home.html';
+    }
+  </script>
+</body>
+</html>
