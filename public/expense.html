@@ -272,8 +272,11 @@
 
     async function loadConveyance(){
       const period=document.getElementById('cv_month').value;
-      if(!period) return;
-      const d=await api('/expense/conveyance/'+period);
+      if(!/^\d{4}-\d{2}$/.test(period)){ toast('Pick a month first','error'); return; }
+      cv.period=period;                       // set immediately so saving works even if the load hiccups
+      let d;
+      try{ d=await api('/expense/conveyance/'+period); }
+      catch(e){ toast('Could not load conveyance — '+(e.message||'server error'),'error'); return; }
       cv.trips=d.trips||[]; cv.submission=d.submission||{}; cv.manager=d.manager;
       cv.can_submit=d.can_submit; cv.log_hours=d.log_hours; cv.period=period;
       const ml=document.getElementById('cv_mgrline');
@@ -330,11 +333,13 @@
       const v=tripFormVals();
       if(!v.date) return toast('Pick the trip date','error');
       if(!(parseFloat(v.km)>0)) return toast('Enter the distance in km','error');
+      const period = cv.period || document.getElementById('cv_month').value;
+      if(!/^\d{4}-\d{2}$/.test(period)) return toast('Pick a month first','error');
       if(cv.editingId){
         const r=await api('/expense/conveyance/trip/'+cv.editingId,{method:'PUT',body:v});
         toast(r.notified===false?'Trip updated — manager has no WhatsApp number on file':'Trip updated & re-sent for approval','success');
       } else {
-        const r=await api('/expense/conveyance/'+cv.period+'/trip',{method:'POST',body:v});
+        const r=await api('/expense/conveyance/'+period+'/trip',{method:'POST',body:v});
         if(r.notified===false) toast('Trip saved, but '+(cv.manager?cv.manager.name:'your manager')+' has no WhatsApp number — ask an admin to add it','info');
         else toast('Trip sent to '+(cv.manager?cv.manager.name:'manager')+' for approval','success');
       }
@@ -361,11 +366,13 @@
     }
     async function submitConveyance(){
       if(!cv.trips.length) return toast('Add at least one trip first','error');
+      const period = cv.period || document.getElementById('cv_month').value;
+      if(!/^\d{4}-\d{2}$/.test(period)) return toast('Pick a month first','error');
       const pend=cv.trips.filter(t=>t.status==='pending').length;
       let msg='Submit this month for payment approval? It goes to HR, then the final approver.';
       if(pend) msg=`${pend} trip${pend===1?'':'s'} still awaiting your manager. Submit the whole month anyway? HR will see each trip's status.`;
       if(!confirm(msg)) return;
-      await api('/expense/conveyance/'+cv.period+'/submit',{method:'POST'});
+      await api('/expense/conveyance/'+period+'/submit',{method:'POST'});
       toast('Submitted for approval','success'); await loadConveyance();
     }
     const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected'}[s]||s);

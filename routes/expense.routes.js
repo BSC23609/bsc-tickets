@@ -22,7 +22,7 @@ function chainPdfName(full) { const lbl = FORM_LABEL[full.form_type] || full.for
 async function pdfFor(full, status, approver, at) {
   if (full.form_type === 'conveyance') return conveyancePdf(full, status, approver, at);
   if (full.form_type === 'outstation') return outstationPdf(full, status, approver, at);
-  return miscPdf(full);
+  return miscPdf(full, status, approver, at);
 }
 async function uploadChainPdf(full, status, approver, at) {
   const pdf = await pdfFor(full, status, approver, at);
@@ -440,12 +440,13 @@ async function outstationPdf(row, status, approver, approvedAt) {
   }
   return bills.length ? await mergeBills(summary, bills) : summary;
 }
-async function miscPdf(row) {
+async function miscPdf(row, status, approver, approvedAt) {
   const items = (row.payload && row.payload.items) || [];
   const summary = await buildMiscSummary({
     ref_no: row.ref_no, emp_name: row.emp_name, emp_code: row.emp_code, designation: row.designation || '',
     category: catLabel(row.expense_category === 'CAT1' ? 'CAT1' : 'CAT2'),
-    items, total: Number(row.total_amount || 0), generated_at: fmtDateTime(new Date()) });
+    items, total: Number(row.total_amount || 0), generated_at: fmtDateTime(new Date()),
+    status, approver, approved_at: approvedAt });
   const bills = [];
   for (const it of items) if (it.bill && it.bill.drive_item_id) {
     const bytes = await graph.fetchDriveItemContent(it.bill.drive_item_id);
