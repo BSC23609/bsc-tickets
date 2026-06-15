@@ -133,8 +133,8 @@ app.get('/dl/:token', async (req, res) => {
        WHERE o.pdf_token=$1 AND o.status='approved'`, [req.params.token])).rows[0];
     if (!o) return res.status(404).send('Pass not found.');
     const { buildOutpassPDF } = require('../lib/outpass_pdf');
-    const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
+    const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     const pdf = await buildOutpassPDF({
       type: o.type, on_duty: o.on_duty, date: fmtDate(o.req_date), emp_code: o.req_code,
       name: o.req_name, designation: o.designation || '', purpose: o.purpose, out_time: o.out_time,
@@ -162,7 +162,7 @@ app.get('/dlx/:token', async (req, res) => {
     let pdf;
     const approved = row.status === 'approved';
     const approver = approved ? (row.final_by_name || row.reviewed_by_name) : undefined;
-    const approvedAt = approved && (row.final_at || row.reviewed_at) ? new Date(row.final_at || row.reviewed_at).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined;
+    const approvedAt = approved && (row.final_at || row.reviewed_at) ? new Date(row.final_at || row.reviewed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined;
     if (row.form_type === 'conveyance') pdf = await exp.conveyancePdf(row, row.status, approver, approvedAt);
     else if (row.form_type === 'outstation') pdf = await exp.outstationPdf(row, row.status, approver, approvedAt);
     else if (row.form_type === 'misc') pdf = await exp.miscPdf(row);

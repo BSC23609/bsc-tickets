@@ -15,8 +15,8 @@ const { buildOutpassPDF } = require('../lib/outpass_pdf');
 const router = express.Router();
 router.use(auth.requireAuth);
 
-const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
+const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const typeLabel = (t) => (t === 'gatepass' ? 'Gatepass' : 'Outpass');
 const decorate = (o) => ({ ...o, type_label: typeLabel(o.type) });
 
