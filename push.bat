@@ -1,34 +1,54 @@
 @echo off
-REM ============================================================
-REM  BSC Tickets - save locally + push to GitHub in one step
-REM  Usage:  double-click, or  push.bat "your commit message"
-REM ============================================================
+setlocal
 cd /d "%~dp0"
+echo Repo folder: %CD%
+echo.
 
-REM First run: initialise the repo and point it at GitHub
 IF NOT EXIST ".git" (
-  echo Initialising git repository...
-  git init
-  git branch -M main
-  git remote add origin https://github.com/BSC23609/bsc-tickets.git
+  echo [X] No .git in THIS folder - it is not the git repo.
+  echo     push.bat must sit in your bsc-tickets repo root, next to package.json.
+  echo.
+  pause
+  exit /b 1
 )
 
-REM Make sure the remote is correct even on later runs
 git remote set-url origin https://github.com/BSC23609/bsc-tickets.git 2>nul
 
-echo Staging changes...
+echo === Changes git can see ===
+git status --short
+echo ----------------------------
+echo.
+
+echo Staging...
 git add -A
 
-REM Commit message = argument if given, else timestamp
 SET "MSG=%~1"
 IF "%MSG%"=="" SET "MSG=Update %DATE% %TIME%"
 
 git commit -m "%MSG%"
-IF ERRORLEVEL 1 echo (Nothing new to commit - pushing anyway in case of pending commits)
+IF ERRORLEVEL 1 (
+  echo.
+  echo [i] Nothing new to commit. The updated files were probably not copied
+  echo     into THIS folder ^(check the list above is empty^), or this version
+  echo     is already committed.
+)
+
+echo.
+echo === Commits not yet on GitHub ===
+git log origin/main..main --oneline
+echo ---------------------------------
+echo.
 
 echo Pushing to GitHub...
 git push -u origin main
-
+IF ERRORLEVEL 1 (
+  echo.
+  echo [X] PUSH FAILED - read the message above:
+  echo     "Authentication failed" / "could not read Username"  => sign in / set a GitHub token
+  echo     "rejected" / "non-fast-forward"                      => run pushforce.bat instead
+) ELSE (
+  echo.
+  echo ===== Pushed OK =====
+)
 echo.
-echo ===== Done =====
 pause

@@ -17,7 +17,7 @@ const STAGE_LABEL = { hr: 'HR review', final: 'final approval' };
 
 async function empById(id) { if (!id) return null; return (await q('SELECT id,name,phone,emp_no,email FROM employees WHERE id=$1', [id])).rows[0] || null; }
 async function isHrApprover(u) { if (u.is_admin) return true; const c = await chain.getChain(); return c.hr_approver_ids.includes(u.id); }
-function chainSummary(full) { return { ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount) }; }
+function chainSummary(full) { return { id: full.id, ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount) }; }
 function chainPdfName(full) { const lbl = FORM_LABEL[full.form_type] || full.form_type; const per = full.period ? (' ' + monthLabel(full.period)) : ''; return `${full.emp_name} - ${lbl}${per} (${full.ref_no.replace(/\//g, '-')}).pdf`; }
 async function pdfFor(full, status, approver, at) {
   if (full.form_type === 'conveyance') return conveyancePdf(full, status, approver, at);
@@ -64,6 +64,14 @@ const fmtMoney = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimum
 const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 // Submit unlocks on the 1st of the month AFTER the claim's period.
 function canSubmit(period) { if (!period) return false; const [y, m] = period.split('-').map(Number); return new Date() >= new Date(y, m, 1); }
+// Admins can lift the month-end submit lock per form (handy for testing).
+async function submitAllowed(formType, period) {
+  let g = {};
+  try { const r = await q(`SELECT value FROM app_settings WHERE key='expense_gate'`); if (r.rows[0]) g = JSON.parse(r.rows[0].value); } catch {}
+  if (formType === 'conveyance' && g.conveyance_anytime) return true;
+  if (formType === 'outstation' && g.outstation_anytime) return true;
+  return canSubmit(period);
+}
 
 async function refNo(prefix) {
   const now = new Date();
@@ -123,7 +131,26 @@ router.get('/meta', async (req, res) => {
     me: { emp_no: req.user.emp_no, name: req.user.name, designation: req.user.job_title || '' }, hr_email: HR_EMAIL });
 });
 
-// ---------------- conveyance: get-or-create draft for a period ----------------
+// Resolve an employee's active reporting manager (or null).
+async function resolveManager(empId) {
+  return (await q(`SELECT rm.id, rm.name, rm.phone, rm.emp_no FROM employees e
+    JOIN employees rm ON rm.id = e.reporting_manager_emp_id
+    WHERE e.id = $1 AND rm.active = TRUE`, [empId])).rows[0] || null;
+}
+const tripDateLabel = (s) => { if (!s) return ''; const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); };
+const tripRoute = (t) => [t.from_loc, t.to_loc].filter(Boolean).join(' \u2192 ') || (t.purpose || 'Trip');
+function sendTripToManager(trip, mgr, requester) {
+  background((async () => {
+    if (!mgr || !mgr.phone) return;
+    await wati.notify.conveyance.request(mgr, {
+      requester, date_label: tripDateLabel(trip.trip_date), route: tripRoute(trip),
+      amount_label: fmtMoney(trip.amount), action_token: trip.action_token });
+  })());
+}
+const TRIP_COLS = `id, employee_id, to_char(trip_date,'YYYY-MM-DD') AS trip_date, from_loc, to_loc, purpose,
+  vehicle, km, rate, amount, status, approver_name, reject_reason, reviewed_at, action_token, logged_at`;
+
+// Get-or-create the month container + the month's trips.
 router.get('/conveyance/:period', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
@@ -133,84 +160,123 @@ router.get('/conveyance/:period', async (req, res) => {
     row = (await q(`INSERT INTO expense_submissions(ref_no,employee_id,form_type,period,payload,status)
       VALUES($1,$2,'conveyance',$3,$4,'draft') RETURNING *`, [ref, req.user.id, period, JSON.stringify({ entries: [] })])).rows[0];
   }
-  res.json({ ...row, can_submit: ['draft', 'returned'].includes(row.status) && canSubmit(period), period_label: monthLabel(period) });
-});
-
-// ---------------- conveyance: save draft entries ----------------
-router.put('/conveyance/:id', async (req, res) => {
-  const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
-  if (!row || row.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted' });
   const pol = await getPolicy();
-  const nowIso = new Date().toISOString();
-  const entries = []; let total = 0;
-  for (const e of (req.body.entries || [])) {
-    const km = parseFloat(e.km); const veh = e.vehicle === 'car' ? 'car' : 'bike';
-    if (!e.date || !(km > 0)) continue;
-    const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
-    entries.push({ date: e.date, from: (e.from || '').trim(), to: (e.to || '').trim(),
-      purpose: (e.purpose || '').trim(), vehicle: veh, vehicle_label: veh === 'car' ? 'Car' : 'Bike',
-      km, rate, amount, logged_at: e.logged_at || nowIso });
-    total += amount;
-  }
-  await q(`UPDATE expense_submissions SET payload=$2, total_amount=$3, updated_at=now() WHERE id=$1`,
-    [row.id, JSON.stringify({ entries }), +total.toFixed(2)]);
-  res.json({ ok: true, total: +total.toFixed(2), count: entries.length });
+  const trips = (await q(`SELECT ${TRIP_COLS} FROM conveyance_trips WHERE employee_id=$1 AND period=$2 ORDER BY trip_date, id`, [req.user.id, period])).rows
+    .map(t => ({ ...t, late: entryIsLate(t.trip_date, t.logged_at, pol.log_hours) }));
+  const mgr = await resolveManager(req.user.id);
+  const allow = await submitAllowed('conveyance', period);
+  res.json({
+    period, period_label: monthLabel(period),
+    can_submit: ['draft', 'returned'].includes(row.status) && allow,
+    submission: { id: row.id, ref_no: row.ref_no, status: row.status, total_amount: row.total_amount,
+      pdf_token: row.pdf_token, return_reason: row.return_reason, return_stage: row.return_stage },
+    manager: mgr ? { name: mgr.name } : null,
+    log_hours: pol.log_hours,
+    pending_count: trips.filter(t => t.status === 'pending').length,
+    trips,
+  });
 });
 
-// ---------------- conveyance: submit (month-gated) ----------------
-// Resolve an employee's active reporting manager (or null).
-async function resolveManager(empId) {
-  return (await q(`SELECT rm.id, rm.name, rm.phone, rm.emp_no FROM employees e
-    JOIN employees rm ON rm.id = e.reporting_manager_emp_id
-    WHERE e.id = $1 AND rm.active = TRUE`, [empId])).rows[0] || null;
-}
+// Add one trip → send to the reporting manager immediately.
+router.post('/conveyance/:period/trip', async (req, res) => {
+  const period = req.params.period;
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const b = req.body || {};
+  const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
+  if (!b.date) return res.status(400).json({ error: 'Pick the trip date.' });
+  if (!(km > 0)) return res.status(400).json({ error: 'Enter the distance in km.' });
+  const mgr = await resolveManager(req.user.id);
+  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned. Ask an admin to set yours in the employee directory.' });
+  const pol = await getPolicy();
+  const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
+  const token = crypto.randomBytes(20).toString('hex');
+  const trip = (await q(`INSERT INTO conveyance_trips
+    (employee_id,period,trip_date,from_loc,to_loc,purpose,vehicle,km,rate,amount,status,approver_emp_id,approver_name,action_token)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,$12,$13)
+    RETURNING ${TRIP_COLS}`,
+    [req.user.id, period, b.date, (b.from || '').trim(), (b.to || '').trim(), (b.purpose || '').trim(),
+     veh, km, rate, amount, mgr.id, mgr.name, token])).rows[0];
+  sendTripToManager(trip, mgr, req.user.name);
+  res.json({ ok: true, trip, approver: mgr.name, notified: Boolean(mgr.phone) });
+});
 
-router.post('/conveyance/:id/submit', async (req, res) => {
-  const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
-  if (!row || row.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted' });
-  if (!canSubmit(row.period)) return res.status(400).json({ error: 'This month can be submitted from the 1st of next month.' });
-  const entries = (row.payload && row.payload.entries) || [];
-  if (!entries.length) return res.status(400).json({ error: 'Add at least one entry before submitting.' });
-  await enterChain(row.id);
+// Edit a rejected trip and re-send it (pending/approved trips are locked).
+router.put('/conveyance/trip/:id', async (req, res) => {
+  const t = (await q('SELECT * FROM conveyance_trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!t || t.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+  if (t.status !== 'rejected') return res.status(409).json({ error: 'Only rejected trips can be edited.' });
+  const b = req.body || {};
+  const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
+  if (!b.date || !(km > 0)) return res.status(400).json({ error: 'Date and km are required.' });
+  const mgr = await resolveManager(req.user.id);
+  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned.' });
+  const pol = await getPolicy();
+  const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
+  const token = crypto.randomBytes(20).toString('hex');
+  const trip = (await q(`UPDATE conveyance_trips SET trip_date=$2,from_loc=$3,to_loc=$4,purpose=$5,vehicle=$6,
+    km=$7,rate=$8,amount=$9,status='pending',approver_emp_id=$10,approver_name=$11,reviewed_at=NULL,
+    reject_reason=NULL,action_token=$12,updated_at=now() WHERE id=$1 RETURNING ${TRIP_COLS}`,
+    [t.id, b.date, (b.from || '').trim(), (b.to || '').trim(), (b.purpose || '').trim(), veh, km, rate, amount,
+     mgr.id, mgr.name, token])).rows[0];
+  sendTripToManager(trip, mgr, req.user.name);
+  res.json({ ok: true, trip, notified: Boolean(mgr.phone) });
+});
+
+// Withdraw a trip (pending or rejected; approved trips can't be removed).
+router.delete('/conveyance/trip/:id', async (req, res) => {
+  const t = (await q('SELECT * FROM conveyance_trips WHERE id=$1', [req.params.id])).rows[0];
+  if (!t || t.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+  if (t.status === 'approved') return res.status(409).json({ error: 'Approved trips cannot be withdrawn.' });
+  await q('DELETE FROM conveyance_trips WHERE id=$1', [t.id]);
   res.json({ ok: true });
 });
 
-// One-tap helpers (used by the public /cva /cvr endpoints).
-async function loadConvByToken(token) {
-  return (await q(`SELECT s.*, e.name AS emp_name, e.emp_no AS emp_code, e.phone AS emp_phone,
-    e.job_title AS designation, e.expense_category, ap.name AS approver_name, ap.id AS approver_id
-    FROM expense_submissions s JOIN employees e ON e.id = s.employee_id
-    LEFT JOIN employees ap ON ap.id = s.approver_emp_id
-    WHERE s.action_token = $1 AND s.form_type = 'conveyance'`, [token])).rows[0] || null;
+// Submit the month into the HR payment chain (snapshots ALL the month's trips).
+router.post('/conveyance/:period/submit', async (req, res) => {
+  const period = req.params.period;
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  if (!(await submitAllowed('conveyance', period))) return res.status(400).json({ error: 'This month can be submitted from the 1st of next month.' });
+  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Nothing to submit.' });
+  if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted.' });
+  const trips = (await q(`SELECT ${TRIP_COLS} FROM conveyance_trips WHERE employee_id=$1 AND period=$2 ORDER BY trip_date, id`, [req.user.id, period])).rows;
+  if (!trips.length) return res.status(400).json({ error: 'Add at least one trip before submitting.' });
+  let total = 0;
+  const entries = trips.map(t => {
+    total += Number(t.amount || 0);
+    return { date: t.trip_date, from: t.from_loc || '', to: t.to_loc || '', purpose: t.purpose || '',
+      vehicle: t.vehicle, vehicle_label: t.vehicle === 'car' ? 'Car' : 'Bike', km: Number(t.km), rate: Number(t.rate),
+      amount: Number(t.amount), logged_at: t.logged_at, mgr_status: t.status, mgr_reason: t.reject_reason || '',
+      approver: t.approver_name || '' };
+  });
+  await q(`UPDATE expense_submissions SET payload=$2, total_amount=$3, updated_at=now() WHERE id=$1`,
+    [row.id, JSON.stringify({ entries }), +total.toFixed(2)]);
+  await enterChain(row.id);
+  res.json({ ok: true, pending_count: trips.filter(t => t.status === 'pending').length });
+});
+
+// One-tap helpers (used by the public /cva /cvr endpoints) — operate on a single trip.
+async function loadTripByToken(token) {
+  return (await q(`SELECT t.*, to_char(t.trip_date,'YYYY-MM-DD') AS trip_date_s,
+    e.name AS emp_name, e.phone AS emp_phone
+    FROM conveyance_trips t JOIN employees e ON e.id = t.employee_id
+    WHERE t.action_token = $1`, [token])).rows[0] || null;
 }
-async function applyConvApprove(s) {
-  await q(`UPDATE expense_submissions SET status='approved', reviewed_by_id=$2, reviewed_by_name=$3, reviewed_at=now() WHERE id=$1`,
-    [s.id, s.approver_id, s.approver_name]);
+async function applyTripApprove(t) {
+  await q(`UPDATE conveyance_trips SET status='approved', reviewed_at=now(), action_token=NULL WHERE id=$1`, [t.id]);
   background((async () => {
-    const full = await loadRow(s.id);
-    const pdf = await conveyancePdf(full, 'approved', s.approver_name, fmtDateTime(new Date()));
-    const fname = `${full.emp_name} - Conveyance ${monthLabel(full.period)} (${full.ref_no.replace(/\//g, '-')}).pdf`;
-    const url = await graph.uploadExpensePdf(fname, pdf);
-    if (url && url !== true) await q(`UPDATE expense_submissions SET pdf_url=$2 WHERE id=$1`, [s.id, url]);
-    if (s.emp_phone) await wati.notify.conveyance.approved({ name: s.emp_name, phone: s.emp_phone },
-      { ref_no: s.ref_no, period_label: monthLabel(s.period), approver_name: s.approver_name, pdf_token: s.pdf_token });
+    if (t.emp_phone) await wati.notify.conveyance.approved({ name: t.emp_name, phone: t.emp_phone },
+      { date_label: tripDateLabel(t.trip_date_s), route: tripRoute(t), approver_name: t.approver_name || 'your manager' });
   })());
 }
-async function applyConvReject(s) {
-  await q(`UPDATE expense_submissions SET status='rejected', reviewed_by_id=$2, reviewed_by_name=$3, reviewed_at=now() WHERE id=$1`,
-    [s.id, s.approver_id, s.approver_name]);
+async function applyTripReject(t, reason) {
+  await q(`UPDATE conveyance_trips SET status='rejected', reject_reason=$2, reviewed_at=now(), action_token=NULL WHERE id=$1`, [t.id, reason || null]);
   background((async () => {
-    const full = await loadRow(s.id);
-    const pdf = await conveyancePdf(full, 'rejected', s.approver_name, fmtDateTime(new Date()));
-    const fname = `${full.emp_name} - Conveyance ${monthLabel(full.period)} (${full.ref_no.replace(/\//g, '-')}).pdf`;
-    const url = await graph.uploadExpensePdf(fname, pdf);
-    if (url && url !== true) await q(`UPDATE expense_submissions SET pdf_url=$2 WHERE id=$1`, [s.id, url]);
-    if (s.emp_phone) await wati.notify.conveyance.rejected({ name: s.emp_name, phone: s.emp_phone },
-      { ref_no: s.ref_no, period_label: monthLabel(s.period), approver_name: s.approver_name });
+    if (t.emp_phone) await wati.notify.conveyance.rejected({ name: t.emp_name, phone: t.emp_phone },
+      { date_label: tripDateLabel(t.trip_date_s), route: tripRoute(t), approver_name: t.approver_name || 'your manager', reason: reason || '' });
   })());
 }
+
 
 // ---------------- my submissions (non-draft) ----------------
 router.get('/', async (req, res) => {
@@ -410,7 +476,8 @@ router.get('/outstation/:period', async (req, res) => {
     row = (await q(`INSERT INTO expense_submissions(ref_no,employee_id,form_type,period,payload,status)
       VALUES($1,$2,'outstation',$3,$4,'draft') RETURNING *`, [ref, req.user.id, period, JSON.stringify({ trips: [] })])).rows[0];
   }
-  res.json({ ...row, can_submit: ['draft', 'returned'].includes(row.status) && canSubmit(period), period_label: monthLabel(period) });
+  const allow = await submitAllowed('outstation', period);
+  res.json({ ...row, can_submit: ['draft', 'returned'].includes(row.status) && allow, period_label: monthLabel(period) });
 });
 router.put('/outstation/:id', async (req, res) => {
   const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
@@ -427,7 +494,7 @@ router.post('/outstation/:id/submit', async (req, res) => {
   const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
   if (!row || row.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
   if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted' });
-  if (!canSubmit(row.period)) return res.status(400).json({ error: 'This month can be submitted from the 1st of next month.' });
+  if (!(await submitAllowed('outstation', row.period))) return res.status(400).json({ error: 'This month can be submitted from the 1st of next month.' });
   const trips = (row.payload && row.payload.trips) || [];
   const itemCount = trips.reduce((s, t) => s + ((t.items || []).length), 0);
   if (!itemCount) return res.status(400).json({ error: 'Add at least one expense line before submitting.' });
@@ -467,4 +534,4 @@ router.post('/misc/:id/submit', async (req, res) => {
 });
 
 module.exports = router;
-module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, loadConvByToken, applyConvApprove, applyConvReject };
+module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, loadTripByToken, applyTripApprove, applyTripReject };

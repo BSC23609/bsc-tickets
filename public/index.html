@@ -75,10 +75,11 @@
     // Deep link: /t/<id> redirects here as /?t=<id>. Carry it through login.
     const targetTicket = new URLSearchParams(location.search).get('t');
     const targetOg = new URLSearchParams(location.search).get('og');
+    const targetClaim = new URLSearchParams(location.search).get('claim');
 
     // If a valid session already exists and we have a deep-link target, skip login.
     (async () => {
-      if (!targetTicket && !targetOg) return;
+      if (!targetTicket && !targetOg && !targetClaim) return;
       try {
         const r = await fetch('/api/me', { credentials: 'same-origin' });
         if (r.ok) go();
@@ -109,6 +110,7 @@
     function go() {
       if (targetTicket) location.href = '/app.html?t=' + encodeURIComponent(targetTicket);
       else if (targetOg) location.href = '/outpass.html?id=' + encodeURIComponent(targetOg);
+      else if (targetClaim) location.href = '/expense.html?claim=' + encodeURIComponent(targetClaim);
       else location.href = '/home.html';
     }
   </script>

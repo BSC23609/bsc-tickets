@@ -237,6 +237,32 @@ SELECT 'expense_chain', json_build_object(
   'accounts_notify_id', NULL
 )::text
 WHERE NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'expense_chain');
+
+-- Per-trip Local Conveyance approval (each trip → reporting manager one-tap).
+CREATE TABLE IF NOT EXISTS conveyance_trips (
+  id              SERIAL PRIMARY KEY,
+  employee_id     INT  NOT NULL REFERENCES employees(id),
+  period          TEXT NOT NULL,                    -- 'YYYY-MM'
+  trip_date       DATE NOT NULL,
+  from_loc        TEXT,
+  to_loc          TEXT,
+  purpose         TEXT,
+  vehicle         TEXT NOT NULL DEFAULT 'bike',
+  km              NUMERIC NOT NULL DEFAULT 0,
+  rate            NUMERIC NOT NULL DEFAULT 0,
+  amount          NUMERIC NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+  approver_emp_id INT REFERENCES employees(id),
+  approver_name   TEXT,
+  reviewed_at     TIMESTAMPTZ,
+  reject_reason   TEXT,
+  action_token    TEXT,
+  logged_at       TIMESTAMPTZ NOT NULL DEFAULT now(),   -- first logged (drives late-flag)
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_conv_trips_emp_period ON conveyance_trips(employee_id, period);
+CREATE INDEX IF NOT EXISTS idx_conv_trips_token      ON conveyance_trips(action_token);
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);
 CREATE INDEX IF NOT EXISTS idx_exp_status ON expense_submissions(status);
 CREATE INDEX IF NOT EXISTS idx_exp_form   ON expense_submissions(form_type);

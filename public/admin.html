@@ -182,6 +182,20 @@
         </div>
         <div class="flex justify-end"><button onclick="saveChain()" class="btn text-sm">Save chain</button></div>
       </div>
+
+      <div class="card p-5 max-w-2xl mt-5">
+        <div class="eyebrow">Month-end submit lock</div>
+        <p class="text-xs text-slate-500 mt-1 mb-4">Normally a month can only be submitted from the 1st of the next month. Turn a form's lock off to allow submitting the current month right away (useful for testing).</p>
+        <label class="flex items-center gap-3 py-2 cursor-pointer">
+          <input type="checkbox" id="gate_conv" class="w-4 h-4">
+          <span class="text-sm">Local Conveyance — allow submitting any time</span>
+        </label>
+        <label class="flex items-center gap-3 py-2 cursor-pointer">
+          <input type="checkbox" id="gate_out" class="w-4 h-4">
+          <span class="text-sm">Travel Reimbursement (Outstation) — allow submitting any time</span>
+        </label>
+        <div class="flex justify-end mt-3"><button onclick="saveGate()" class="btn text-sm">Save lock settings</button></div>
+      </div>
     </section>
   </main>
 
@@ -209,7 +223,7 @@
       if (tab === 'cat') renderCategories();
       if (tab === 'loc') renderLocations();
       if (tab === 'ogappr') renderApprovers();
-      if (tab === 'exp') { loadPolicy(); loadChain(); }
+      if (tab === 'exp') { loadPolicy(); loadChain(); loadGate(); }
     }
 
     // ---------- DASHBOARD ----------
@@ -529,6 +543,18 @@
       if(!body.hr_approver_ids.length) return toast('Pick at least one HR approver','error');
       if(!body.final_approver_ids.length) return toast('Pick at least one final approver','error');
       try{ await api('/admin/expense-chain',{method:'PUT',body}); toast('Approval chain saved','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function loadGate(){
+      try{ const g = await api('/admin/expense-gate');
+        document.getElementById('gate_conv').checked = !!g.conveyance_anytime;
+        document.getElementById('gate_out').checked = !!g.outstation_anytime;
+      }catch(e){}
+    }
+    async function saveGate(){
+      const body = { conveyance_anytime: document.getElementById('gate_conv').checked,
+        outstation_anytime: document.getElementById('gate_out').checked };
+      try{ await api('/admin/expense-gate',{method:'PUT',body}); toast('Submit lock settings saved','success'); }
       catch(e){ toast(e.message,'error'); }
     }
     async function loadPolicy(){

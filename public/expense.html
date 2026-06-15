@@ -18,7 +18,9 @@
                     mono:['Space Mono','ui-monospace','monospace'] }
     } } };
   </script>
-  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}</style>
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}
+  .spin{display:inline-block;width:.9em;height:.9em;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;vertical-align:-1px;animation:spin .6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}</style>
 </head>
 <body class="min-h-screen bg-white text-ink">
   <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
@@ -85,35 +87,44 @@
           <label class="fieldlabel">Month</label>
           <input id="cv_month" type="month" class="field" onchange="loadConveyance()" />
         </div>
+        <div id="cv_mgrline" class="text-xs text-slate-500 mt-2"></div>
       </div>
 
       <div id="cv_locked" class="hidden card p-4 mb-4 bg-amber-50 border-amber-200 text-sm text-amber-800"></div>
 
-      <div class="card p-5 mb-4">
-        <div class="sechead"><span class="t">Daily entries</span></div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead><tr class="text-left border-b border-line">
-              <th class="pb-2 fieldlabel">Date</th><th class="pb-2 fieldlabel">From</th><th class="pb-2 fieldlabel">To</th>
-              <th class="pb-2 fieldlabel">Purpose</th>
-              <th class="pb-2 fieldlabel">Vehicle</th><th class="pb-2 fieldlabel text-right">KM</th>
-              <th class="pb-2 fieldlabel text-right">Amount</th><th></th>
-            </tr></thead>
-            <tbody id="cv_rows"></tbody>
-          </table>
+      <div id="cv_addcard" class="card p-5 mb-4">
+        <div class="sechead"><span class="t">Add a trip</span></div>
+        <p class="text-xs text-slate-500 -mt-1 mb-3">Each trip goes to your reporting manager for approval as soon as you add it.</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div><label class="fieldlabel">Date</label><input id="t_date" type="date" class="field"></div>
+          <div><label class="fieldlabel">From</label><input id="t_from" class="field" placeholder="From"></div>
+          <div><label class="fieldlabel">To</label><input id="t_to" class="field" placeholder="To"></div>
+          <div class="col-span-2 sm:col-span-1"><label class="fieldlabel">Purpose</label><input id="t_purpose" class="field" placeholder="Purpose"></div>
+          <div><label class="fieldlabel">Vehicle</label><select id="t_vehicle" class="field" onchange="cvPreview()"><option value="bike">Bike</option><option value="car">Car</option></select></div>
+          <div><label class="fieldlabel">KM</label><input id="t_km" type="number" min="0" step="any" class="field text-right" oninput="cvPreview()"></div>
         </div>
-        <div id="cv_empty" class="text-center text-slate-400 text-sm py-8 hidden">No entries yet — add your first day.</div>
-        <button onclick="addRow()" id="cv_add" class="addrow mt-3">+ Add day</button>
+        <div class="flex items-center justify-between mt-3 gap-2 flex-wrap">
+          <div class="text-sm text-slate-500">Amount: <span id="t_amt" class="mono font-semibold text-ink">₹0</span></div>
+          <div class="flex gap-2">
+            <button onclick="cancelEdit()" id="t_cancel" class="btn-ghost text-sm hidden">Cancel</button>
+            <button onclick="clickBusy(this,'Saving…',cvAddTrip)" id="t_add" class="btn text-sm">Save &amp; send to manager</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-5 mb-4">
+        <div class="sechead"><span class="t">This month's trips</span> <span id="cv_count" class="pill bg-slate-100 text-slate-600 ml-1"></span></div>
+        <div id="cv_trips" class="space-y-2 mt-2"></div>
+        <div id="cv_empty" class="text-center text-slate-400 text-sm py-8 hidden">No trips yet — add your first above.</div>
       </div>
 
       <div class="claimbar">
         <div>
-          <div class="cap">Total claim</div>
+          <div class="cap">Month total</div>
           <div class="amt" id="cv_total">₹0</div>
         </div>
         <div class="flex gap-2">
-          <button onclick="saveConveyance()" id="cv_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
-          <button onclick="submitConveyance()" id="cv_submit" class="btn text-sm">Submit for approval</button>
+          <button onclick="clickBusy(this,'Submitting…',submitConveyance)" id="cv_submit" class="btn text-sm">Submit month for approval</button>
         </div>
       </div>
     </section>
@@ -144,8 +155,8 @@
       <div class="claimbar mt-4">
         <div><div class="cap">Claim total</div><div class="amt" id="ot_total">₹0</div></div>
         <div class="flex gap-2">
-          <button onclick="saveOutstation()" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
-          <button onclick="submitOutstation()" id="ot_submit" class="btn text-sm">Submit to HR</button>
+          <button onclick="clickBusy(this,'Saving…',()=>saveOutstation())" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
+          <button onclick="clickBusy(this,'Submitting…',submitOutstation)" id="ot_submit" class="btn text-sm">Submit to HR</button>
         </div>
       </div>
     </section>
@@ -167,7 +178,7 @@
       </div>
       <div class="claimbar">
         <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
-        <button onclick="submitMisc()" id="ms_gen" class="btn text-sm">Submit for approval</button>
+        <button onclick="clickBusy(this,'Submitting…',submitMisc)" id="ms_gen" class="btn text-sm">Submit for approval</button>
       </div>
     </section>
 
@@ -185,7 +196,18 @@
 
   <script src="/js/common.js"></script>
   <script>
-    let me = {}, meta = {}, draft = null, rows = [];
+    let me = {}, meta = {}, cv = { trips:[], submission:null, manager:null, can_submit:false, log_hours:48, editingId:null };
+    // Disables a button + shows a spinner while its async action runs; blocks double-clicks.
+    async function clickBusy(btn, label, fn){
+      if(!btn || btn.dataset.busy) return;
+      btn.dataset.busy='1';
+      const orig=btn.innerHTML, w=btn.offsetWidth;
+      btn.disabled=true; btn.style.minWidth=w+'px';
+      btn.innerHTML=`<span class="spin"></span>${label?(' '+label):''}`;
+      try{ await fn(); }
+      catch(e){ if(window.toast) toast(e.message||'Something went wrong','error'); }
+      finally{ delete btn.dataset.busy; btn.disabled=false; btn.style.minWidth=''; btn.innerHTML=orig; }
+    }
     const VEH = [['bike','Bike'],['car','Car']];
 
     const fmtMoney = n => '₹' + Number(n||0).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -230,34 +252,121 @@
       ['conv','out','misc','mine','appr','final'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
     }
 
-    // ---- conveyance ----
+    // ---- conveyance (per-trip approval) ----
+    function cvRate(){ const v=document.getElementById('t_vehicle').value; return meta.rates[v==='car'?'car':'bike']||0; }
+    function cvPreview(){ const km=parseFloat(document.getElementById('t_km').value)||0; document.getElementById('t_amt').textContent=fmtMoney(km>0?km*cvRate():0); }
+    function resetTripForm(){
+      cv.editingId=null;
+      ['t_date','t_from','t_to','t_purpose','t_km'].forEach(id=>document.getElementById(id).value='');
+      document.getElementById('t_vehicle').value='bike';
+      document.getElementById('t_add').textContent='Save & send to manager';
+      document.getElementById('t_cancel').classList.add('hidden');
+      cvPreview();
+    }
+    function cancelEdit(){ resetTripForm(); }
+    function tripFormVals(){
+      return { date:document.getElementById('t_date').value, from:document.getElementById('t_from').value.trim(),
+        to:document.getElementById('t_to').value.trim(), purpose:document.getElementById('t_purpose').value.trim(),
+        vehicle:document.getElementById('t_vehicle').value, km:document.getElementById('t_km').value };
+    }
+
     async function loadConveyance(){
-      const period = document.getElementById('cv_month').value;
+      const period=document.getElementById('cv_month').value;
       if(!period) return;
-      draft = await api('/expense/conveyance/' + period);
-      rows = ((draft.payload && draft.payload.entries) || []).map(e=>({...e}));
-      const editable = ['draft','returned'].includes(draft.status);
-      const locked = !editable;
-      document.getElementById('cv_add').disabled = locked;
-      document.getElementById('cv_save').disabled = locked;
-      const sb = document.getElementById('cv_submit');
-      const lockBox = document.getElementById('cv_locked');
-      sb.classList.toggle('hidden', !(editable && draft.can_submit));
-      if (locked) {
-        lockBox.classList.remove('hidden');
-        lockBox.textContent = `This month is ${pillText(draft.status)}. ${statusText(draft.status)}`;
-      } else if (draft.status==='returned') {
-        lockBox.classList.remove('hidden');
-        lockBox.innerHTML = `<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(draft.return_reason||'')} — fix and resubmit.`;
-      } else if (!draft.can_submit) {
-        lockBox.classList.remove('hidden');
-        const [y,m] = period.split('-').map(Number);
-        const next = new Date(y, m, 1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
-        lockBox.textContent = `Keep adding entries through the month. The Submit button opens on ${next}.`;
+      const d=await api('/expense/conveyance/'+period);
+      cv.trips=d.trips||[]; cv.submission=d.submission||{}; cv.manager=d.manager;
+      cv.can_submit=d.can_submit; cv.log_hours=d.log_hours; cv.period=period;
+      const ml=document.getElementById('cv_mgrline');
+      ml.innerHTML = cv.manager ? `Trips are approved by <b>${esc(cv.manager.name)}</b> · log within ${cv.log_hours}h to stay on-time`
+        : `<span class="text-red-600 font-semibold">⚠ No reporting manager set — ask an admin before adding trips.</span>`;
+      const st=(cv.submission&&cv.submission.status)||'draft';
+      const inFlight=['pending_hr','pending_final','approved'].includes(st);
+      document.getElementById('cv_addcard').classList.toggle('hidden', inFlight);
+      document.getElementById('cv_submit').classList.toggle('hidden', !(cv.can_submit && !inFlight));
+      const lockBox=document.getElementById('cv_locked');
+      if(inFlight){ lockBox.classList.remove('hidden'); lockBox.textContent=`This month is ${pillText(st)}. ${statusText(st)}`; }
+      else if(st==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(cv.submission.return_reason||'')} — adjust trips and resubmit.`; }
+      else if(!cv.can_submit){ lockBox.classList.remove('hidden'); const [y,m]=period.split('-').map(Number);
+        const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
+        lockBox.textContent=`Keep adding trips through the month. The Submit button opens on ${next}.`; }
+      else lockBox.classList.add('hidden');
+      cvRenderTrips(inFlight);
+      if(cv.editingId && !cv.trips.some(t=>t.id===cv.editingId && t.status==='rejected')) resetTripForm();
+    }
+
+    const TRIP_PILL={pending:['bg-amber-100 text-amber-700','⏳ Awaiting manager'],approved:['bg-emerald-100 text-emerald-700','✓ Approved'],rejected:['bg-red-100 text-red-700','✗ Rejected']};
+    function fmtDateShort(s){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}); }
+    function cvRenderTrips(inFlight){
+      const box=document.getElementById('cv_trips');
+      document.getElementById('cv_empty').classList.toggle('hidden', cv.trips.length>0);
+      document.getElementById('cv_count').textContent = `${cv.trips.length} trip${cv.trips.length===1?'':'s'}`;
+      let total=0;
+      box.innerHTML = cv.trips.map(t=>{
+        total+=Number(t.amount||0);
+        const pill=TRIP_PILL[t.status]||['bg-slate-100 text-slate-600',t.status];
+        const route=[t.from_loc,t.to_loc].filter(Boolean).join(' → ')||(t.purpose||'Trip');
+        const late=t.late?`<span class="pill bg-red-50 text-red-600 ml-1">⚠ logged late</span>`:'';
+        const actions = inFlight ? '' : (
+          t.status==='approved' ? '' :
+          t.status==='rejected'
+            ? `<button onclick="cvEditTrip(${t.id})" class="btn text-xs" style="padding:.35rem .7rem">Edit &amp; resend</button>
+               <button onclick="cvWithdrawTrip(${t.id})" class="btn-ghost text-xs">Withdraw</button>`
+            : `<button onclick="cvWithdrawTrip(${t.id})" class="btn-ghost text-xs">Withdraw</button>`);
+        const rej = (t.status==='rejected'&&t.reject_reason) ? `<div class="text-xs text-red-600 mt-1">Reason: ${esc(t.reject_reason)}</div>`:'';
+        return `<div class="border border-line rounded-xl p-3 flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap"><span class="pill ${pill[0]}">${pill[1]}</span>${late}</div>
+            <div class="text-sm font-semibold text-ink mt-1">${fmtDateShort(t.trip_date)} · ${esc(route)}</div>
+            <div class="text-xs text-slate-500">${t.purpose?esc(t.purpose)+' · ':''}${t.vehicle==='car'?'Car':'Bike'} · ${t.km} km · ${fmtMoney(t.amount)}${t.status==='approved'&&t.approver_name?' · by '+esc(t.approver_name):''}</div>
+            ${rej}
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">${actions}</div>
+        </div>`;
+      }).join('');
+      document.getElementById('cv_total').textContent=fmtMoney(total);
+    }
+
+    async function cvAddTrip(){
+      const v=tripFormVals();
+      if(!v.date) return toast('Pick the trip date','error');
+      if(!(parseFloat(v.km)>0)) return toast('Enter the distance in km','error');
+      if(cv.editingId){
+        const r=await api('/expense/conveyance/trip/'+cv.editingId,{method:'PUT',body:v});
+        toast(r.notified===false?'Trip updated — manager has no WhatsApp number on file':'Trip updated & re-sent for approval','success');
       } else {
-        lockBox.classList.add('hidden');
+        const r=await api('/expense/conveyance/'+cv.period+'/trip',{method:'POST',body:v});
+        if(r.notified===false) toast('Trip saved, but '+(cv.manager?cv.manager.name:'your manager')+' has no WhatsApp number — ask an admin to add it','info');
+        else toast('Trip sent to '+(cv.manager?cv.manager.name:'manager')+' for approval','success');
       }
-      renderRows(locked);
+      resetTripForm(); await loadConveyance();
+    }
+    function cvEditTrip(id){
+      const t=cv.trips.find(x=>x.id===id); if(!t) return;
+      cv.editingId=id;
+      document.getElementById('t_date').value=t.trip_date||'';
+      document.getElementById('t_from').value=t.from_loc||'';
+      document.getElementById('t_to').value=t.to_loc||'';
+      document.getElementById('t_purpose').value=t.purpose||'';
+      document.getElementById('t_vehicle').value=t.vehicle||'bike';
+      document.getElementById('t_km').value=t.km||'';
+      document.getElementById('t_add').textContent='Update & resend';
+      document.getElementById('t_cancel').classList.remove('hidden');
+      cvPreview();
+      document.getElementById('cv_addcard').scrollIntoView({behavior:'smooth',block:'center'});
+    }
+    async function cvWithdrawTrip(id){
+      if(!confirm('Withdraw this trip?')) return;
+      try{ await api('/expense/conveyance/trip/'+id,{method:'DELETE'}); toast('Trip withdrawn','info'); await loadConveyance(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function submitConveyance(){
+      if(!cv.trips.length) return toast('Add at least one trip first','error');
+      const pend=cv.trips.filter(t=>t.status==='pending').length;
+      let msg='Submit this month for payment approval? It goes to HR, then the final approver.';
+      if(pend) msg=`${pend} trip${pend===1?'':'s'} still awaiting your manager. Submit the whole month anyway? HR will see each trip's status.`;
+      if(!confirm(msg)) return;
+      await api('/expense/conveyance/'+cv.period+'/submit',{method:'POST'});
+      toast('Submitted for approval','success'); await loadConveyance();
     }
     const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected'}[s]||s);
     function statusText(s){ return ({
@@ -267,42 +376,6 @@
       returned:'It was returned for changes.',
       rejected:'It was rejected.'
     })[s]||'Submitted.'; }
-
-    function renderRows(locked){
-      const tb = document.getElementById('cv_rows');
-      document.getElementById('cv_empty').classList.toggle('hidden', rows.length>0);
-      tb.innerHTML = rows.map((e,i)=>`
-        <tr class="border-b border-line">
-          <td class="py-1.5 pr-2"><input type="date" value="${e.date||''}" ${locked?'disabled':''} onchange="upd(${i},'date',this.value)" class="field !py-1 !rounded-lg text-xs">${isLateRow(e)?'<div class="text-[10px] text-red-600 font-semibold mt-0.5">\u26A0 logged late</div>':''}</td>
-          <td class="py-1.5 pr-2"><input value="${e.from||''}" ${locked?'disabled':''} oninput="upd(${i},'from',this.value)" placeholder="From" class="field !py-1 !rounded-lg text-xs"></td>
-          <td class="py-1.5 pr-2"><input value="${e.to||''}" ${locked?'disabled':''} oninput="upd(${i},'to',this.value)" placeholder="To" class="field !py-1 !rounded-lg text-xs"></td>
-          <td class="py-1.5 pr-2"><input value="${esc(e.purpose||'')}" ${locked?'disabled':''} oninput="upd(${i},'purpose',this.value)" placeholder="Purpose" class="field !py-1 !rounded-lg text-xs"></td>
-          <td class="py-1.5 pr-2"><select ${locked?'disabled':''} onchange="upd(${i},'vehicle',this.value)" class="field !py-1 !rounded-lg text-xs">${VEH.map(([v,l])=>`<option value="${v}" ${e.vehicle===v?'selected':''}>${l}</option>`).join('')}</select></td>
-          <td class="py-1.5 pr-2"><input type="number" min="0" step="any" value="${e.km||''}" ${locked?'disabled':''} oninput="upd(${i},'km',this.value)" class="field !py-1 !rounded-lg text-xs text-right w-20"></td>
-          <td class="py-1.5 text-right mono font-semibold whitespace-nowrap">${fmtMoney(amountOf(e))}</td>
-          <td class="py-1.5 text-right">${locked?'':`<button onclick="delRow(${i})" class="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>`}</td>
-        </tr>`).join('');
-      recalc();
-    }
-    function amountOf(e){ const km=parseFloat(e.km); const rate=meta.rates[e.vehicle==='car'?'car':'bike']; return km>0?+(km*rate).toFixed(2):0; }
-    function isLateRow(e){ const h=meta.conveyance_log_hours||48; if(!e.date||!e.logged_at) return false; const trip=new Date(e.date+'T00:00:00+05:30').getTime(); return (new Date(e.logged_at).getTime()-trip) > h*3600000; }
-    function recalc(){ const total=rows.reduce((s,e)=>s+amountOf(e),0); document.getElementById('cv_total').textContent = fmtMoney(total); }
-    function upd(i,k,v){ rows[i][k]=v; if(k==='km'||k==='vehicle'){ renderRows(false); } else recalc(); }
-    function addRow(){ rows.push({date:document.getElementById('cv_month').value+'-01',from:'',to:'',purpose:'',vehicle:'bike',km:''}); renderRows(false); }
-    function delRow(i){ rows.splice(i,1); renderRows(false); }
-
-    async function saveConveyance(silent){
-      try{ const r=await api('/expense/conveyance/'+draft.id,{method:'PUT',body:{entries:rows}});
-        if(!silent) toast(`Saved — ${r.count} entries, ${fmtMoney(r.total)}`,'success');
-      }catch(e){ if(!silent) toast(e.message,'error'); }
-    }
-    async function submitConveyance(){
-      await saveConveyance(true);
-      if(!confirm("Submit this month for approval? It goes to HR for review, then final approval.")) return;
-      try{ await api('/expense/conveyance/'+draft.id+'/submit',{method:'POST'});
-        toast('Submitted for approval','success'); loadConveyance();
-      }catch(e){ toast(e.message,'error'); }
-    }
 
     // ---- my submissions ----
     async function loadMine(){
@@ -364,11 +437,13 @@
       const catL={long_distance:'Long-Distance Travel',accommodation:'Accommodation',food:'Food',conveyance:'Local Conveyance',others:'Other'};
       if(s.form_type==='conveyance'){
         const entries=(s.payload&&s.payload.entries)||[];
+        const mgrTag=e=>{const m={approved:['#059669','✓'],rejected:['#dc2626','✗'],pending:['#d97706','⏳']}[e.mgr_status]; if(!m) return '—'; return `<span style="color:${m[0]};font-weight:600" ${e.mgr_reason?`title="${esc(e.mgr_reason)}"`:''}>${m[1]}</span>`;};
         return `<table class="w-full text-sm mt-2"><thead><tr class="text-left border-b border-line">
           <th class="pb-1 fieldlabel">Date</th><th class="pb-1 fieldlabel">From</th><th class="pb-1 fieldlabel">To</th>
-          <th class="pb-1 fieldlabel">Vehicle</th><th class="pb-1 fieldlabel text-right">KM</th><th class="pb-1 fieldlabel text-right">Amount</th></tr></thead>
-          <tbody>${entries.map(e=>`<tr class="border-b border-line"><td class="py-1.5">${e.date}</td><td>${e.from||'—'}</td><td>${e.to||'—'}</td>
-            <td>${e.vehicle_label||e.vehicle}</td><td class="text-right mono">${e.km}</td><td class="text-right mono">${fmtMoney(e.amount)}</td></tr>`).join('')}</tbody></table>`;
+          <th class="pb-1 fieldlabel">Vehicle</th><th class="pb-1 fieldlabel text-right">KM</th><th class="pb-1 fieldlabel text-center">Mgr</th><th class="pb-1 fieldlabel text-right">Amount</th></tr></thead>
+          <tbody>${entries.map(e=>`<tr class="border-b border-line"><td class="py-1.5">${e.date}</td><td>${esc(e.from)||'—'}</td><td>${esc(e.to)||'—'}</td>
+            <td>${e.vehicle_label||e.vehicle}</td><td class="text-right mono">${e.km}</td><td class="text-center">${mgrTag(e)}</td><td class="text-right mono">${fmtMoney(e.amount)}</td></tr>`).join('')}</tbody></table>
+          <div class="text-[11px] text-slate-400 mt-1">Mgr = reporting-manager approval per trip (hover ✗ for reason).</div>`;
       }
       if(s.form_type==='outstation'){
         const trips=(s.payload&&s.payload.trips)||[], flags=s.flags||[];
@@ -403,11 +478,11 @@
           <label class="fieldlabel">Route to final approver</label>
           <select id="finalSel" class="field">${approvers.map(a=>`<option value="${a.id}">${esc(a.name)} (${esc(a.emp_no)})</option>`).join('')||'<option value="">No approvers configured</option>'}</select>
           <div class="flex gap-2 pt-3">
-            <button onclick="hrApprove(${s.id})" class="btn text-sm" style="padding:.55rem 1.1rem">Approve &amp; send</button>
+            <button onclick="clickBusy(this,'Approving…',()=>hrApprove(${s.id}))" class="btn text-sm" style="padding:.55rem 1.1rem">Approve &amp; send</button>
             <button onclick="showReturn(${s.id},'hr')" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Return</button></div></div>`;
       } else if(p.can_final){
         actions=`<div class="flex gap-2 pt-3 border-t border-line mt-3">
-          <button onclick="finalApprove(${s.id})" class="btn text-sm" style="padding:.55rem 1.1rem">Approve for payment</button>
+          <button onclick="clickBusy(this,'Approving…',()=>finalApprove(${s.id}))" class="btn text-sm" style="padding:.55rem 1.1rem">Approve for payment</button>
           <button onclick="showReturn(${s.id},'final')" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Return</button></div>`;
       }
       const dl = s.pdf_token ? `<a href="/dlx/${s.pdf_token}" target="_blank" class="btn-ghost text-sm inline-flex">Download PDF</a>` : '';
@@ -431,7 +506,7 @@
     }
     function showReturn(id,stage){ document.getElementById('retArea').innerHTML=`<div class="border border-line rounded-xl p-3 mt-3">
       <label class="fieldlabel">Reason for returning</label><textarea id="rjr" rows="2" class="field"></textarea>
-      <div class="flex justify-end mt-2"><button onclick="doReturn(${id},'${stage}')" class="text-white text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700">Send back to employee</button></div></div>`; }
+      <div class="flex justify-end mt-2"><button onclick="clickBusy(this,'Sending…',()=>doReturn(${id},'${stage}'))" class="text-white text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700">Send back to employee</button></div></div>`; }
     async function hrApprove(id){ const fid=document.getElementById('finalSel').value; if(!fid) return toast('Pick a final approver','error');
       try{ await api('/expense/'+id+'/hr-approve',{method:'POST',body:{final_approver_id:+fid}}); toast('Approved & sent to final approver','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
     async function finalApprove(id){ try{ await api('/expense/'+id+'/final-approve',{method:'POST'}); toast('Approved for payment','success'); closeModal(); refreshFinalCount(); loadFinalApprovals(); }catch(e){toast(e.message,'error');} }
@@ -588,7 +663,10 @@
     }
 
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
-    init().catch(e=>{ console.error(e); location.href='/'; });
+    init().then(()=>{
+      const claim = new URLSearchParams(location.search).get('claim');
+      if (claim && /^\d+$/.test(claim)) openDetail(Number(claim));
+    }).catch(e=>{ console.error(e); location.href='/'; });
   </script>
 </body>
 </html>
