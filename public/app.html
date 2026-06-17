@@ -265,6 +265,8 @@
         actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
       if (p.isL1 && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
+      if (p.canEscalateL3)
+        actions.push(btn(`escalateL3(${id})`, 'Escalate to L3', 'red'));
       if (p.isRequester && t.status === 'resolved') {
         actions.push(btn(`confirmTicket(${id})`, 'Confirm & close', 'emerald'));
         actions.push(btn(`reopenTicket(${id})`, 'Not resolved — reopen', 'orange'));
@@ -282,6 +284,21 @@
             <button onclick="assignTicket(${id})" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 transition">Assign</button>
           </div>
           ${t.pool.length===0?'<div class="text-[11px] text-amber-700 mt-1">No L1 pool set for this category — add handlers in Admin → Categories &amp; routing.</div>':''}
+        </div>` : '';
+
+      // Any handler can forward "not my area" to another category/trade.
+      const fwdBox = p.canForward ? `
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-3">
+          ${label('Forward — not my area')}
+          <div class="grid sm:grid-cols-2 gap-2 mt-1">
+            <select id="fwdCat" class="inp" onchange="fwdTrades()">
+              <option value="">Select category…</option>
+              ${meta.categories.map(c=>`<option value="${c.id}" data-trades="${c.has_trades}">${c.name}</option>`).join('')}
+            </select>
+            <select id="fwdTrade" class="inp hidden"><option value="">Select trade…</option></select>
+          </div>
+          <input id="fwdNote" class="inp mt-2" placeholder="Note (optional) — why you're forwarding">
+          <button onclick="forwardTicket(${id})" class="mt-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-800 transition">Forward ticket</button>
         </div>` : '';
 
       const photos = t.photos.filter(x => x.kind === 'issue');
@@ -316,6 +333,7 @@
             <ol class="space-y-1.5">${t.events.map(ev => `<li class="flex gap-2 text-xs"><span class="text-slate-400 w-28 shrink-0">${fmtDateTime(ev.at)}</span><span class="text-slate-700"><b>${evLabel(ev.event)}</b>${ev.by_name ? ' · ' + ev.by_name : ''}${ev.note ? ' — ' + ev.note : ''}</span></li>`).join('')}</ol>
           </div>
           ${assignBox}
+          ${fwdBox}
           <div class="flex flex-wrap gap-2 pt-2">${actions.join('')}</div>
         </div>`;
       document.getElementById('detail').classList.remove('hidden');
@@ -325,7 +343,7 @@
     const btn = (fn, txt, color) => color==='brand'
       ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
-    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
+    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
     function refreshCurrent(){ const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
 
@@ -346,6 +364,30 @@
     async function reopenTicket(id){
       const reason = prompt('Why is this not resolved? (optional)') || '';
       try { await api(`/tickets/${id}/reopen`, {method:'POST', body:{reason}}); toast('Reopened','success'); openDetail(id); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    function fwdTrades(){
+      const sel=document.getElementById('fwdCat'); const cid=+sel.value;
+      const opt=sel.options[sel.selectedIndex];
+      const ts=document.getElementById('fwdTrade');
+      const trades=meta.trades.filter(x=>x.category_id===cid);
+      if(opt && opt.dataset.trades==='true' && trades.length){
+        ts.innerHTML='<option value="">Select trade…</option>'+trades.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
+        ts.classList.remove('hidden');
+      } else { ts.classList.add('hidden'); ts.innerHTML='<option value="">Select trade…</option>'; }
+    }
+    async function forwardTicket(id){
+      const cid=+document.getElementById('fwdCat').value;
+      if(!cid) return toast('Pick a category to forward to','error');
+      const tid=+document.getElementById('fwdTrade').value || null;
+      const note=document.getElementById('fwdNote').value||'';
+      try{ const r=await api(`/tickets/${id}/forward`,{method:'POST',body:{category_id:cid,trade_id:tid,note}});
+        toast('Forwarded to '+(r.to||'the new area')+' — handlers notified','success'); closeDetail(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function escalateL3(id){
+      if(!confirm('Escalate this ticket to L3 now?')) return;
+      try{ await api(`/tickets/${id}/escalate-l3`,{method:'POST',body:{}}); toast('Escalated to L3','success'); openDetail(id); }
       catch(e){ toast(e.message,'error'); }
     }
     async function act(id, path, msg){

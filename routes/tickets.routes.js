@@ -22,15 +22,21 @@ router.get('/meta', async (req, res) => {
 });
 
 // Resolve initial routing for a category by its pattern.
-//  direct: straight to the single L1.   assign: to L2, who later assigns an L1.
-async function resolveRoute(category_id) {
+//  direct: straight to the single L1 (trade's L1 if the category uses trades).
+//  assign: to L2, who later assigns an L1.
+async function resolveRoute(category_id, trade_id) {
   const { rows } = await q('SELECT * FROM categories WHERE id=$1', [category_id]);
   const c = rows[0];
   if (!c) throw new Error('Unknown category');
   const direct = c.pattern === 'direct';
+  let l1 = direct ? c.l1_emp_id : null;   // assign starts unassigned until L2 picks
+  if (direct && c.has_trades && trade_id) {
+    const tr = (await q('SELECT l1_emp_id FROM trades WHERE id=$1 AND category_id=$2', [trade_id, category_id])).rows[0];
+    if (tr && tr.l1_emp_id) l1 = tr.l1_emp_id;
+  }
   return {
     pattern: direct ? 'direct' : 'assign',
-    l1: direct ? c.l1_emp_id : null,   // assign starts unassigned until L2 picks
+    l1,
     l2: direct ? null : c.l2_emp_id,
     l3: direct ? null : c.l3_emp_id,
     category_name: c.name,
@@ -50,7 +56,7 @@ router.post('/', async (req, res) => {
   const pri = ['Low','Medium','High','Critical'].includes(priority) ? priority : 'Medium';
 
   let route;
-  try { route = await resolveRoute(category_id); }
+  try { route = await resolveRoute(category_id, trade_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   let locText = null;
@@ -149,6 +155,8 @@ router.get('/:id', async (req, res) => {
   const isL1 = t.l1_emp_id === req.user.id;
   const isOpen = ['open', 'reopened', 'in_progress'].includes(t.status);
   const canAssign = (isL2 || req.user.is_admin) && t.pattern === 'assign' && isOpen;
+  const canForward = (isHandler || req.user.is_admin) && isOpen;
+  const canEscalateL3 = (isL1 || isL2 || req.user.is_admin) && isOpen && !!t.l3_emp_id && t.escalation_level < 3;
   let pool = [];
   if (canAssign) {
     pool = (await q(
@@ -157,7 +165,7 @@ router.get('/:id', async (req, res) => {
   }
 
   res.json({ ...t, downtime_mins: downtimeMins(t), photos, events, pool,
-    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL1: isL1 || req.user.is_admin, isL2, canAssign } });
+    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL1: isL1 || req.user.is_admin, isL2, canAssign, canForward, canEscalateL3 } });
 });
 
 // ---- photos: mint upload session (browser uploads straight to OneDrive) ----
@@ -278,6 +286,66 @@ router.post('/:id/reopen', async (req, res) => {
   if (l1) background(wati.notify.reopened(l1, { ...t, requester_name: t.requester_name }));
   background(excel.syncLogToOneDrive());
   res.json({ ok: true });
+});
+
+// ---- L1/L2/L3 forwards "not my area" to another category (re-routes the chain) ----
+router.post('/:id/forward', async (req, res) => {
+  const t = await loadTicket(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const onTicket = [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(req.user.id);
+  if (!onTicket && !req.user.is_admin) return res.status(403).json({ error: 'Only a handler on this ticket can forward it' });
+  if (['resolved', 'closed'].includes(t.status)) return res.status(400).json({ error: 'Cannot forward a resolved/closed ticket' });
+  const newCat = +(req.body && req.body.category_id) || null;
+  const newTrade = +(req.body && req.body.trade_id) || null;
+  const note = ((req.body && req.body.note) || '').trim() || null;
+  if (!newCat) return res.status(400).json({ error: 'Pick the category to forward to' });
+  if (newCat === t.category_id && (newTrade || null) === (t.trade_id || null))
+    return res.status(400).json({ error: "That's the same category it's already in" });
+
+  let route;
+  try { route = await resolveRoute(newCat, newTrade); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+
+  const oldL1 = t.l1_emp_id, oldL2 = t.l2_emp_id, oldCatName = t.category_name;
+  await q(`UPDATE tickets SET category_id=$2, trade_id=$3, l1_emp_id=$4, l2_emp_id=$5, l3_emp_id=$6,
+       status='open', escalation_level=0, assigned_at=NULL, assigned_by_id=NULL, last_reminder_at=NULL,
+       in_progress_at=NULL, escalated_l2_at=NULL, escalated_l3_at=NULL WHERE id=$1`,
+    [t.id, newCat, newTrade, route.l1, route.l2, route.l3]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'forwarded',$2,$3)`,
+    [t.id, req.user.id, `${oldCatName} → ${route.category_name}${note ? ' · ' + note : ''}`]);
+  res.json({ ok: true, to: route.category_name });
+
+  background((async () => {
+    const enriched = { ...t, category_id: newCat, trade_id: newTrade, category_name: route.category_name };
+    const newRec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
+    if (newRec) await (route.pattern === 'direct' ? wati.notify.assigned(newRec, enriched) : wati.notify.raised(newRec, enriched));
+    const seen = new Set([newRec && newRec.id]);
+    const fyi = [];
+    for (const id of [oldL1, oldL2]) { if (id && !seen.has(id)) { seen.add(id); const p = await empById(id); if (p) fyi.push(p); } }
+    fyi.push({ id: t.requester_id, name: t.requester_name, phone: t.requester_phone });
+    for (const p of fyi) if (p && p.phone) await wati.notify.forwarded(p, t, oldCatName, route.category_name);
+    await excel.syncLogToOneDrive();
+  })());
+});
+
+// ---- manual escalate to L3 (works alongside the time-based engine) ----
+router.post('/:id/escalate-l3', async (req, res) => {
+  const t = await loadTicket(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  if (!req.user.is_admin && ![t.l1_emp_id, t.l2_emp_id].includes(req.user.id))
+    return res.status(403).json({ error: 'Only L1/L2 on this ticket can escalate' });
+  if (!t.l3_emp_id) return res.status(400).json({ error: 'This category has no L3 set' });
+  if (['resolved', 'closed'].includes(t.status)) return res.status(400).json({ error: 'Ticket is already resolved/closed' });
+  if (t.escalation_level >= 3) return res.status(400).json({ error: 'Already escalated to L3' });
+  await q(`UPDATE tickets SET escalation_level=3, escalated_l3_at=COALESCE(escalated_l3_at,now()), last_reminder_at=NULL WHERE id=$1`, [t.id]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'escalated_l3',$2,$3)`,
+    [t.id, req.user.id, (req.body && req.body.note) || 'Manual escalation to L3']);
+  res.json({ ok: true });
+  background((async () => {
+    const l3 = await empById(t.l3_emp_id);
+    if (l3) await wati.notify.raised(l3, { ...t });
+    await excel.syncLogToOneDrive();
+  })());
 });
 
 module.exports = router;
