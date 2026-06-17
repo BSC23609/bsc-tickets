@@ -43,6 +43,14 @@ async function resolveApprover(requester, { onLeave = false } = {}) {
     return e && e.id !== requester.id ? { emp_id: e.id, name: e.name, phone: e.phone, label } : null;
   };
 
+  // Designated outpass approvers can't sign off their own passes — route theirs to HR (the fallback approver).
+  if (requester.outpass_via_hr) {
+    const fb = (await q(`SELECT value FROM app_settings WHERE key='outpass_fallback_emp_id'`)).rows[0];
+    const hr = fb && fb.value && (await pickEmp(Number(fb.value), 'HR'));
+    if (hr) return hr;
+    // HR not configured (or is the requester) → fall through to the normal chain
+  }
+
   if (onLeave) {
     if (dept) {
       const d = (await q(`SELECT leave_cover_emp_id FROM dept_approvers WHERE lower(department)=lower($1)`, [dept])).rows[0];

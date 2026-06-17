@@ -296,3 +296,6 @@ WHERE NOT EXISTS (SELECT 1 FROM trades x WHERE x.category_id=c.id AND lower(x.na
 -- Self-tickets: a person logs a task for themselves (often delegated by CMD/CEO).
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS is_self         BOOLEAN DEFAULT FALSE;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS requested_by_id INT REFERENCES employees(id);
+
+-- Designated outpass approvers can't approve their own passes — route theirs to HR (the fallback approver).
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_via_hr BOOLEAN NOT NULL DEFAULT FALSE;
