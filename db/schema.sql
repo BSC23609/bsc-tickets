@@ -268,3 +268,27 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS conveyance_needs_manager BOOLEAN 
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);
 CREATE INDEX IF NOT EXISTS idx_exp_status ON expense_submissions(status);
 CREATE INDEX IF NOT EXISTS idx_exp_form   ON expense_submissions(form_type);
+
+-- Standard ticket categories + trades (names only; assign L1/L2 handlers in Admin → Categories).
+INSERT INTO categories(name, has_trades, pattern, sort_order)
+SELECT v.name, TRUE, 'assign', v.so FROM (VALUES
+  ('IT and Systems', 10), ('SAP', 20), ('HR', 30)
+) AS v(name, so)
+WHERE NOT EXISTS (SELECT 1 FROM categories c WHERE lower(c.name)=lower(v.name));
+
+INSERT INTO trades(category_id, name, sort_order)
+SELECT c.id, t.name, t.so FROM categories c
+JOIN (VALUES
+  ('IT and Systems','Network / WiFi',1),
+  ('IT and Systems','Server',2),
+  ('IT and Systems','Device Issue',3),
+  ('IT and Systems','Printer Issue',4),
+  ('IT and Systems','Telephone',5),
+  ('SAP','New Query Report',1),
+  ('SAP','Issue with Existing Query',2),
+  ('SAP','SO Modification',3),
+  ('HR','Attendance Regularisation',1),
+  ('HR','Conveyance / Reimbursement',2),
+  ('HR','PF / ESI',3)
+) AS t(cat,name,so) ON lower(c.name)=lower(t.cat)
+WHERE NOT EXISTS (SELECT 1 FROM trades x WHERE x.category_id=c.id AND lower(x.name)=lower(t.name));

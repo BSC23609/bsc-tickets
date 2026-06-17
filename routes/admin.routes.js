@@ -121,19 +121,31 @@ router.post('/categories', async (req, res) => {
   res.json({ ok: true, id: r.rows[0].id });
 });
 
-// Update routing (pattern, levels, waits, activation) for a category.
+// Update routing (pattern, levels, waits, trades flag, activation) for a category.
 router.put('/categories/:id', async (req, res) => {
-  const { name, pattern, l1_emp_id, l2_emp_id, l3_emp_id,
+  const { name, pattern, has_trades, l1_emp_id, l2_emp_id, l3_emp_id,
     wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active } = req.body || {};
   await q(
     `UPDATE categories SET name=COALESCE($2,name), pattern=COALESCE($3,pattern),
-       l1_emp_id=$4, l2_emp_id=$5, l3_emp_id=$6,
-       wait_unassigned_mins=COALESCE($7,wait_unassigned_mins),
-       wait_cycle_mins=COALESCE($8,wait_cycle_mins),
-       wait_l3_mins=COALESCE($9,wait_l3_mins),
-       active=COALESCE($10,active) WHERE id=$1`,
-    [req.params.id, name, pattern, l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
+       has_trades=COALESCE($4,has_trades),
+       l1_emp_id=$5, l2_emp_id=$6, l3_emp_id=$7,
+       wait_unassigned_mins=COALESCE($8,wait_unassigned_mins),
+       wait_cycle_mins=COALESCE($9,wait_cycle_mins),
+       wait_l3_mins=COALESCE($10,wait_l3_mins),
+       active=COALESCE($11,active) WHERE id=$1`,
+    [req.params.id, name, pattern, (typeof has_trades === 'boolean' ? has_trades : null),
+     l1_emp_id || null, l2_emp_id || null, l3_emp_id || null,
      wait_unassigned_mins, wait_cycle_mins, wait_l3_mins, active]);
+  res.json({ ok: true });
+});
+
+// Delete a category (only if no tickets reference it; otherwise deactivate instead).
+router.delete('/categories/:id', async (req, res) => {
+  const used = (await q('SELECT COUNT(*)::int n FROM tickets WHERE category_id=$1', [req.params.id])).rows[0].n;
+  if (used > 0) return res.status(409).json({ error: `Can't delete — ${used} ticket(s) use this category. Deactivate it instead.` });
+  await q('DELETE FROM trades WHERE category_id=$1', [req.params.id]);
+  await q('DELETE FROM category_l1_pool WHERE category_id=$1', [req.params.id]);
+  await q('DELETE FROM categories WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
 });
 
@@ -176,6 +188,12 @@ router.put('/trades/:id', async (req, res) => {
   const { name, l1_emp_id, active } = req.body || {};
   await q('UPDATE trades SET name=COALESCE($2,name), l1_emp_id=$3, active=COALESCE($4,active) WHERE id=$1',
     [req.params.id, name, l1_emp_id || null, active]);
+  res.json({ ok: true });
+});
+router.delete('/trades/:id', async (req, res) => {
+  const used = (await q('SELECT COUNT(*)::int n FROM tickets WHERE trade_id=$1', [req.params.id])).rows[0].n;
+  if (used > 0) return res.status(409).json({ error: `Can't delete — ${used} ticket(s) use this trade. Deactivate it instead.` });
+  await q('DELETE FROM trades WHERE id=$1', [req.params.id]);
   res.json({ ok: true });
 });
 

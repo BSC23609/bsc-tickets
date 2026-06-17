@@ -341,19 +341,27 @@
         const pool = c.l1_pool || [];
         const poolBoxes = employees.map(e => `<label class="flex items-center gap-1.5 text-xs py-0.5">
             <input type="checkbox" class="pool_${c.id}" value="${e.id}" ${pool.includes(e.id)?'checked':''}> ${esc(e.name)}</label>`).join('');
+        const trades = c.trades || [];
+        const tradeRows = trades.map(t => `<div class="flex items-center gap-2 mb-1.5">
+            <input class="inp flex-1 text-xs" id="t${t.id}_name" value="${esc(t.name)}">
+            <select class="inp max-w-[190px] text-xs" id="t${t.id}_l1" title="L1 handler for this trade">${empOptions(t.l1_emp_id)}</select>
+            <button onclick="saveTrade(${t.id})" class="text-xs text-brand-600 hover:underline">Save</button>
+            <button onclick="delTrade(${t.id})" class="text-xs text-red-600 hover:underline">Delete</button>
+          </div>`).join('') || '<div class="text-xs text-slate-400 mb-1">No trades yet — add one below.</div>';
         return `<div class="card p-4">
-          <div class="flex items-center justify-between mb-3 gap-2">
+          <div class="flex items-center justify-between mb-2 gap-2">
             <div class="font-bold">${esc(c.name)} ${c.active?'':'<span class="text-xs text-slate-400">(inactive)</span>'}</div>
             <select class="inp max-w-[220px]" id="c${c.id}_pat" onchange="togglePattern(${c.id})">
               <option value="assign" ${isAssign?'selected':''}>L2 assigns</option>
               <option value="direct" ${!isAssign?'selected':''}>Direct to L1</option></select>
           </div>
+          <label class="flex items-center gap-2 text-xs mb-3"><input type="checkbox" id="c${c.id}_ht" ${c.has_trades?'checked':''} onchange="toggleTrades(${c.id})"> Uses trades (sub-types, each with its own L1 handler)</label>
           <div id="assignFields_${c.id}" class="${isAssign?'':'hidden'}">
             <div class="grid sm:grid-cols-2 gap-3 items-end mb-3">
               <div><label class="lbl">L2 — receives &amp; assigns</label><select class="inp" id="c${c.id}_l2">${empOptions(c.l2_emp_id)}</select></div>
               <div><label class="lbl">L3 — escalation (optional)</label><select class="inp" id="c${c.id}_l3">${empOptions(c.l3_emp_id)}</select></div>
             </div>
-            <div class="mb-3"><label class="lbl">L1 pool — handlers L2 can assign to</label>
+            <div class="mb-3 ${c.has_trades?'hidden':''}" id="poolWrap_${c.id}"><label class="lbl">L1 pool — handlers L2 can assign to</label>
               <div class="grid sm:grid-cols-3 gap-x-4 max-h-44 overflow-y-auto border border-slate-200 rounded-lg p-2 mt-1">${poolBoxes}</div></div>
             <div class="grid sm:grid-cols-3 gap-3 items-end">
               <div><label class="lbl">Nudge L2 until assigned (min)</label><input type="number" class="inp" id="c${c.id}_wu" value="${c.wait_unassigned_mins}"></div>
@@ -363,13 +371,23 @@
           </div>
           <div id="directFields_${c.id}" class="${isAssign?'hidden':''}">
             <div class="grid sm:grid-cols-2 gap-3 items-end">
-              <div><label class="lbl">L1 — handler</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>
+              <div class="${c.has_trades?'hidden':''}"><label class="lbl">L1 — handler</label><select class="inp" id="c${c.id}_l1">${empOptions(c.l1_emp_id)}</select></div>
               <div><label class="lbl">L1 reminder cycle (min)</label><input type="number" class="inp" id="c${c.id}_wcd" value="${c.wait_cycle_mins}"></div>
             </div>
           </div>
-          <div class="flex gap-2 mt-3">
+          <div id="tradesBox_${c.id}" class="${c.has_trades?'':'hidden'} mt-3 border-t border-slate-100 pt-3">
+            <label class="lbl">Trades (sub-types)</label>
+            <div class="mt-1">${tradeRows}</div>
+            <div class="flex items-center gap-2 mt-2">
+              <input class="inp flex-1 text-xs" id="c${c.id}_newtrade" placeholder="New trade name">
+              <select class="inp max-w-[190px] text-xs" id="c${c.id}_newtradel1" title="L1 handler">${empOptions(null)}</select>
+              <button onclick="addTrade(${c.id})" class="btn text-xs">Add trade</button>
+            </div>
+          </div>
+          <div class="flex gap-2 mt-3 items-center">
             <button onclick="saveCat(${c.id})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
             <button onclick="toggleCat(${c.id},${!c.active})" class="text-xs ${c.active?'text-red-600':'text-emerald-600'} hover:underline px-2">${c.active?'Deactivate':'Activate'}</button>
+            <button onclick="delCat(${c.id},${JSON.stringify(c.name)})" class="text-xs text-red-600 hover:underline px-2 ml-auto">Delete category</button>
           </div>
         </div>`;
       }).join('');
@@ -381,7 +399,8 @@
     }
     async function saveCat(id) {
       const pattern = gv(`c${id}_pat`);
-      const body = { pattern };
+      const htEl = document.getElementById(`c${id}_ht`);
+      const body = { pattern, has_trades: htEl ? htEl.checked : false };
       if (pattern === 'direct') {
         body.l1_emp_id = +gv(`c${id}_l1`) || null;
         body.wait_cycle_mins = +gv(`c${id}_wcd`) || 120;
@@ -394,12 +413,39 @@
       }
       try {
         await api(`/admin/categories/${id}`, { method:'PUT', body });
-        if (pattern !== 'direct') {
+        if (pattern !== 'direct' && !body.has_trades) {
           const emp_ids = Array.from(document.querySelectorAll(`.pool_${id}:checked`)).map(x => +x.value);
           await api(`/admin/categories/${id}/pool`, { method:'PUT', body:{ emp_ids } });
         }
         toast('Routing saved', 'success'); renderCategories();
       } catch (e) { toast(e.message, 'error'); }
+    }
+    function toggleTrades(id){
+      const on = document.getElementById(`c${id}_ht`).checked;
+      const tb = document.getElementById(`tradesBox_${id}`); if(tb) tb.classList.toggle('hidden', !on);
+      const pw = document.getElementById(`poolWrap_${id}`); if(pw) pw.classList.toggle('hidden', on);
+    }
+    async function addTrade(catId){
+      const name = val(`c${catId}_newtrade`); if(!name) return toast('Trade name required','error');
+      const l1 = +gv(`c${catId}_newtradel1`) || null;
+      try{ await api('/admin/trades',{method:'POST',body:{ category_id:catId, name, l1_emp_id:l1 }});
+        toast('Trade added','success'); renderCategories(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function saveTrade(id){
+      const name = val(`t${id}_name`); const l1 = +gv(`t${id}_l1`) || null;
+      try{ await api(`/admin/trades/${id}`,{method:'PUT',body:{ name, l1_emp_id:l1 }}); toast('Trade saved','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function delTrade(id){
+      if(!confirm('Delete this trade?')) return;
+      try{ await api(`/admin/trades/${id}`,{method:'DELETE'}); toast('Trade deleted','info'); renderCategories(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function delCat(id,name){
+      if(!confirm(`Delete category "${name}"? This removes its trades and routing.`)) return;
+      try{ await api(`/admin/categories/${id}`,{method:'DELETE'}); toast('Category deleted','info'); renderCategories(); }
+      catch(e){ toast(e.message,'error'); }
     }
     async function toggleCat(id, active){ await api(`/admin/categories/${id}`,{method:'PUT',body:{active}}); toast('Updated','success'); renderCategories(); }
     async function addCat() {
