@@ -77,6 +77,10 @@
         <h3 class="font-bold text-sm mb-3">Recent Tickets</h3>
         <div id="recentTable" class="overflow-x-auto"></div>
       </div>
+      <div class="card p-4 mt-5">
+        <h3 class="font-bold text-sm mb-3">Outpass / Gatepass entries <span class="font-normal text-slate-400">— review &amp; clean up test entries</span></h3>
+        <div id="outpassTable" class="overflow-x-auto"></div>
+      </div>
     </section>
 
     <!-- EMPLOYEES -->
@@ -257,10 +261,28 @@
         : '<div class="text-sm text-slate-400 py-3">No handler activity in this range.</div>';
 
       document.getElementById('recentTable').innerHTML = table(
-        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime'],
+        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime',''],
         d.recent.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
           STATUS_STYLE[t.status]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
-          t.status==='closed'?fmtDuration(t.downtime_mins):'—']));
+          t.status==='closed'?fmtDuration(t.downtime_mins):'—',
+          `<button onclick="delTicket(${t.id}, ${JSON.stringify(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+
+      const ops = await api(`/admin/outpass-list?from=${from}&to=${to}`);
+      document.getElementById('outpassTable').innerHTML = table(
+        ['Ref','Type','Requester','Date','Purpose','Status',''],
+        ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
+          o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
+          `<button onclick="delOutpass(${o.id}, ${JSON.stringify(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    async function delTicket(id, ref){
+      if(!confirm(`Delete ticket ${ref}?\n\nThis permanently removes the ticket and its history. Use only for test entries.`)) return;
+      try{ await api(`/admin/tickets/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function delOutpass(id, ref){
+      if(!confirm(`Delete pass ${ref}?\n\nThis permanently removes the entry. Use only for test entries.`)) return;
+      try{ await api(`/admin/outpass/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      catch(e){ toast(e.message,'error'); }
     }
     function drawBar(id, labels, data) {
       if (charts[id]) charts[id].destroy();

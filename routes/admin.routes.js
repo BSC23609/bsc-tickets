@@ -197,6 +197,34 @@ router.delete('/trades/:id', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ===================== CLEANUP (delete individual test entries) =====================
+// Delete a single ticket (its photos + event history cascade away).
+router.delete('/tickets/:id', async (req, res) => {
+  const r = await q('DELETE FROM tickets WHERE id=$1 RETURNING ref_no', [req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Ticket not found' });
+  res.json({ ok: true, ref_no: r.rows[0].ref_no });
+});
+
+// Recent outpass/gatepass entries (for review + cleanup).
+router.get('/outpass-list', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-12-31';
+  const rows = (await q(
+    `SELECT o.id, o.ref_no, o.type, o.req_date, o.status, o.purpose,
+            r.name AS requester_name
+     FROM outpass_requests o LEFT JOIN employees r ON r.id=o.requester_id
+     WHERE o.req_date BETWEEN $1 AND $2
+     ORDER BY o.id DESC LIMIT 300`, [from, to])).rows;
+  res.json(rows);
+});
+
+// Delete a single outpass/gatepass entry.
+router.delete('/outpass/:id', async (req, res) => {
+  const r = await q('DELETE FROM outpass_requests WHERE id=$1 RETURNING ref_no', [req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Entry not found' });
+  res.json({ ok: true, ref_no: r.rows[0].ref_no });
+});
+
 // ===================== DASHBOARD =====================
 router.get('/dashboard', async (req, res) => {
   const from = req.query.from || '2000-01-01';
