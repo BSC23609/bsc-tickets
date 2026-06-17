@@ -452,6 +452,10 @@
             <label class="flex items-center gap-2 text-sm"><input id="ed_admin" type="checkbox" ${e.is_admin?'checked':''}> Admin access</label>
             <label class="flex items-center gap-2 text-sm"><input id="ed_active" type="checkbox" ${e.active?'checked':''}> Active</label>
           </div>
+          <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
+            <input id="ed_convmgr" type="checkbox" ${e.conveyance_needs_manager!==false?'checked':''}>
+            <span>Local Conveyance needs reporting-manager approval <span class="text-slate-400 normal-case font-normal">(uncheck to let this person's trips count without manager sign-off)</span></span>
+          </label>
         </div>
         <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
           <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
@@ -467,6 +471,7 @@
         reporting_manager_emp_id: document.getElementById('ed_rm').value || null,
         is_admin: document.getElementById('ed_admin').checked,
         active: document.getElementById('ed_active').checked,
+        conveyance_needs_manager: document.getElementById('ed_convmgr').checked,
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
       try{

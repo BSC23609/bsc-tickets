@@ -10,7 +10,7 @@ router.use(auth.requireAuth, auth.requireAdmin);
 // ===================== EMPLOYEES =====================
 router.get('/employees', async (req, res) => {
   const { rows } = await q(
-    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category,reporting_manager_emp_id
+    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category,reporting_manager_emp_id,conveyance_needs_manager
      FROM employees ORDER BY emp_no`);
   res.json(rows);
 });
@@ -34,19 +34,20 @@ router.post('/employees', async (req, res) => {
 });
 
 router.put('/employees/:id', async (req, res) => {
-  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category, reporting_manager_emp_id } = req.body || {};
+  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category, reporting_manager_emp_id, conveyance_needs_manager } = req.body || {};
   const cat = ['CAT1', 'CAT2'].includes(expense_category) ? expense_category : null;
   const rm = reporting_manager_emp_id ? Number(reporting_manager_emp_id) : null;
+  const convMgr = (conveyance_needs_manager === undefined || conveyance_needs_manager === null) ? null : !!conveyance_needs_manager;
   try {
     await q(
       `UPDATE employees SET
          emp_no=COALESCE($2,emp_no), name=COALESCE($3,name), email=$4, phone=$5,
          department=$6, job_title=$7, is_admin=COALESCE($8,is_admin),
          active=COALESCE($9,active), expense_category=COALESCE($10,expense_category),
-         reporting_manager_emp_id=$11
+         reporting_manager_emp_id=$11, conveyance_needs_manager=COALESCE($12,conveyance_needs_manager)
        WHERE id=$1`,
       [req.params.id, emp_no ? String(emp_no).trim() : null, name, email || null, normPhone(phone),
-       department || null, job_title || null, is_admin, active, cat, rm]);
+       department || null, job_title || null, is_admin, active, cat, rm, convMgr]);
     res.json({ ok: true });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'That employee code is already in use' });

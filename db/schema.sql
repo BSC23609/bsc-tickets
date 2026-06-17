@@ -263,6 +263,8 @@ CREATE TABLE IF NOT EXISTS conveyance_trips (
 );
 CREATE INDEX IF NOT EXISTS idx_conv_trips_emp_period ON conveyance_trips(employee_id, period);
 CREATE INDEX IF NOT EXISTS idx_conv_trips_token      ON conveyance_trips(action_token);
+-- Per-employee switch: does this person's conveyance need reporting-manager approval? (default yes)
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS conveyance_needs_manager BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);
 CREATE INDEX IF NOT EXISTS idx_exp_status ON expense_submissions(status);
 CREATE INDEX IF NOT EXISTS idx_exp_form   ON expense_submissions(form_type);

@@ -196,7 +196,7 @@
 
   <script src="/js/common.js"></script>
   <script>
-    let me = {}, meta = {}, cv = { trips:[], submission:null, manager:null, can_submit:false, log_hours:48, editingId:null };
+    let me = {}, meta = {}, cv = { trips:[], submission:null, manager:null, needs_manager:true, can_submit:false, log_hours:48, editingId:null };
     // Disables a button + shows a spinner while its async action runs; blocks double-clicks.
     async function clickBusy(btn, label, fn){
       if(!btn || btn.dataset.busy) return;
@@ -278,10 +278,13 @@
       try{ d=await api('/expense/conveyance/'+period); }
       catch(e){ toast('Could not load conveyance — '+(e.message||'server error'),'error'); return; }
       cv.trips=d.trips||[]; cv.submission=d.submission||{}; cv.manager=d.manager;
+      cv.needs_manager=d.needs_manager!==false;
       cv.can_submit=d.can_submit; cv.log_hours=d.log_hours; cv.period=period;
       const ml=document.getElementById('cv_mgrline');
-      ml.innerHTML = cv.manager ? `Trips are approved by <b>${esc(cv.manager.name)}</b> · log within ${cv.log_hours}h to stay on-time`
-        : `<span class="text-red-600 font-semibold">⚠ No reporting manager set — ask an admin before adding trips.</span>`;
+      ml.innerHTML = !cv.needs_manager
+        ? `Your trips are logged directly — no reporting-manager approval needed.`
+        : (cv.manager ? `Trips are approved by <b>${esc(cv.manager.name)}</b> · log within ${cv.log_hours}h to stay on-time`
+        : `<span class="text-red-600 font-semibold">⚠ No reporting manager set — ask an admin before adding trips.</span>`);
       const st=(cv.submission&&cv.submission.status)||'draft';
       const inFlight=['pending_hr','pending_final','approved'].includes(st);
       document.getElementById('cv_addcard').classList.toggle('hidden', inFlight);
@@ -340,7 +343,8 @@
         toast(r.notified===false?'Trip updated — manager has no WhatsApp number on file':'Trip updated & re-sent for approval','success');
       } else {
         const r=await api('/expense/conveyance/'+period+'/trip',{method:'POST',body:v});
-        if(r.notified===false) toast('Trip saved, but '+(cv.manager?cv.manager.name:'your manager')+' has no WhatsApp number — ask an admin to add it','info');
+        if(r.auto) toast('Trip logged','success');
+        else if(r.notified===false) toast('Trip saved, but '+(cv.manager?cv.manager.name:'your manager')+' has no WhatsApp number — ask an admin to add it','info');
         else toast('Trip sent to '+(cv.manager?cv.manager.name:'manager')+' for approval','success');
       }
       resetTripForm(); await loadConveyance();
@@ -525,7 +529,9 @@
 
     // ===== shared helpers =====
     const esc = s => (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-    function pickFile(cb){ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,application/pdf';
+    function pickFile(cb, source){ const inp=document.createElement('input'); inp.type='file';
+      if(source==='camera'){ inp.accept='image/*'; inp.setAttribute('capture','environment'); }
+      else { inp.accept='image/*,application/pdf'; }
       inp.onchange=()=>{ if(inp.files[0]) cb(inp.files[0]); }; inp.click(); }
     async function uploadBill(ref, file){
       const sess = await api('/expense/bill-session',{method:'POST',body:{ref, name:file.name}});
@@ -534,10 +540,13 @@
       const item = await put.json();
       return { name: sess.file_name, web_url:item.webUrl, drive_item_id:item.id, mime:file.type||'' };
     }
-    function billCell(bill, locked, fnCall){
+    function billCell(bill, locked, camCall, fileCall){
+      fileCall = fileCall || camCall;
       if(locked) return bill&&bill.web_url?`<a href="${bill.web_url}" target="_blank" class="text-brand-600 text-xs underline">view</a>`:'<span class="text-slate-300 text-xs">—</span>';
-      if(bill&&bill.web_url) return `<a href="${bill.web_url}" target="_blank" class="text-brand-600 text-xs underline mr-1">view</a><button onclick="${fnCall}" class="text-slate-400 text-xs hover:underline">replace</button>`;
-      return `<button onclick="${fnCall}" class="btn-ghost !py-1 !px-2 text-xs">Upload</button>`;
+      if(bill&&bill.web_url) return `<a href="${bill.web_url}" target="_blank" class="text-brand-600 text-xs underline mr-1">view</a><button onclick="${fileCall}" class="text-slate-400 text-xs hover:underline">replace</button>`;
+      return `<span class="inline-flex gap-1">
+        <button type="button" onclick="${camCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Take photo">📷</button>
+        <button type="button" onclick="${fileCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Choose from gallery / files">Upload</button></span>`;
     }
 
     // ===== OUTSTATION =====
@@ -603,17 +612,26 @@
       const noteHtml = note==='food' ? `<span class="text-[11px] text-slate-400">up to ${fmtMoney(lim.food)}/day</span>` : '';
       return `<div class="rounded-xl border border-line bg-mist/50 p-3 mb-3">
         <div class="flex items-center justify-between mb-1.5"><div class="eyebrow">${label}</div>${noteHtml}</div>
-        ${rowsIx.length?`<table class="w-full text-sm"><tbody>${rowsIx.map(({it,ii})=>otRow(ti,ii,it,locked)).join('')}</tbody></table>`:''}
-        ${locked?'':`<button onclick="addItem(${ti},'${cat}')" class="addrow mt-1">+ Add ${label.toLowerCase()} entry</button>`}
+        <div class="space-y-2">${rowsIx.map(({it,ii})=>otRow(ti,ii,it,locked)).join('')}</div>
+        ${locked?'':`<button onclick="addItem(${ti},'${cat}')" class="addrow mt-2">+ Add ${label.toLowerCase()} entry</button>`}
       </div>`;
     }
     function otRow(ti,ii,it,locked){
-      return `<tr class="border-b border-line ${it.flag?'bg-amber-50/60':''}">
-        <td class="py-1.5 pr-2 w-32"><input type="date" value="${it.date||''}" ${locked?'disabled':''} onchange="updItem(${ti},${ii},'date',this.value);refreshOut()" class="field !py-1 !rounded-lg text-xs"></td>
-        <td class="py-1.5 pr-2"><input value="${esc(it.desc)}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'desc',this.value)" placeholder="Description / vendor" class="field !py-1 !rounded-lg text-xs"></td>
-        <td class="py-1.5 pr-2 w-28"><input type="number" min="0" step="any" value="${it.amount||''}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'amount',this.value)" onchange="refreshOut()" class="field !py-1 !rounded-lg text-xs text-right">${it.flag?'<div class="text-[10px] text-amber-600 text-right mt-0.5">over limit</div>':''}</td>
-        <td class="py-1.5 pr-1 w-16">${billCell(it.bill,locked,`billOut(${ti},${ii})`)}</td>
-        <td class="py-1.5 text-right w-6">${locked?'':`<button onclick="delItem(${ti},${ii})" class="text-red-500 hover:text-red-700 text-lg leading-none">&times;</button>`}</td></tr>`;
+      return `<div class="rounded-lg border ${it.flag?'border-amber-300 bg-amber-50/60':'border-line bg-white'} p-2">
+        <div class="flex flex-wrap gap-2 items-end">
+          <div class="w-28"><label class="fieldlabel">Date</label>
+            <input type="date" value="${it.date||''}" ${locked?'disabled':''} onchange="updItem(${ti},${ii},'date',this.value);refreshOut()" class="field !py-1.5 text-xs w-full"></div>
+          <div class="flex-1 min-w-[9rem]"><label class="fieldlabel">Description</label>
+            <input value="${esc(it.desc)}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'desc',this.value)" placeholder="Description / vendor" class="field !py-1.5 text-xs w-full"></div>
+          <div class="w-24"><label class="fieldlabel">Amount (₹)</label>
+            <input type="number" min="0" step="any" value="${it.amount||''}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'amount',this.value)" onchange="refreshOut()" class="field !py-1.5 text-xs text-right w-full"></div>
+          <div class="flex items-center gap-2 pb-1">
+            ${billCell(it.bill,locked,`billOut(${ti},${ii},'camera')`,`billOut(${ti},${ii},'gallery')`)}
+            ${locked?'':`<button onclick="delItem(${ti},${ii})" class="text-red-500 hover:text-red-700 text-xl leading-none" title="Remove">&times;</button>`}
+          </div>
+        </div>
+        ${it.flag?'<div class="text-[10px] text-amber-600 mt-1">over the daily limit</div>':''}
+      </div>`;
     }
     function renderFlagsList(){
       const lim=meta.limits[meta.category]; const msgs=[];
@@ -629,7 +647,7 @@
     function delTrip(ti){ otTrips.splice(ti,1); if(!otTrips.length) otTrips=[blankTrip()]; refreshOut(false); }
     function addItem(ti,cat){ otTrips[ti].items.push({category:cat||'others',date:'',desc:'',amount:'',bill:null}); refreshOut(false); }
     function delItem(ti,ii){ otTrips[ti].items.splice(ii,1); refreshOut(false); }
-    function billOut(ti,ii){ pickFile(async f=>{ try{ toast('Uploading bill…','info'); const bill=await uploadBill(otDraft.ref_no,f); otTrips[ti].items[ii].bill=bill; await saveOutstation(true); refreshOut(false); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }); }
+    function billOut(ti,ii,source){ pickFile(async f=>{ try{ toast('Uploading bill…','info'); const bill=await uploadBill(otDraft.ref_no,f); otTrips[ti].items[ii].bill=bill; await saveOutstation(true); refreshOut(false); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source); }
     async function saveOutstation(silent){ try{ const r=await api('/expense/outstation/'+otDraft.id,{method:'PUT',body:{trips:otTrips}}); if(!silent) toast(`Saved — ${fmtMoney(r.total)}`,'success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); throw e; } }
     async function submitOutstation(){
       try{ await saveOutstation(true); }catch(e){ return; }
@@ -650,7 +668,7 @@
           <div><label class="fieldlabel">Date</label><input type="date" value="${it.date||''}" onchange="updMisc(${i},'date',this.value)" class="field !py-1.5 text-xs"></div>
           <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Description</label><input value="${esc(it.desc)}" oninput="updMisc(${i},'desc',this.value)" placeholder="Purpose" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Amount</label><input type="number" min="0" step="any" value="${it.amount||''}" oninput="updMisc(${i},'amount',this.value)" class="field !py-1.5 text-xs text-right w-28"></div>
-          <div><label class="fieldlabel">Bill</label><div>${billCell(it.bill,false,`billMisc(${i})`)}</div></div>
+          <div><label class="fieldlabel">Bill</label><div>${billCell(it.bill,false,`billMisc(${i},'camera')`,`billMisc(${i},'gallery')`)}</div></div>
           <button onclick="delMisc(${i})" class="text-red-500 hover:text-red-700 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') || '<div class="text-sm text-slate-400 py-6 text-center">No items yet — add your first.</div>';
       document.getElementById('ms_total').textContent=fmtMoney(msTotal());
@@ -658,7 +676,7 @@
     function updMisc(i,k,v){ msItems[i][k]=v; if(k==='amount') document.getElementById('ms_total').textContent=fmtMoney(msTotal()); }
     async function addMiscItem(){ await ensureMiscDraft(); msItems.push({date:'',desc:'',amount:'',bill:null}); renderMisc(); }
     function delMisc(i){ msItems.splice(i,1); renderMisc(); }
-    function billMisc(i){ pickFile(async f=>{ try{ await ensureMiscDraft(); toast('Uploading bill…','info'); const bill=await uploadBill(msDraft.ref_no,f); msItems[i].bill=bill; await saveMisc(true); renderMisc(); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }); }
+    function billMisc(i,source){ pickFile(async f=>{ try{ await ensureMiscDraft(); toast('Uploading bill…','info'); const bill=await uploadBill(msDraft.ref_no,f); msItems[i].bill=bill; await saveMisc(true); renderMisc(); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source); }
     async function saveMisc(silent){ await ensureMiscDraft(); try{ const r=await api('/expense/misc/'+msDraft.id,{method:'PUT',body:{items:msItems}}); if(!silent) toast('Saved','success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); } }
     async function submitMisc(){
       if(!msItems.length) return toast('Add at least one item','error');

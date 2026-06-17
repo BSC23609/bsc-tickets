@@ -171,13 +171,14 @@ router.get('/conveyance/:period', async (req, res) => {
     submission: { id: row.id, ref_no: row.ref_no, status: row.status, total_amount: row.total_amount,
       pdf_token: row.pdf_token, return_reason: row.return_reason, return_stage: row.return_stage },
     manager: mgr ? { name: mgr.name } : null,
+    needs_manager: req.user.conveyance_needs_manager !== false,
     log_hours: pol.log_hours,
     pending_count: trips.filter(t => t.status === 'pending').length,
     trips,
   });
 });
 
-// Add one trip → send to the reporting manager immediately.
+// Add one trip → send to the reporting manager (or auto-approve if that's off for this employee).
 router.post('/conveyance/:period/trip', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
@@ -185,10 +186,23 @@ router.post('/conveyance/:period/trip', async (req, res) => {
   const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
   if (!b.date) return res.status(400).json({ error: 'Pick the trip date.' });
   if (!(km > 0)) return res.status(400).json({ error: 'Enter the distance in km.' });
-  const mgr = await resolveManager(req.user.id);
-  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned. Ask an admin to set yours in the employee directory.' });
   const pol = await getPolicy();
   const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
+  const needsMgr = req.user.conveyance_needs_manager !== false;
+
+  if (!needsMgr) {
+    // No manager approval required for this employee — log the trip as approved straight away.
+    const trip = (await q(`INSERT INTO conveyance_trips
+      (employee_id,period,trip_date,from_loc,to_loc,purpose,vehicle,km,rate,amount,status,reviewed_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'approved',now())
+      RETURNING ${TRIP_COLS}`,
+      [req.user.id, period, b.date, (b.from || '').trim(), (b.to || '').trim(), (b.purpose || '').trim(),
+       veh, km, rate, amount])).rows[0];
+    return res.json({ ok: true, trip, auto: true });
+  }
+
+  const mgr = await resolveManager(req.user.id);
+  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned. Ask an admin to set yours, or turn off manager approval for you in the employee directory.' });
   const token = crypto.randomBytes(20).toString('hex');
   const trip = (await q(`INSERT INTO conveyance_trips
     (employee_id,period,trip_date,from_loc,to_loc,purpose,vehicle,km,rate,amount,status,approver_emp_id,approver_name,action_token)
@@ -403,7 +417,7 @@ function computeOutstation(body, limits) {
   const trips = (body.trips || []).map(trip => {
     const items = (trip.items || []).map(it => {
       const amount = Math.max(0, parseFloat(it.amount) || 0); total += amount;
-      const category = ['accommodation', 'food', 'conveyance', 'others'].includes(it.category) ? it.category : 'others';
+      const category = ['accommodation', 'food', 'conveyance', 'others', 'long_distance'].includes(it.category) ? it.category : 'others';
       return { category, date: it.date || '', desc: (it.desc || '').trim(), amount,
         bill: it.bill || null, bill_name: (it.bill && it.bill.name) || null, flag: false };
     });
