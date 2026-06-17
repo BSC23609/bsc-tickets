@@ -18,7 +18,8 @@ router.get('/meta', async (req, res) => {
   const trades = (await q(
     `SELECT id,category_id,name FROM trades WHERE active=TRUE ORDER BY sort_order,name`)).rows;
   const locs = (await q('SELECT id,name FROM locations WHERE active=TRUE ORDER BY sort_order,name')).rows;
-  res.json({ categories: cats, trades, locations: locs, priorities: ['Low','Medium','High','Critical'] });
+  const people = (await q('SELECT id,name,emp_no FROM employees WHERE active=TRUE ORDER BY name')).rows;
+  res.json({ categories: cats, trades, locations: locs, people, priorities: ['Low','Medium','High','Critical'] });
 });
 
 // Resolve initial routing for a category by its pattern.
@@ -54,10 +55,18 @@ router.post('/', async (req, res) => {
   const { category_id, trade_id, priority, subject, description, location_id } = req.body || {};
   if (!category_id || !subject) return res.status(400).json({ error: 'Category and subject are required' });
   const pri = ['Low','Medium','High','Critical'].includes(priority) ? priority : 'Medium';
+  const isSelf = !!(req.body && req.body.self);
+  const requestedById = (req.body && +req.body.requested_by_id) || null;
 
   let route;
   try { route = await resolveRoute(category_id, trade_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
+
+  // Self-ticket: the raiser is the handler (self-assigned); the category L2/L3 stay on as oversight.
+  if (isSelf) {
+    const cat = (await q('SELECT l2_emp_id,l3_emp_id FROM categories WHERE id=$1', [category_id])).rows[0] || {};
+    route = { ...route, pattern: 'self', l1: req.user.id, l2: cat.l2_emp_id || null, l3: cat.l3_emp_id || null };
+  }
 
   let locText = null;
   if (location_id) {
@@ -72,23 +81,37 @@ router.post('/', async (req, res) => {
     const ins = await client.query(
       `INSERT INTO tickets
         (ref_no,requester_id,category_id,trade_id,priority,subject,description,location_id,location_text,
-         status,l1_emp_id,l2_emp_id,l3_emp_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12) RETURNING *`,
+         status,l1_emp_id,l2_emp_id,l3_emp_id,is_self,requested_by_id,assigned_at,assigned_by_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [ref, req.user.id, category_id, trade_id || null, pri, subject, description || null,
-       location_id || null, locText, route.l1, route.l2, route.l3]
+       location_id || null, locText, route.l1, route.l2, route.l3,
+       isSelf, isSelf ? requestedById : null,
+       isSelf ? new Date() : null, isSelf ? req.user.id : null]
     );
     const t = ins.rows[0];
     await client.query(
       `INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'raised',$2,$3)`,
       [t.id, req.user.id, subject]);
+    if (isSelf)
+      await client.query(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'assigned',$2,'Self-assigned')`,
+        [t.id, req.user.id]);
     await client.query('COMMIT');
     res.json({ ok: true, id: t.id, ref_no: ref });
 
-    // After responding: notify the initial recipient (L1 for direct, L2 for assign).
     background((async () => {
-      const rec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
       const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
-      if (rec) await wati.notify.raised(rec, enriched);
+      if (isSelf) {
+        // Notify category L2 (oversight), the delegator (CMD/CEO), and the raiser — deduped.
+        const seen = new Set();
+        for (const id of [route.l2, requestedById, req.user.id]) {
+          if (!id || seen.has(id)) continue; seen.add(id);
+          const p = await empById(id);
+          if (p && p.phone) await wati.notify.raised(p, enriched);
+        }
+      } else {
+        const rec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
+        if (rec) await wati.notify.raised(rec, enriched);
+      }
       await excel.syncLogToOneDrive();
     })());
   } catch (e) {
@@ -128,7 +151,8 @@ router.get('/:id', async (req, res) => {
   const { rows } = await q(
     `SELECT t.*, c.name AS category_name, c.pattern,
             tr.name AS trade_name, r.name AS requester_name, r.department AS requester_dept, r.phone AS requester_phone,
-            l1.name AS l1_name, l2.name AS l2_name, l3.name AS l3_name, ab.name AS assigned_by_name
+            l1.name AS l1_name, l2.name AS l2_name, l3.name AS l3_name, ab.name AS assigned_by_name,
+            rb.name AS requested_by_name
      FROM tickets t
      JOIN categories c ON c.id=t.category_id
      LEFT JOIN trades tr ON tr.id=t.trade_id
@@ -137,6 +161,7 @@ router.get('/:id', async (req, res) => {
      LEFT JOIN employees l2 ON l2.id=t.l2_emp_id
      LEFT JOIN employees l3 ON l3.id=t.l3_emp_id
      LEFT JOIN employees ab ON ab.id=t.assigned_by_id
+     LEFT JOIN employees rb ON rb.id=t.requested_by_id
      WHERE t.id=$1`, [req.params.id]);
   const t = rows[0];
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -242,7 +267,7 @@ router.post('/:id/in-progress', async (req, res) => {
   res.json({ ok: true });
 });
 
-// ---- handler resolves -> notify requester to confirm ----
+// ---- handler resolves -> notify requester to confirm (or auto-close + notify oversight for self-tickets) ----
 router.post('/:id/resolve', async (req, res) => {
   const t = await loadTicket(req.params.id);
   if (!t) return res.status(404).json({ error: 'Not found' });
@@ -250,6 +275,25 @@ router.post('/:id/resolve', async (req, res) => {
   if (!['open', 'in_progress', 'reopened'].includes(t.status))
     return res.status(400).json({ error: 'Cannot resolve from current state' });
   const note = (req.body && req.body.note) || null;
+
+  if (t.is_self) {
+    // Raiser is the doer — close it straight away and notify the L2 + the delegator (CMD/CEO).
+    await q(`UPDATE tickets SET status='closed', resolved_at=now(), closed_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`, [t.id, req.user.id, note]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'confirmed_closed',$2,'Self-closed')`, [t.id, req.user.id]);
+    res.json({ ok: true, self: true });
+    background((async () => {
+      const seen = new Set([req.user.id]);
+      for (const id of [t.l2_emp_id, t.requested_by_id]) {
+        if (!id || seen.has(id)) continue; seen.add(id);
+        const p = await empById(id);
+        if (p && p.phone) await wati.notify.resolved(p, t, req.user.name);
+      }
+      await excel.syncLogToOneDrive();
+    })());
+    return;
+  }
+
   await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`,
     [t.id, req.user.id, note]);

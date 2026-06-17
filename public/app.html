@@ -69,6 +69,16 @@
             <label class="fieldlabel">Location</label>
             <select id="f_location" class="field"><option value="">Select a location</option></select>
           </div>
+          <div class="sm:col-span-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
+            <label class="flex items-center gap-2 text-sm font-medium text-ink">
+              <input type="checkbox" id="f_self" onchange="onSelfChange()"> Raise this for myself — a task I'll work on
+            </label>
+            <div id="selfWrap" class="hidden mt-2">
+              <label class="fieldlabel">Requested by <span class="text-slate-400 font-normal normal-case">— who asked for this (e.g. CMD / CEO), optional</span></label>
+              <select id="f_requestedby" class="field"><option value="">— nobody / N/A —</option></select>
+              <p class="text-[11px] text-slate-500 mt-1">You'll be the handler. The category's L2 and the person above are notified on raise and when you mark it done.</p>
+            </div>
+          </div>
           <div class="sm:col-span-2">
             <label class="fieldlabel">Subject *</label>
             <input id="f_subject" class="field" placeholder="A short summary of the issue" />
@@ -137,8 +147,14 @@
       const l = document.getElementById('f_location');
       l.innerHTML = '<option value="">Select a location</option>' +
         meta.locations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+      const rb = document.getElementById('f_requestedby');
+      rb.innerHTML = '<option value="">— nobody / N/A —</option>' +
+        (meta.people || []).map(x => `<option value="${x.id}">${x.name}</option>`).join('');
       document.getElementById('f_camera').addEventListener('change', onPhotoInput);
       document.getElementById('f_gallery').addEventListener('change', onPhotoInput);
+    }
+    function onSelfChange() {
+      document.getElementById('selfWrap').classList.toggle('hidden', !document.getElementById('f_self').checked);
     }
 
     function onCategoryChange() {
@@ -190,6 +206,8 @@
           priority: document.getElementById('f_priority').value,
           subject, description: document.getElementById('f_description').value.trim(),
           location_id: +document.getElementById('f_location').value || null,
+          self: document.getElementById('f_self').checked,
+          requested_by_id: +document.getElementById('f_requestedby').value || null,
         }});
         // upload photos straight to OneDrive in parallel (fast) after the ticket exists
         if (selectedPhotos.length) {
@@ -208,6 +226,9 @@
       document.getElementById('f_category').value = '';
       document.getElementById('f_location').value = '';
       document.getElementById('tradeWrap').classList.add('hidden');
+      document.getElementById('f_self').checked = false;
+      document.getElementById('f_requestedby').value = '';
+      document.getElementById('selfWrap').classList.add('hidden');
       selectedPhotos = [];
       renderPhotos();
     }
@@ -311,6 +332,7 @@
             <div class="mono text-[11px] text-slate-400">${t.ref_no}</div>
             <h3 class="font-display font-bold text-lg text-ink mt-0.5">${t.subject}</h3>
             <div class="flex items-center gap-2 mt-2">${statusBadge(t.status)} ${priorityBadge(t.priority)}
+              ${t.is_self ? '<span class="pill text-indigo-700 bg-indigo-50">Self-task</span>' : ''}
               ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">Escalated → L${t.escalation_level}</span>` : ''}</div>
           </div>
           <button onclick="closeDetail()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
@@ -320,6 +342,7 @@
             ${field('Category', t.category_name + (t.trade_name ? ' · ' + t.trade_name : ''))}
             ${field('Location', t.location_text || '—')}
             ${field('Requester', `${t.requester_name} (${t.requester_dept || ''})`)}
+            ${t.requested_by_name ? field('Requested by', t.requested_by_name) : ''}
             ${field('Raised', fmtDateTime(t.raised_at))}
             ${field('Handler L1', t.l1_name || (t.pattern==='assign' ? '<span class="text-amber-600">awaiting assignment</span>' : '—'))}
             ${t.l2_name ? field('Handler L2', t.l2_name) : ''}
@@ -358,7 +381,8 @@
     }
     async function resolveTicket(id){
       const note = prompt('Resolution note (optional):') || '';
-      try { await api(`/tickets/${id}/resolve`, {method:'POST', body:{note}}); toast('Resolved — requester notified','success'); openDetail(id); }
+      try { const r = await api(`/tickets/${id}/resolve`, {method:'POST', body:{note}});
+        toast(r.self ? 'Done & closed — L2 and requester notified' : 'Resolved — requester notified','success'); openDetail(id); }
       catch(e){ toast(e.message,'error'); }
     }
     async function reopenTicket(id){

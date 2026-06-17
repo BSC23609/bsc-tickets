@@ -292,3 +292,7 @@ JOIN (VALUES
   ('HR','PF / ESI',3)
 ) AS t(cat,name,so) ON lower(c.name)=lower(t.cat)
 WHERE NOT EXISTS (SELECT 1 FROM trades x WHERE x.category_id=c.id AND lower(x.name)=lower(t.name));
+
+-- Self-tickets: a person logs a task for themselves (often delegated by CMD/CEO).
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS is_self         BOOLEAN DEFAULT FALSE;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS requested_by_id INT REFERENCES employees(id);
