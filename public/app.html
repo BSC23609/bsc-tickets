@@ -43,6 +43,7 @@
       <button data-tab="raise" data-active="true" class="tabBtn tab">Raise a ticket</button>
       <button data-tab="mine" data-active="false" class="tabBtn tab">My tickets</button>
       <button data-tab="assigned" id="assignedTab" data-active="false" class="tabBtn tab hidden">Assigned to me</button>
+      <button data-tab="dash" data-active="false" class="tabBtn tab">My dashboard</button>
     </div>
 
     <!-- RAISE -->
@@ -114,6 +115,29 @@
     <!-- MINE / ASSIGNED share a list renderer -->
     <section id="tab-mine" class="hidden"><div id="mineList" class="space-y-3"></div></section>
     <section id="tab-assigned" class="hidden"><div id="assignedList" class="space-y-3"></div></section>
+    <section id="tab-dash" class="hidden">
+      <div class="card p-5">
+        <div class="flex items-end justify-between flex-wrap gap-3 mb-4">
+          <div>
+            <div class="eyebrow">Activity report</div>
+            <h2 id="dashTitle" class="font-display text-xl font-bold text-ink">My dashboard</h2>
+          </div>
+          <div class="flex items-end gap-2 flex-wrap">
+            <div><label class="fieldlabel">From</label><input type="date" id="dashFrom" class="field"></div>
+            <div><label class="fieldlabel">To</label><input type="date" id="dashTo" class="field"></div>
+            <button onclick="loadDashboard()" class="btn text-sm">Apply</button>
+          </div>
+        </div>
+        <div class="flex gap-2 flex-wrap mb-4">
+          <button onclick="dashRange('today')" class="btn-ghost text-xs">Today</button>
+          <button onclick="dashRange('week')" class="btn-ghost text-xs">Last 7 days</button>
+          <button onclick="dashRange('month')" class="btn-ghost text-xs">This month</button>
+        </div>
+        <div id="dashCards" class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5"></div>
+        <div id="dashAssigned" class="mb-5"></div>
+        <div id="dashTimesheet"></div>
+      </div>
+    </section>
   </main>
 
   <!-- Detail modal -->
@@ -241,10 +265,11 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['raise','mine','assigned'].forEach(t =>
+      ['raise','mine','assigned','dash'].forEach(t =>
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab));
       if (tab === 'mine') loadList('mine', 'mineList');
       if (tab === 'assigned') loadList('assigned', 'assignedList');
+      if (tab === 'dash') loadDashboard();
     }
 
     async function loadList(scope, elId) {
@@ -253,6 +278,58 @@
       const rows = await api(`/tickets?scope=${scope}`);
       if (!rows.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-12 text-center">No tickets.</div>'; return; }
       el.innerHTML = rows.map(t => card(t, scope)).join('');
+    }
+
+    const istToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    function dashRange(kind){
+      const today = new Date(); const iso = d => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      let from, to = istToday();
+      if (kind === 'today') from = to;
+      else if (kind === 'week') { const d = new Date(today); d.setDate(d.getDate() - 6); from = iso(d); }
+      else if (kind === 'month') { const d = new Date(today); d.setDate(1); from = iso(d); }
+      document.getElementById('dashFrom').value = from;
+      document.getElementById('dashTo').value = to;
+      loadDashboard();
+    }
+    const fmtDay = (iso) => { if (!iso) return ''; const [y,m,d]=iso.split('-'); return new Date(y,m-1,d).toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'}); };
+    const actClass = (e) => ({raised:'text-blue-700 bg-blue-50',assigned:'text-amber-700 bg-amber-50',in_progress:'text-indigo-700 bg-indigo-50',resolved:'text-emerald-700 bg-emerald-50',confirmed_closed:'text-slate-600 bg-slate-100',auto_closed:'text-slate-600 bg-slate-100',forwarded:'text-purple-700 bg-purple-50',escalated_l3:'text-red-700 bg-red-50',escalated_l2:'text-red-700 bg-red-50',reopened:'text-orange-700 bg-orange-50',reminder:'text-slate-600 bg-slate-100'}[e] || 'text-slate-600 bg-slate-100');
+    async function loadDashboard(){
+      const fromV = document.getElementById('dashFrom').value, toV = document.getElementById('dashTo').value;
+      const qs = [fromV && `from=${fromV}`, toV && `to=${toV}`].filter(Boolean).join('&');
+      const d = await api('/tickets/my-dashboard' + (qs ? `?${qs}` : ''));
+      document.getElementById('dashFrom').value = d.range.from;
+      document.getElementById('dashTo').value = d.range.to;
+      document.getElementById('dashTitle').textContent = `${d.me_name} · ${fmtDay(d.range.from)}${d.range.from!==d.range.to ? ' → ' + fmtDay(d.range.to) : ''}`;
+      const cardC = (label, val, cls) => `<div class="rounded-xl border border-line p-3 ${cls||''}"><div class="text-2xl font-bold text-ink">${val}</div><div class="eyebrow mt-0.5" style="font-size:.6rem">${label}</div></div>`;
+      document.getElementById('dashCards').innerHTML =
+        cardC('Raised', d.totals.raised) + cardC('Resolved', d.totals.resolved) +
+        cardC('Forwarded', d.totals.forwarded) + cardC('On my plate', d.totals.assigned_open, 'bg-amber-50 border-amber-200');
+      const a = d.assigned;
+      document.getElementById('dashAssigned').innerHTML =
+        `<div class="eyebrow mb-2">On my plate now (${a.length})</div>` +
+        (a.length ? `<div class="space-y-1.5">` + a.map(t => `
+           <div onclick="openDetail(${t.id})" class="flex items-center gap-2 text-sm border border-line rounded-lg px-3 py-2 cursor-pointer hover:bg-slate-50">
+             <span class="mono text-[11px] text-slate-400">${t.ref_no}</span>
+             <span class="font-medium text-ink truncate flex-1">${t.subject}</span>
+             <span class="pill text-slate-600 bg-slate-100">${t.my_role||''}</span>
+             ${statusBadge(t.status)}
+           </div>`).join('') + `</div>` : `<div class="text-sm text-slate-400 py-3">Nothing open assigned to you.</div>`);
+      const byDay = {};
+      d.activity.forEach(x => { (byDay[x.d] = byDay[x.d] || []).push(x); });
+      const days = Object.keys(byDay).sort().reverse();
+      document.getElementById('dashTimesheet').innerHTML =
+        `<div class="eyebrow mb-2">Daily activity</div>` +
+        (days.length ? days.map(day => `
+          <div class="mb-3">
+            <div class="text-sm font-semibold text-ink border-b border-line pb-1 mb-1.5">${fmtDay(day)} · ${byDay[day].length} action${byDay[day].length>1?'s':''}</div>
+            <ul class="space-y-1">${byDay[day].map(x => `
+              <li class="flex gap-2 text-xs items-center">
+                <span class="text-slate-400 w-16 shrink-0">${x.tlabel}</span>
+                <span class="pill ${actClass(x.event)}">${evLabel(x.event)}</span>
+                <span class="mono text-[11px] text-slate-400">${x.ref_no}</span>
+                <span class="text-slate-700 truncate">${x.subject}</span>
+              </li>`).join('')}</ul>
+          </div>`).join('') : `<div class="text-sm text-slate-400 py-3">No activity in this range.</div>`);
     }
 
     function card(t, scope) {
@@ -368,7 +445,7 @@
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
     const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
-    function refreshCurrent(){ const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
+    function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
 
     async function startTicket(id){ await act(id,'in-progress','Marked in progress'); }
     async function confirmTicket(id){ await act(id,'confirm','Ticket closed'); }

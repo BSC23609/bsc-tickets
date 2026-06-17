@@ -146,6 +146,57 @@ router.get('/', async (req, res) => {
   res.json(rows.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })));
 });
 
+// ---- personal dashboard: my raised, my assigned, daily activity (IST) with date range ----
+router.get('/my-dashboard', async (req, res) => {
+  const me = req.user.id;
+  const TZ = 'Asia/Kolkata';
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: TZ }); // YYYY-MM-DD
+  const valid = (s) => s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+  const from = valid(req.query.from) ? req.query.from : (valid(req.query.to) ? req.query.to : todayIST);
+  const to   = valid(req.query.to)   ? req.query.to   : from;
+
+  // Tickets I raised within the range (by raised date, IST)
+  const raised = (await q(
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.is_self, t.raised_at,
+            c.name AS category_name
+     FROM tickets t JOIN categories c ON c.id=t.category_id
+     WHERE t.requester_id=$1 AND (t.raised_at AT TIME ZONE $2)::date BETWEEN $3 AND $4
+     ORDER BY t.raised_at DESC`, [me, TZ, from, to])).rows;
+
+  // Tickets currently on my plate (assigned to me as any level, still open)
+  const assigned = (await q(
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.escalation_level, t.raised_at, t.assigned_at,
+            c.name AS category_name, r.name AS requester_name,
+            CASE WHEN t.l1_emp_id=$1 THEN 'L1' WHEN t.l2_emp_id=$1 THEN 'L2' WHEN t.l3_emp_id=$1 THEN 'L3' END AS my_role
+     FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     WHERE $1 IN (t.l1_emp_id,t.l2_emp_id,t.l3_emp_id) AND t.status IN ('open','in_progress','reopened')
+     ORDER BY t.raised_at DESC`, [me])).rows;
+
+  // My activity (timeline events I performed) within range, grouped by IST date in the UI
+  const activity = (await q(
+    `SELECT e.event, e.note, e.at,
+            to_char(e.at AT TIME ZONE $2,'YYYY-MM-DD') AS d,
+            to_char(e.at AT TIME ZONE $2,'HH12:MI am') AS tlabel,
+            t.id AS ticket_id, t.ref_no, t.subject
+     FROM ticket_events e JOIN tickets t ON t.id=e.ticket_id
+     WHERE e.by_emp_id=$1 AND (e.at AT TIME ZONE $2)::date BETWEEN $3 AND $4
+     ORDER BY e.at DESC`, [me, TZ, from, to])).rows;
+
+  // Range totals from my own actions
+  const ev = (name) => activity.filter((a) => a.event === name).length;
+  res.json({
+    me_name: req.user.name,
+    range: { from, to },
+    totals: {
+      raised: raised.length,
+      resolved: ev('resolved'),
+      forwarded: ev('forwarded'),
+      assigned_open: assigned.length,
+    },
+    raised, assigned, activity,
+  });
+});
+
 // ---- detail ----
 router.get('/:id', async (req, res) => {
   const { rows } = await q(
