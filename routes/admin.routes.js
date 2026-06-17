@@ -235,8 +235,36 @@ router.get('/dashboard', async (req, res) => {
      LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
      WHERE t.raised_at BETWEEN $1 AND $2 ORDER BY t.raised_at DESC LIMIT 200`, range)).rows;
 
+  // Activity counts in the period (from the event log) + self-ticket count.
+  const act = (await q(
+    `SELECT COUNT(*) FILTER (WHERE event='forwarded')::int    AS forwarded,
+            COUNT(*) FILTER (WHERE event='reopened')::int     AS reopened,
+            COUNT(*) FILTER (WHERE event='escalated_l3')::int AS escalated_l3
+     FROM ticket_events WHERE at BETWEEN $1 AND $2`, range)).rows[0];
+  const selfCount = (await q(
+    `SELECT COUNT(*)::int n FROM tickets WHERE is_self=TRUE AND raised_at BETWEEN $1 AND $2`, range)).rows[0].n;
+  const activity = { ...act, self: selfCount };
+
+  // Per-handler rollup: resolved/forwarded in the period + how many are open on their plate now.
+  const resByHandler = (await q(
+    `SELECT emp.id, emp.name,
+            COUNT(*) FILTER (WHERE e.event='resolved')::int  AS resolved,
+            COUNT(*) FILTER (WHERE e.event='forwarded')::int AS forwarded
+     FROM ticket_events e JOIN employees emp ON emp.id=e.by_emp_id
+     WHERE e.at BETWEEN $1 AND $2 AND e.event IN ('resolved','forwarded')
+     GROUP BY emp.id, emp.name`, range)).rows;
+  const openByHandler = (await q(
+    `SELECT emp.id, emp.name, COUNT(*)::int AS open_now
+     FROM tickets t JOIN employees emp ON emp.id=t.l1_emp_id
+     WHERE t.status IN ('open','in_progress','reopened')
+     GROUP BY emp.id, emp.name`)).rows;
+  const hmap = {};
+  for (const r of resByHandler) hmap[r.id] = { handler: r.name, resolved: r.resolved, forwarded: r.forwarded, open_now: 0 };
+  for (const o of openByHandler) { (hmap[o.id] = hmap[o.id] || { handler: o.name, resolved: 0, forwarded: 0, open_now: 0 }).open_now = o.open_now; }
+  const byHandler = Object.values(hmap).sort((a, b) => (b.resolved - a.resolved) || (b.open_now - a.open_now));
+
   res.json({
-    totals, byCategory, byPriority, avg_downtime_mins: avgAll,
+    totals, byCategory, byPriority, avg_downtime_mins: avgAll, activity, byHandler,
     recent: recent.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })),
   });
 });

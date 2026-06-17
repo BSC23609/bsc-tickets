@@ -69,6 +69,10 @@
         <h3 class="font-bold text-sm mb-3">Avg Resolution Time by Category</h3>
         <div id="catTable" class="overflow-x-auto"></div>
       </div>
+      <div class="card p-4 mb-5">
+        <h3 class="font-bold text-sm mb-3">By Handler (L1) — performance</h3>
+        <div id="handlerTable" class="overflow-x-auto"></div>
+      </div>
       <div class="card p-4">
         <h3 class="font-bold text-sm mb-3">Recent Tickets</h3>
         <div id="recentTable" class="overflow-x-auto"></div>
@@ -232,10 +236,13 @@
       const d = await api(`/admin/dashboard?from=${from}&to=${to}`);
       const k = d.totals;
       const kpi = (n,l,c='text-ink') => `<div class="card p-4 text-center"><div class="kpi ${c}">${n}</div><div class="eyebrow mt-1.5" style="color:var(--ink-mute)">${l}</div></div>`;
+      const a = d.activity || {};
       document.getElementById('kpis').innerHTML =
         kpi(k.total,'Total') + kpi(k.open,'Open','text-amber-600') + kpi(k.resolved,'Resolved','text-violet-600') +
         kpi(k.closed,'Closed','text-emerald-600') + kpi(k.escalated,'Escalated','text-red-600') +
-        kpi(fmtDuration(d.avg_downtime_mins),'Avg Resolve');
+        kpi(fmtDuration(d.avg_downtime_mins),'Avg Resolve') +
+        kpi(a.forwarded||0,'Forwarded','text-purple-600') + kpi(a.escalated_l3||0,'→ L3','text-red-600') +
+        kpi(a.reopened||0,'Reopened','text-orange-600') + kpi(a.self||0,'Self-tickets','text-indigo-600');
 
       drawBar('catChart', d.byCategory.map(x=>x.category), d.byCategory.map(x=>x.count));
       drawDoughnut('priChart', d.byPriority.map(x=>x.priority), d.byPriority.map(x=>x.count));
@@ -243,6 +250,11 @@
       document.getElementById('catTable').innerHTML = table(
         ['Category','Tickets','Avg Resolution'],
         d.byCategory.map(x => [x.category, x.count, fmtDuration(x.avg_downtime_mins)]));
+
+      document.getElementById('handlerTable').innerHTML = (d.byHandler && d.byHandler.length)
+        ? table(['Handler','Resolved (period)','Forwarded (period)','Open now'],
+            d.byHandler.map(x => [x.handler, x.resolved, x.forwarded, x.open_now]))
+        : '<div class="text-sm text-slate-400 py-3">No handler activity in this range.</div>';
 
       document.getElementById('recentTable').innerHTML = table(
         ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime'],
