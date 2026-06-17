@@ -265,14 +265,14 @@
         d.recent.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
           STATUS_STYLE[t.status]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
           t.status==='closed'?fmtDuration(t.downtime_mins):'—',
-          `<button onclick="delTicket(${t.id}, ${JSON.stringify(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+          `<button onclick="delTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
 
       const ops = await api(`/admin/outpass-list?from=${from}&to=${to}`);
       document.getElementById('outpassTable').innerHTML = table(
         ['Ref','Type','Requester','Date','Purpose','Status',''],
         ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
           o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
-          `<button onclick="delOutpass(${o.id}, ${JSON.stringify(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+          `<button onclick="delOutpass(${o.id}, ${jsArg(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
     }
     async function delTicket(id, ref){
       if(!confirm(`Delete ticket ${ref}?\n\nThis permanently removes the ticket and its history. Use only for test entries.`)) return;
@@ -421,7 +421,7 @@
           <div class="flex gap-2 mt-3 items-center">
             <button onclick="saveCat(${c.id})" class="bg-brand-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg">Save routing</button>
             <button onclick="toggleCat(${c.id},${!c.active})" class="text-xs ${c.active?'text-red-600':'text-emerald-600'} hover:underline px-2">${c.active?'Deactivate':'Activate'}</button>
-            <button onclick="delCat(${c.id},${JSON.stringify(c.name)})" class="text-xs text-red-600 hover:underline px-2 ml-auto">Delete category</button>
+            <button onclick="delCat(${c.id},${jsArg(c.name)})" class="text-xs text-red-600 hover:underline px-2 ml-auto">Delete category</button>
           </div>
         </div>`;
       }).join('');
@@ -503,6 +503,8 @@
 
     const val = id => document.getElementById(id).value.trim();
     const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    // Safe single-quoted JS string for use inside double-quoted on* attributes.
+    const jsArg = s => "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'";
 
     function editEmp(id){
       const e = employees.find(x=>x.id===id); if(!e) return;
