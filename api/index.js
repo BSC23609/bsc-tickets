@@ -208,9 +208,8 @@ app.all('/api/cron/escalate', async (req, res) => {
 
   const { rows: tickets } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.priority, t.status, t.escalation_level,
-            t.l1_emp_id, t.l2_emp_id, t.l3_emp_id, t.raised_at, t.assigned_at, t.last_reminder_at,
-            c.pattern, c.wait_unassigned_mins, c.wait_cycle_mins, c.wait_l3_mins, c.name AS category_name,
-            r.name AS requester_name,
+            t.l1_emp_id, t.l2_emp_id, t.l3_emp_id, t.raised_at, t.last_reminder_at,
+            c.name AS category_name, r.name AS requester_name,
             l1.name AS l1_name, l1.phone AS l1_phone, l2.name AS l2_name, l2.phone AS l2_phone,
             l3.name AS l3_name, l3.phone AS l3_phone
      FROM tickets t
@@ -221,46 +220,46 @@ app.all('/api/cron/escalate', async (req, res) => {
      LEFT JOIN employees l3 ON l3.id = t.l3_emp_id
      WHERE t.status IN ('open','in_progress','reopened')`);
 
+  // Uniform escalation for every category/trade:
+  //   >= 2h unresolved -> remind L1 + L2      (level 2)
+  //   >= 4h unresolved -> remind L1 + L2 + L3  (level 3), then re-nudge every cycle.
+  const S = (await q(`SELECT key,value FROM app_settings WHERE key IN ('remind_l2_mins','remind_l3_mins','remind_repeat_mins')`)).rows
+    .reduce((m, r) => (m[r.key] = Number(r.value) || null, m), {});
+  const L2_AFTER = S.remind_l2_mins || 120;
+  const L3_AFTER = S.remind_l3_mins || 240;
+  const REPEAT   = S.remind_repeat_mins || 120;
+
   const now = Date.now();
   let sent = 0, fired = 0;
   for (const t of tickets) {
-    const assigned = t.pattern === 'assign' && t.l1_emp_id;
-    let threshold, cadenceAnchor, recipients, level = t.escalation_level || 0, markL3 = false;
+    const sinceRaised = businessMinutesBetween(t.raised_at, now, holidaySet);
+    let newLevel = 0;
+    if (sinceRaised >= L3_AFTER && t.l3_emp_id) newLevel = 3;
+    else if (sinceRaised >= L2_AFTER) newLevel = 2;
+    if (newLevel === 0) continue;
 
-    if (t.pattern === 'assign' && !t.l1_emp_id) {
-      // unassigned: nudge L2 to assign
-      threshold = t.wait_unassigned_mins || 60;
-      cadenceAnchor = t.last_reminder_at || t.raised_at;
-      recipients = [{ name: t.l2_name, phone: t.l2_phone }];
-    } else if (assigned) {
-      threshold = t.wait_cycle_mins || 120;
-      cadenceAnchor = t.last_reminder_at || t.assigned_at;
-      recipients = [{ name: t.l1_name, phone: t.l1_phone }, { name: t.l2_name, phone: t.l2_phone }];
-      const sinceAssigned = businessMinutesBetween(t.assigned_at, now, holidaySet);
-      if (t.l3_emp_id && sinceAssigned >= (t.wait_l3_mins || 240)) {
-        recipients.push({ name: t.l3_name, phone: t.l3_phone });
-        markL3 = true; level = 3;
-      } else if (level < 2) { level = 2; }
-    } else {
-      // direct pattern: nudge the single L1
-      threshold = t.wait_cycle_mins || 120;
-      cadenceAnchor = t.last_reminder_at || t.raised_at;
-      recipients = [{ name: t.l1_name, phone: t.l1_phone }];
-    }
+    const recipients = newLevel === 3
+      ? [{ name: t.l1_name, phone: t.l1_phone }, { name: t.l2_name, phone: t.l2_phone }, { name: t.l3_name, phone: t.l3_phone }]
+      : [{ name: t.l1_name, phone: t.l1_phone }, { name: t.l2_name, phone: t.l2_phone }];
 
-    if (businessMinutesBetween(cadenceAnchor, now, holidaySet) < threshold) continue;
+    // Send if we just crossed into a higher level, or the repeat interval has elapsed.
+    const leveledUp = newLevel > (t.escalation_level || 0);
+    const dueByCadence = !t.last_reminder_at || businessMinutesBetween(t.last_reminder_at, now, holidaySet) >= REPEAT;
+    if (!leveledUp && !dueByCadence) continue;
 
     fired++;
-    const label = elapsedLabel(businessMinutesBetween(t.raised_at, now, holidaySet));
+    const label = elapsedLabel(sinceRaised);
     const tObj = { id: t.id, ref_no: t.ref_no, requester_name: t.requester_name,
       category_name: t.category_name, subject: t.subject };
-    for (const h of recipients) { if (h.phone) { await wati.notify.reminder(h, tObj, label); sent++; } }
+    const named = [];
+    for (const h of recipients) { if (h.phone) { await wati.notify.reminder(h, tObj, label); sent++; } if (h.name) named.push(h.name); }
 
     await q(`UPDATE tickets SET last_reminder_at=now(), escalation_level=$2,
-             escalated_l3_at=CASE WHEN $3 AND escalated_l3_at IS NULL THEN now() ELSE escalated_l3_at END
-             WHERE id=$1`, [t.id, level, markL3]);
+             escalated_l2_at=CASE WHEN escalated_l2_at IS NULL THEN now() ELSE escalated_l2_at END,
+             escalated_l3_at=CASE WHEN $2=3 AND escalated_l3_at IS NULL THEN now() ELSE escalated_l3_at END
+             WHERE id=$1`, [t.id, newLevel]);
     await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'reminder',$2)`,
-      [t.id, `${label} · notified ${recipients.map(r => r.name).filter(Boolean).join(', ')}`]);
+      [t.id, `${label} · notified ${named.join(', ')}`]);
   }
 
   res.json({ ok: true, scanned: tickets.length, fired, sent });

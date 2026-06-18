@@ -22,26 +22,18 @@ router.get('/meta', async (req, res) => {
   res.json({ categories: cats, trades, locations: locs, people, priorities: ['Low','Medium','High','Critical'] });
 });
 
-// Resolve initial routing for a category by its pattern.
-//  direct: straight to the single L1 (trade's L1 if the category uses trades).
-//  assign: to L2, who later assigns an L1.
+// Routing: every ticket lands directly on its L1 (the trade's L1 when the category
+// uses trades, else the category L1). L2/L3 ride along only as reminder recipients.
 async function resolveRoute(category_id, trade_id) {
   const { rows } = await q('SELECT * FROM categories WHERE id=$1', [category_id]);
   const c = rows[0];
   if (!c) throw new Error('Unknown category');
-  const direct = c.pattern === 'direct';
-  let l1 = direct ? c.l1_emp_id : null;   // assign starts unassigned until L2 picks
-  if (direct && c.has_trades && trade_id) {
+  let l1 = c.l1_emp_id || null;
+  if (c.has_trades && trade_id) {
     const tr = (await q('SELECT l1_emp_id FROM trades WHERE id=$1 AND category_id=$2', [trade_id, category_id])).rows[0];
     if (tr && tr.l1_emp_id) l1 = tr.l1_emp_id;
   }
-  return {
-    pattern: direct ? 'direct' : 'assign',
-    l1,
-    l2: direct ? null : c.l2_emp_id,
-    l3: direct ? null : c.l3_emp_id,
-    category_name: c.name,
-  };
+  return { l1, l2: c.l2_emp_id || null, l3: c.l3_emp_id || null, category_name: c.name, has_trades: c.has_trades };
 }
 
 async function empById(id) {
@@ -61,11 +53,13 @@ router.post('/', async (req, res) => {
   let route;
   try { route = await resolveRoute(category_id, trade_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
+  if (!isSelf && route.has_trades && !trade_id)
+    return res.status(400).json({ error: 'Please pick the sub-type (trade) for this category.' });
 
   // Self-ticket: the raiser is the handler (self-assigned); the category L2/L3 stay on as oversight.
   if (isSelf) {
     const cat = (await q('SELECT l2_emp_id,l3_emp_id FROM categories WHERE id=$1', [category_id])).rows[0] || {};
-    route = { ...route, pattern: 'self', l1: req.user.id, l2: cat.l2_emp_id || null, l3: cat.l3_emp_id || null };
+    route = { ...route, l1: req.user.id, l2: cat.l2_emp_id || null, l3: cat.l3_emp_id || null };
   }
 
   let locText = null;
@@ -73,6 +67,9 @@ router.post('/', async (req, res) => {
     const { rows } = await q('SELECT name FROM locations WHERE id=$1', [location_id]);
     locText = rows[0] ? rows[0].name : null;
   }
+
+  // L1 receives it straight away, so stamp the assignment on creation.
+  const autoAssign = !!route.l1;
 
   const ref = await nextRefNo();
   const client = await pool.connect();
@@ -86,7 +83,7 @@ router.post('/', async (req, res) => {
       [ref, req.user.id, category_id, trade_id || null, pri, subject, description || null,
        location_id || null, locText, route.l1, route.l2, route.l3,
        isSelf, isSelf ? requestedById : null,
-       isSelf ? new Date() : null, isSelf ? req.user.id : null]
+       (isSelf || autoAssign) ? new Date() : null, isSelf ? req.user.id : null]
     );
     const t = ins.rows[0];
     await client.query(
@@ -109,7 +106,8 @@ router.post('/', async (req, res) => {
           if (p && p.phone) await wati.notify.raised(p, enriched);
         }
       } else {
-        const rec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
+        // Goes straight to L1.
+        const rec = await empById(route.l1);
         if (rec) await wati.notify.raised(rec, enriched);
       }
       await excel.syncLogToOneDrive();
@@ -230,7 +228,7 @@ router.get('/:id', async (req, res) => {
   const isL2 = t.l2_emp_id === req.user.id;
   const isL1 = t.l1_emp_id === req.user.id;
   const isOpen = ['open', 'reopened', 'in_progress'].includes(t.status);
-  const canAssign = (isL2 || req.user.is_admin) && t.pattern === 'assign' && isOpen;
+  const canAssign = false;   // L2-assign step removed — tickets land on L1 directly
   const canForward = (isHandler || req.user.is_admin) && isOpen;
   const canEscalateL3 = (isL1 || isL2 || req.user.is_admin) && isOpen && !!t.l3_emp_id && t.escalation_level < 3;
   let pool = [];
@@ -412,8 +410,8 @@ router.post('/:id/forward', async (req, res) => {
 
   background((async () => {
     const enriched = { ...t, category_id: newCat, trade_id: newTrade, category_name: route.category_name };
-    const newRec = await empById(route.pattern === 'direct' ? route.l1 : route.l2);
-    if (newRec) await (route.pattern === 'direct' ? wati.notify.assigned(newRec, enriched) : wati.notify.raised(newRec, enriched));
+    const newRec = await empById(route.l1);
+    if (newRec) await wati.notify.raised(newRec, enriched);
     const seen = new Set([newRec && newRec.id]);
     const fyi = [];
     for (const id of [oldL1, oldL2]) { if (id && !seen.has(id)) { seen.add(id); const p = await empById(id); if (p) fyi.push(p); } }
