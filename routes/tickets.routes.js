@@ -19,7 +19,9 @@ router.get('/meta', async (req, res) => {
     `SELECT id,category_id,name,location_based FROM trades WHERE active=TRUE ORDER BY sort_order,name`)).rows;
   const locs = (await q('SELECT id,name FROM locations WHERE active=TRUE ORDER BY sort_order,name')).rows;
   const people = (await q('SELECT id,name,emp_no FROM employees WHERE active=TRUE ORDER BY name')).rows;
-  res.json({ categories: cats, trades, locations: locs, people, priorities: ['Low','Medium','High','Critical'] });
+  const rg = (await q(`SELECT value FROM app_settings WHERE key='requester_groups'`)).rows[0];
+  const requester_groups = ((rg && rg.value) || '').split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+  res.json({ categories: cats, trades, locations: locs, people, requester_groups, priorities: ['Low','Medium','High','Critical'] });
 });
 
 // Routing: every ticket lands directly on its L1 (the trade's L1 when the category
@@ -60,6 +62,8 @@ router.post('/', async (req, res) => {
   const pri = ['Low','Medium','High','Critical'].includes(priority) ? priority : 'Medium';
   const isSelf = !!(req.body && req.body.self);
   const requestedById = (req.body && +req.body.requested_by_id) || null;
+  const requestedByLabel = isSelf && !requestedById
+    ? (String((req.body && req.body.requested_by_label) || '').trim().slice(0, 120) || null) : null;
 
   let route;
   try { route = await resolveRoute(category_id, trade_id, location_id); }
@@ -91,11 +95,11 @@ router.post('/', async (req, res) => {
     const ins = await client.query(
       `INSERT INTO tickets
         (ref_no,requester_id,category_id,trade_id,priority,subject,description,location_id,location_text,
-         status,l1_emp_id,l2_emp_id,l3_emp_id,is_self,requested_by_id,assigned_at,assigned_by_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+         status,l1_emp_id,l2_emp_id,l3_emp_id,is_self,requested_by_id,requested_by_label,assigned_at,assigned_by_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
       [ref, req.user.id, category_id, trade_id || null, pri, subject, description || null,
        location_id || null, locText, route.l1, route.l2, route.l3,
-       isSelf, isSelf ? requestedById : null,
+       isSelf, isSelf ? requestedById : null, requestedByLabel,
        (isSelf || autoAssign) ? new Date() : null, isSelf ? req.user.id : null]
     );
     const t = ins.rows[0];
@@ -235,7 +239,7 @@ router.get('/:id', async (req, res) => {
     `SELECT t.*, c.name AS category_name, c.pattern,
             tr.name AS trade_name, r.name AS requester_name, r.department AS requester_dept, r.phone AS requester_phone,
             l1.name AS l1_name, l2.name AS l2_name, l3.name AS l3_name, ab.name AS assigned_by_name,
-            rb.name AS requested_by_name
+            COALESCE(rb.name, t.requested_by_label) AS requested_by_name
      FROM tickets t
      JOIN categories c ON c.id=t.category_id
      LEFT JOIN trades tr ON tr.id=t.trade_id

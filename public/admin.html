@@ -150,6 +150,12 @@
         <button onclick="addLoc()" class="btn text-sm shrink-0">Add</button>
       </div>
       <div class="card p-4"><div id="locTable"></div></div>
+      <div class="card p-4 mt-4">
+        <h3 class="font-bold text-sm">Self-ticket "Requested by" options</h3>
+        <p class="text-xs text-slate-500 mt-0.5 mb-2">Companies/sites that appear in the "Requested by" list when someone raises a task for themselves — one per line (e.g. Crayon, Metfraa Office, Metfraa Factory, G2). Employee names are listed automatically.</p>
+        <textarea id="rgText" rows="5" class="inp w-full text-sm" placeholder="Crayon&#10;Metfraa Office&#10;Metfraa Factory&#10;G2"></textarea>
+        <div class="mt-2"><button onclick="saveReqGroups()" class="btn text-sm">Save</button></div>
+      </div>
     </section>
 
     <!-- OUTPASS APPROVERS -->
@@ -522,6 +528,7 @@
 
     // ---------- LOCATIONS ----------
     async function renderLocations() {
+      loadReqGroups();
       const locs = await api('/admin/locations');
       document.getElementById('locTable').innerHTML = `<table class="w-full text-sm"><tbody>
         ${locs.map(l=>`<tr class="border-b border-slate-100"><td class="py-2">${l.name}</td>
@@ -532,6 +539,11 @@
     async function addLoc(){ const name=val('l_name'); if(!name) return toast('Name required','error');
       await api('/admin/locations',{method:'POST',body:{name}}); toast('Added','success'); document.getElementById('l_name').value=''; renderLocations(); }
     async function toggleLoc(id, active){ await api(`/admin/locations/${id}`,{method:'PUT',body:{active}}); renderLocations(); }
+    async function loadReqGroups(){ try{ const d=await api('/admin/requester-groups'); document.getElementById('rgText').value=d.value||''; }catch(e){} }
+    async function saveReqGroups(){
+      try{ await api('/admin/requester-groups',{method:'PUT',body:{value:document.getElementById('rgText').value}}); toast('Requested-by options saved','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
 
     const val = id => document.getElementById(id).value.trim();
     const esc = s => (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');

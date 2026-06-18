@@ -259,6 +259,19 @@ router.delete('/outpass/:id', async (req, res) => {
   res.json({ ok: true, ref_no: r.rows[0].ref_no });
 });
 
+// ===================== REQUESTER GROUPS (self-ticket "Requested by") =====================
+router.get('/requester-groups', async (req, res) => {
+  const r = (await q(`SELECT value FROM app_settings WHERE key='requester_groups'`)).rows[0];
+  res.json({ value: (r && r.value) || '' });
+});
+router.put('/requester-groups', async (req, res) => {
+  const value = String((req.body && req.body.value) || '')
+    .split(/[\n,]/).map((s) => s.trim()).filter(Boolean).join('\n');
+  await q(`INSERT INTO app_settings(key,value) VALUES('requester_groups',$1)
+           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [value]);
+  res.json({ ok: true });
+});
+
 // ===================== DAILY REPORT =====================
 router.get('/daily-report', async (req, res) => {
   const r = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];

@@ -172,8 +172,14 @@
       l.innerHTML = '<option value="">Select a location</option>' +
         meta.locations.map(x => `<option value="${x.id}">${x.name}</option>`).join('');
       const rb = document.getElementById('f_requestedby');
-      rb.innerHTML = '<option value="">— nobody / N/A —</option>' +
-        (meta.people || []).map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+      const grps = meta.requester_groups || [];
+      rb.innerHTML = '<option value="">— nobody / N/A —</option>'
+        + '<optgroup label="People">'
+        + (meta.people || []).map(x => `<option value="${x.id}" data-kind="emp">${x.name}</option>`).join('')
+        + '</optgroup>'
+        + (grps.length ? '<optgroup label="Companies / Sites">'
+            + grps.map(g => `<option value="${g.replace(/"/g,'&quot;')}" data-kind="grp">${g}</option>`).join('')
+            + '</optgroup>' : '');
       document.getElementById('f_camera').addEventListener('change', onPhotoInput);
       document.getElementById('f_gallery').addEventListener('change', onPhotoInput);
     }
@@ -244,7 +250,8 @@
           subject, description: document.getElementById('f_description').value.trim(),
           location_id: +document.getElementById('f_location').value || null,
           self: document.getElementById('f_self').checked,
-          requested_by_id: +document.getElementById('f_requestedby').value || null,
+          requested_by_id: (function(){ const o=document.getElementById('f_requestedby').selectedOptions[0]; return o && o.dataset.kind==='emp' ? (+o.value||null) : null; })(),
+          requested_by_label: (function(){ const o=document.getElementById('f_requestedby').selectedOptions[0]; return o && o.dataset.kind==='grp' ? o.value : null; })(),
         }});
         // upload photos straight to OneDrive in parallel (fast) after the ticket exists
         if (selectedPhotos.length) {

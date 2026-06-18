@@ -312,3 +312,9 @@ CREATE TABLE IF NOT EXISTS trade_location_l1 (
   UNIQUE(trade_id, location_id)
 );
 CREATE INDEX IF NOT EXISTS idx_trade_loc ON trade_location_l1(trade_id);
+
+-- Self-ticket "Requested by" can also be a company/site (not just an employee).
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS requested_by_label TEXT;
+INSERT INTO app_settings(key,value)
+  VALUES ('requester_groups', E'Crayon\nMetfraa Office\nMetfraa Factory\nG2')
+  ON CONFLICT(key) DO NOTHING;
