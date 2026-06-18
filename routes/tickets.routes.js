@@ -16,24 +16,35 @@ router.get('/meta', async (req, res) => {
     `SELECT id,name,has_trades,wait_l1_l2_mins,wait_l2_l3_mins FROM categories
      WHERE active=TRUE ORDER BY sort_order,name`)).rows;
   const trades = (await q(
-    `SELECT id,category_id,name FROM trades WHERE active=TRUE ORDER BY sort_order,name`)).rows;
+    `SELECT id,category_id,name,location_based FROM trades WHERE active=TRUE ORDER BY sort_order,name`)).rows;
   const locs = (await q('SELECT id,name FROM locations WHERE active=TRUE ORDER BY sort_order,name')).rows;
   const people = (await q('SELECT id,name,emp_no FROM employees WHERE active=TRUE ORDER BY name')).rows;
   res.json({ categories: cats, trades, locations: locs, people, priorities: ['Low','Medium','High','Critical'] });
 });
 
 // Routing: every ticket lands directly on its L1 (the trade's L1 when the category
-// uses trades, else the category L1). L2/L3 ride along only as reminder recipients.
-async function resolveRoute(category_id, trade_id) {
+// uses trades, else the category L1). For location-based trades the L1 is looked up
+// per location (trade L1 is the fallback). L2/L3 ride along as reminder recipients.
+async function resolveRoute(category_id, trade_id, location_id) {
   const { rows } = await q('SELECT * FROM categories WHERE id=$1', [category_id]);
   const c = rows[0];
   if (!c) throw new Error('Unknown category');
   let l1 = c.l1_emp_id || null;
+  let locationRequired = false;
   if (c.has_trades && trade_id) {
-    const tr = (await q('SELECT l1_emp_id FROM trades WHERE id=$1 AND category_id=$2', [trade_id, category_id])).rows[0];
-    if (tr && tr.l1_emp_id) l1 = tr.l1_emp_id;
+    const tr = (await q('SELECT l1_emp_id, location_based FROM trades WHERE id=$1 AND category_id=$2', [trade_id, category_id])).rows[0];
+    if (tr) {
+      if (tr.l1_emp_id) l1 = tr.l1_emp_id;
+      if (tr.location_based) {
+        locationRequired = true;
+        if (location_id) {
+          const m = (await q('SELECT l1_emp_id FROM trade_location_l1 WHERE trade_id=$1 AND location_id=$2', [trade_id, location_id])).rows[0];
+          if (m && m.l1_emp_id) l1 = m.l1_emp_id;
+        }
+      }
+    }
   }
-  return { l1, l2: c.l2_emp_id || null, l3: c.l3_emp_id || null, category_name: c.name, has_trades: c.has_trades };
+  return { l1, l2: c.l2_emp_id || null, l3: c.l3_emp_id || null, category_name: c.name, has_trades: c.has_trades, location_required: locationRequired };
 }
 
 async function empById(id) {
@@ -51,10 +62,12 @@ router.post('/', async (req, res) => {
   const requestedById = (req.body && +req.body.requested_by_id) || null;
 
   let route;
-  try { route = await resolveRoute(category_id, trade_id); }
+  try { route = await resolveRoute(category_id, trade_id, location_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
   if (!isSelf && route.has_trades && !trade_id)
     return res.status(400).json({ error: 'Please pick the sub-type (trade) for this category.' });
+  if (!isSelf && route.location_required && !location_id)
+    return res.status(400).json({ error: 'Location is required for this trade — please select where the issue is.' });
 
   // Self-ticket: the raiser is the handler (self-assigned); the category L2/L3 stay on as oversight.
   if (isSelf) {
@@ -396,7 +409,7 @@ router.post('/:id/forward', async (req, res) => {
     return res.status(400).json({ error: "That's the same category it's already in" });
 
   let route;
-  try { route = await resolveRoute(newCat, newTrade); }
+  try { route = await resolveRoute(newCat, newTrade, t.location_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
   const oldL1 = t.l1_emp_id, oldL2 = t.l2_emp_id, oldCatName = t.category_name;

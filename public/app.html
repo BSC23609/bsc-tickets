@@ -58,7 +58,7 @@
           </div>
           <div id="tradeWrap" class="hidden">
             <label class="fieldlabel">Trade *</label>
-            <select id="f_trade" class="field"></select>
+            <select id="f_trade" class="field" onchange="onTradeChange()"></select>
           </div>
           <div>
             <label class="fieldlabel">Priority</label>
@@ -67,7 +67,7 @@
             </select>
           </div>
           <div>
-            <label class="fieldlabel">Location</label>
+            <label class="fieldlabel" id="locLabel">Location</label>
             <select id="f_location" class="field"><option value="">Select a location</option></select>
           </div>
           <div class="sm:col-span-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
@@ -189,9 +189,20 @@
       if (hasTrades) {
         const cid = +sel.value;
         t.innerHTML = '<option value="">— select —</option>' +
-          meta.trades.filter(x => x.category_id === cid).map(x => `<option value="${x.id}">${x.name}</option>`).join('');
+          meta.trades.filter(x => x.category_id === cid).map(x => `<option value="${x.id}" data-locbased="${!!x.location_based}">${x.name}</option>`).join('');
         wrap.classList.remove('hidden');
       } else { wrap.classList.add('hidden'); t.innerHTML = ''; }
+      onTradeChange();
+    }
+    // Location is mandatory when the chosen trade routes by location.
+    function locationRequired() {
+      const t = document.getElementById('f_trade');
+      return !document.getElementById('tradeWrap').classList.contains('hidden')
+        && t.selectedOptions[0]?.dataset.locbased === 'true';
+    }
+    function onTradeChange() {
+      document.getElementById('locLabel').innerHTML = locationRequired()
+        ? 'Location <span class="text-red-500">*</span>' : 'Location';
     }
 
     // Accumulate across taps (camera fires one at a time) instead of replacing.
@@ -221,6 +232,8 @@
       const hasTrades = document.getElementById('f_category').selectedOptions[0]?.dataset.trades === 'true';
       const trade_id = +document.getElementById('f_trade').value || null;
       if (hasTrades && !trade_id) return toast('Choose a trade', 'error');
+      if (locationRequired() && !(+document.getElementById('f_location').value))
+        return toast('Location is required for this trade', 'error');
 
       const btn = document.getElementById('submitBtn');
       btn.disabled = true; btn.textContent = 'Submitting…';

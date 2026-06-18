@@ -376,9 +376,11 @@
         const poolBoxes = employees.map(e => `<label class="flex items-center gap-1.5 text-xs py-0.5">
             <input type="checkbox" class="pool_${c.id}" value="${e.id}" ${pool.includes(e.id)?'checked':''}> ${esc(e.name)}</label>`).join('');
         const trades = c.trades || [];
-        const tradeRows = trades.map(t => `<div class="flex items-center gap-2 mb-1.5">
-            <input class="inp flex-1 text-xs" id="t${t.id}_name" value="${esc(t.name)}">
-            <select class="inp max-w-[190px] text-xs" id="t${t.id}_l1" title="L1 handler for this trade">${empOptions(t.l1_emp_id)}</select>
+        const tradeRows = trades.map(t => `<div class="flex items-center gap-2 mb-1.5 flex-wrap">
+            <input class="inp flex-1 min-w-[8rem] text-xs" id="t${t.id}_name" value="${esc(t.name)}">
+            <select class="inp max-w-[170px] text-xs" id="t${t.id}_l1" title="Default L1 handler for this trade">${empOptions(t.l1_emp_id)}</select>
+            <label class="flex items-center gap-1 text-[11px] whitespace-nowrap" title="Assign handler per location"><input type="checkbox" id="t${t.id}_lb" ${t.location_based?'checked':''}> by location</label>
+            ${t.location_based?`<button onclick="openTradeLoc(${t.id}, ${jsArg(t.name)})" class="text-xs text-brand-600 hover:underline">Set handlers</button>`:''}
             <button onclick="saveTrade(${t.id})" class="text-xs text-brand-600 hover:underline">Save</button>
             <button onclick="delTrade(${t.id})" class="text-xs text-red-600 hover:underline">Delete</button>
           </div>`).join('') || '<div class="text-xs text-slate-400 mb-1">No trades yet — add one below.</div>';
@@ -468,7 +470,27 @@
     }
     async function saveTrade(id){
       const name = val(`t${id}_name`); const l1 = +gv(`t${id}_l1`) || null;
-      try{ await api(`/admin/trades/${id}`,{method:'PUT',body:{ name, l1_emp_id:l1 }}); toast('Trade saved','success'); }
+      const lb = document.getElementById(`t${id}_lb`)?.checked || false;
+      try{ await api(`/admin/trades/${id}`,{method:'PUT',body:{ name, l1_emp_id:l1, location_based:lb }}); toast('Trade saved','success'); renderCategories(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    let tlTradeId=null;
+    async function openTradeLoc(id, name){
+      tlTradeId=id;
+      document.getElementById('tlTitle').textContent='Location handlers — '+name;
+      const d=await api(`/admin/trades/${id}/locations`);
+      document.getElementById('tlBody').innerHTML = d.locations.length ? d.locations.map(l=>`
+        <div class="flex items-center gap-2">
+          <div class="flex-1 text-sm">${esc(l.location_name)}</div>
+          <select class="inp max-w-[230px] text-sm" data-loc="${l.location_id}">${empOptions(l.l1_emp_id)}</select>
+        </div>`).join('') : '<div class="text-sm text-slate-400">No active locations yet — add some in the Locations section first.</div>';
+      const m=document.getElementById('tradeLocModal'); m.classList.remove('hidden'); m.classList.add('flex');
+    }
+    function closeTradeLoc(){ const m=document.getElementById('tradeLocModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+    async function saveTradeLoc(){
+      const sels=document.querySelectorAll('#tlBody select[data-loc]');
+      const mappings=Array.from(sels).map(s=>({location_id:+s.dataset.loc, l1_emp_id:+s.value||null}));
+      try{ await api(`/admin/trades/${tlTradeId}/locations`,{method:'PUT',body:{mappings}}); toast('Location handlers saved','success'); closeTradeLoc(); }
       catch(e){ toast(e.message,'error'); }
     }
     async function delTrade(id){
@@ -669,5 +691,19 @@
       catch(e){ toast(e.message,'error'); }
     }
   </script>
+  <div id="tradeLocModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto">
+      <div class="p-4 border-b border-line flex items-center justify-between">
+        <h3 class="font-bold text-sm" id="tlTitle">Location handlers</h3>
+        <button onclick="closeTradeLoc()" class="text-slate-400 hover:text-ink text-xl leading-none">&times;</button>
+      </div>
+      <div class="px-4 pt-3 text-[11px] text-slate-500">Pick the L1 handler for each location. Leave blank to fall back to the trade's default handler.</div>
+      <div id="tlBody" class="p-4 space-y-2"></div>
+      <div class="p-4 border-t border-line flex justify-end gap-2">
+        <button onclick="closeTradeLoc()" class="text-sm px-3 py-1.5 rounded-lg border border-line">Cancel</button>
+        <button onclick="saveTradeLoc()" class="text-sm px-3 py-1.5 rounded-lg bg-brand-600 text-white font-semibold">Save handlers</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

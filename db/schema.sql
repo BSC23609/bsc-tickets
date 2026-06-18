@@ -299,3 +299,16 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS requested_by_id INT REFERENCES empl
 
 -- Designated outpass approvers can't approve their own passes — route theirs to HR (the fallback approver).
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_via_hr BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Location-based handler assignment for a trade (e.g. Maintenance → Electrical).
+-- When a trade is location_based: the ticket's location is mandatory and the L1 is
+-- looked up per location; the trade's own l1_emp_id acts as the fallback.
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS location_based BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS trade_location_l1 (
+  id          SERIAL PRIMARY KEY,
+  trade_id    INT NOT NULL REFERENCES trades(id)    ON DELETE CASCADE,
+  location_id INT NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+  l1_emp_id   INT REFERENCES employees(id),
+  UNIQUE(trade_id, location_id)
+);
+CREATE INDEX IF NOT EXISTS idx_trade_loc ON trade_location_l1(trade_id);

@@ -187,10 +187,42 @@ router.post('/trades', async (req, res) => {
   res.json({ ok: true });
 });
 router.put('/trades/:id', async (req, res) => {
-  const { name, l1_emp_id, active } = req.body || {};
-  await q('UPDATE trades SET name=COALESCE($2,name), l1_emp_id=$3, active=COALESCE($4,active) WHERE id=$1',
-    [req.params.id, name, l1_emp_id || null, active]);
+  const { name, l1_emp_id, active, location_based } = req.body || {};
+  const lb = (location_based === undefined || location_based === null) ? null : !!location_based;
+  await q('UPDATE trades SET name=COALESCE($2,name), l1_emp_id=$3, active=COALESCE($4,active), location_based=COALESCE($5,location_based) WHERE id=$1',
+    [req.params.id, name, l1_emp_id || null, active, lb]);
   res.json({ ok: true });
+});
+
+// Location → handler (L1) map for a location-based trade.
+router.get('/trades/:id/locations', async (req, res) => {
+  const tr = (await q('SELECT id,name,location_based FROM trades WHERE id=$1', [req.params.id])).rows[0];
+  if (!tr) return res.status(404).json({ error: 'Trade not found' });
+  const rows = (await q(
+    `SELECT l.id AS location_id, l.name AS location_name, m.l1_emp_id
+     FROM locations l
+     LEFT JOIN trade_location_l1 m ON m.location_id=l.id AND m.trade_id=$1
+     WHERE l.active=TRUE ORDER BY l.sort_order, l.name`, [req.params.id])).rows;
+  res.json({ trade: tr, locations: rows });
+});
+
+router.put('/trades/:id/locations', async (req, res) => {
+  const maps = Array.isArray(req.body && req.body.mappings) ? req.body.mappings : [];
+  try {
+    for (const m of maps) {
+      const loc = Number(m.location_id); const emp = m.l1_emp_id ? Number(m.l1_emp_id) : null;
+      if (!loc) continue;
+      if (emp) {
+        await q(
+          `INSERT INTO trade_location_l1(trade_id,location_id,l1_emp_id) VALUES($1,$2,$3)
+           ON CONFLICT(trade_id,location_id) DO UPDATE SET l1_emp_id=EXCLUDED.l1_emp_id`,
+          [req.params.id, loc, emp]);
+      } else {
+        await q('DELETE FROM trade_location_l1 WHERE trade_id=$1 AND location_id=$2', [req.params.id, loc]);
+      }
+    }
+    res.json({ ok: true });
+  } catch (e) { console.error('save loc handlers', e); res.status(500).json({ error: 'Could not save location handlers' }); }
 });
 router.delete('/trades/:id', async (req, res) => {
   const used = (await q('SELECT COUNT(*)::int n FROM tickets WHERE trade_id=$1', [req.params.id])).rows[0].n;
