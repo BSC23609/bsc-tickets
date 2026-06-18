@@ -259,6 +259,42 @@ router.delete('/outpass/:id', async (req, res) => {
   res.json({ ok: true, ref_no: r.rows[0].ref_no });
 });
 
+// ===================== DAILY REPORT =====================
+router.get('/daily-report', async (req, res) => {
+  const r = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
+  res.json({ phone: (r && r.value) || '' });
+});
+router.put('/daily-report', async (req, res) => {
+  const phone = String((req.body && req.body.phone) || '').replace(/[^\d+]/g, '');
+  await q(`INSERT INTO app_settings(key,value) VALUES('daily_report_phone',$1)
+           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [phone]);
+  res.json({ ok: true, phone });
+});
+// Admin views the PDF straight from the panel (cookie-authed).
+router.get('/report-daily.pdf', async (req, res) => {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
+    ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  try {
+    const { pdf } = await require('../lib/report').dailyReportPdf(date);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
+    res.send(pdf);
+  } catch (e) { console.error('admin report pdf', e); res.status(500).json({ error: 'report error' }); }
+});
+// Admin "send now" — pushes today's report to the configured recipient immediately.
+router.post('/daily-report/send', async (req, res) => {
+  const date = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const report = require('../lib/report');
+  const rows = await report.dailyRows(date); const sum = report.summary(rows);
+  const [y, m, d] = date.split('-');
+  const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const r = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
+  const phone = (r && r.value) || process.env.DAILY_REPORT_PHONE;
+  if (!phone) return res.status(400).json({ error: 'Set the recipient WhatsApp number first.' });
+  await require('../lib/wati').notify.dailyReport({ phone, name: 'Sir' }, { dateISO: date, label, ...sum });
+  res.json({ ok: true, sent_to: phone, ...sum });
+});
+
 // ===================== DASHBOARD =====================
 router.get('/dashboard', async (req, res) => {
   const from = req.query.from || '2000-01-01';

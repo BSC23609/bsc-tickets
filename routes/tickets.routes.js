@@ -5,7 +5,7 @@ const graph = require('../lib/graph');
 const wati = require('../lib/wati');
 const excel = require('../lib/excel');
 const { background } = require('../lib/bg');
-const { nextRefNo, downtimeMins } = require('../lib/util');
+const { nextRefNo, downtimeMins, businessMinutesBetween } = require('../lib/util');
 const router = express.Router();
 
 router.use(auth.requireAuth);
@@ -195,6 +195,27 @@ router.get('/my-dashboard', async (req, res) => {
 
   // Range totals from my own actions
   const ev = (name) => activity.filter((a) => a.event === name).length;
+
+  // Timesheet: tickets I completed in range, with time taken (working minutes) + total.
+  const holidaySet = new Set((await q(`SELECT to_char(d,'YYYY-MM-DD') AS d FROM holidays`)).rows.map((r) => r.d));
+  const tsRows = (await q(
+    `SELECT t.ref_no, t.subject, t.raised_at, e.at AS completed_at,
+            r.name AS raised_by, me.name AS completed_by,
+            to_char(e.at AT TIME ZONE $2,'DD/MM/YYYY') AS date_label
+     FROM ticket_events e
+     JOIN tickets t ON t.id=e.ticket_id
+     JOIN employees r ON r.id=t.requester_id
+     JOIN employees me ON me.id=e.by_emp_id
+     WHERE e.event='resolved' AND e.by_emp_id=$1
+       AND (e.at AT TIME ZONE $2)::date BETWEEN $3 AND $4
+     ORDER BY e.at`, [me, TZ, from, to])).rows;
+  let timesheetTotal = 0;
+  const timesheet = tsRows.map((r) => {
+    const mins = Math.max(0, businessMinutesBetween(r.raised_at, r.completed_at, holidaySet));
+    timesheetTotal += mins;
+    return { ref_no: r.ref_no, date: r.date_label, task: r.subject, raised_by: r.raised_by, completed_by: r.completed_by, mins };
+  });
+
   res.json({
     me_name: req.user.name,
     range: { from, to },
@@ -204,7 +225,7 @@ router.get('/my-dashboard', async (req, res) => {
       forwarded: ev('forwarded'),
       assigned_open: assigned.length,
     },
-    raised, assigned, activity,
+    raised, assigned, activity, timesheet, timesheet_total_mins: timesheetTotal,
   });
 });
 

@@ -5,6 +5,7 @@
     { "source": "/(.*)", "destination": "/api/index" }
   ],
   "crons": [
-    { "path": "/api/cron/auto-close", "schedule": "0 1 * * *" }
+    { "path": "/api/cron/auto-close", "schedule": "0 1 * * *" },
+    { "path": "/api/cron/daily-report", "schedule": "0 13 * * *" }
   ]
 }

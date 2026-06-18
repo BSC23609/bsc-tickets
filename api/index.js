@@ -209,7 +209,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   const { rows: tickets } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.priority, t.status, t.escalation_level,
             t.l1_emp_id, t.l2_emp_id, t.l3_emp_id, t.raised_at, t.last_reminder_at,
-            c.name AS category_name, r.name AS requester_name,
+            c.name AS category_name, c.wait_cycle_mins, c.wait_l3_mins, r.name AS requester_name,
             l1.name AS l1_name, l1.phone AS l1_phone, l2.name AS l2_name, l2.phone AS l2_phone,
             l3.name AS l3_name, l3.phone AS l3_phone
      FROM tickets t
@@ -223,15 +223,16 @@ app.all('/api/cron/escalate', async (req, res) => {
   // Uniform escalation for every category/trade:
   //   >= 2h unresolved -> remind L1 + L2      (level 2)
   //   >= 4h unresolved -> remind L1 + L2 + L3  (level 3), then re-nudge every cycle.
+  // Per-category timing, falling back to global app_settings, then defaults.
   const S = (await q(`SELECT key,value FROM app_settings WHERE key IN ('remind_l2_mins','remind_l3_mins','remind_repeat_mins')`)).rows
     .reduce((m, r) => (m[r.key] = Number(r.value) || null, m), {});
-  const L2_AFTER = S.remind_l2_mins || 120;
-  const L3_AFTER = S.remind_l3_mins || 240;
-  const REPEAT   = S.remind_repeat_mins || 120;
+  const REPEAT = S.remind_repeat_mins || 120;
 
   const now = Date.now();
   let sent = 0, fired = 0;
   for (const t of tickets) {
+    const L2_AFTER = t.wait_cycle_mins || S.remind_l2_mins || 120;
+    const L3_AFTER = t.wait_l3_mins || S.remind_l3_mins || 240;
     const sinceRaised = businessMinutesBetween(t.raised_at, now, holidaySet);
     let newLevel = 0;
     if (sinceRaised >= L3_AFTER && t.l3_emp_id) newLevel = 3;
@@ -263,6 +264,42 @@ app.all('/api/cron/escalate', async (req, res) => {
   }
 
   res.json({ ok: true, scanned: tickets.length, fired, sent });
+});
+
+// ---- Daily report PDF (token-guarded so the WhatsApp link opens without login) ----
+app.get('/api/report/daily.pdf', async (req, res) => {
+  const token = process.env.REPORT_TOKEN;
+  if (!token || req.query.key !== token) return res.status(401).send('unauthorized');
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
+    ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  try {
+    const { pdf } = await require('../lib/report').dailyReportPdf(date);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
+    res.send(pdf);
+  } catch (e) { console.error('report pdf', e); res.status(500).send('report error'); }
+});
+
+// ---- Cron: 6:30pm IST daily report to the configured recipient (Goverdhan) ----
+app.all('/api/cron/daily-report', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
+    ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const report = require('../lib/report');
+  const rows = await report.dailyRows(date);
+  const sum = report.summary(rows);
+  const [y, m, d] = date.split('-');
+  const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const cfg = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
+  const phone = (cfg && cfg.value) || process.env.DAILY_REPORT_PHONE;
+  if (!phone) return res.json({ ok: false, skipped: 'no recipient configured', ...sum });
+
+  await require('../lib/wati').notify.dailyReport({ phone, name: 'Sir' }, { dateISO: date, label, ...sum });
+  res.json({ ok: true, date, sent_to: phone, ...sum });
 });
 
 app.use((err, req, res, next) => {
