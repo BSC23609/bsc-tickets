@@ -349,7 +349,7 @@ router.post('/:id/resolve', async (req, res) => {
       for (const id of [t.l2_emp_id, t.requested_by_id]) {
         if (!id || seen.has(id)) continue; seen.add(id);
         const p = await empById(id);
-        if (p && p.phone) await wati.notify.resolved(p, t, req.user.name);
+        if (p && p.phone) await wati.notify.resolved(p, t, req.user.name, note);
       }
       await excel.syncLogToOneDrive();
     })());
@@ -359,8 +359,16 @@ router.post('/:id/resolve', async (req, res) => {
   await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`,
     [t.id, req.user.id, note]);
-  background(wati.notify.resolved({ name: t.requester_name, phone: t.requester_phone }, t, req.user.name));
-  background(excel.syncLogToOneDrive());
+  background((async () => {
+    const seen = new Set();
+    const targets = [{ id: t.requester_id, name: t.requester_name, phone: t.requester_phone }];
+    if (t.l2_emp_id) { const l2 = await empById(t.l2_emp_id); if (l2) targets.push(l2); }
+    for (const p of targets) {
+      if (!p || !p.phone || seen.has(p.id)) continue; seen.add(p.id);
+      await wati.notify.resolved(p, t, req.user.name, note);
+    }
+    await excel.syncLogToOneDrive();
+  })());
   res.json({ ok: true });
 });
 

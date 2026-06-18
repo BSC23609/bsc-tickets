@@ -469,11 +469,23 @@
       try { await api(`/tickets/${id}/assign`, {method:'POST', body:{l1_emp_id:l1}}); toast('Assigned — handler notified','success'); openDetail(id); }
       catch(e){ toast(e.message,'error'); }
     }
-    async function resolveTicket(id){
-      const note = prompt('Resolution note (optional):') || '';
-      try { const r = await api(`/tickets/${id}/resolve`, {method:'POST', body:{note}});
-        toast(r.self ? 'Done & closed — L2 and requester notified' : 'Resolved — requester notified','success'); openDetail(id); }
-      catch(e){ toast(e.message,'error'); }
+    let resolveId = null;
+    function resolveTicket(id){
+      resolveId = id;
+      document.getElementById('resolveRemark').value = '';
+      const m = document.getElementById('remarkModal'); m.classList.remove('hidden'); m.classList.add('flex');
+      setTimeout(() => document.getElementById('resolveRemark').focus(), 50);
+    }
+    function closeRemark(){ const m = document.getElementById('remarkModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+    async function submitResolve(){
+      const note = document.getElementById('resolveRemark').value.trim();
+      const btn = document.getElementById('resolveGo'); btn.disabled = true;
+      try {
+        const r = await api(`/tickets/${resolveId}/resolve`, {method:'POST', body:{note}});
+        toast(r.self ? 'Done & closed — L2 and requester notified' : 'Resolved — requester and L2 notified','success');
+        closeRemark(); openDetail(resolveId);
+      } catch(e){ toast(e.message,'error'); }
+      finally { btn.disabled = false; }
     }
     async function reopenTicket(id){
       const reason = prompt('Why is this not resolved? (optional)') || '';
@@ -512,5 +524,21 @@
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e => { console.error(e); toast(e.message,'error'); });
   </script>
+  <div id="remarkModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+      <div class="p-4 border-b border-line">
+        <h3 class="font-bold text-ink">Resolve ticket</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Add a remark — it's sent to the requester and the L2 on WhatsApp.</p>
+      </div>
+      <div class="p-4">
+        <label class="fieldlabel">Remark</label>
+        <textarea id="resolveRemark" rows="3" class="field" placeholder="What was done / root cause / any note…"></textarea>
+      </div>
+      <div class="p-4 border-t border-line flex justify-end gap-2">
+        <button onclick="closeRemark()" class="text-sm px-4 py-2 rounded-xl border border-line">Cancel</button>
+        <button id="resolveGo" onclick="submitResolve()" class="text-sm px-4 py-2 rounded-xl bg-violet-600 text-white font-semibold">Mark resolved</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
