@@ -274,39 +274,71 @@ router.put('/requester-groups', async (req, res) => {
 });
 
 // ===================== DAILY REPORT =====================
+const parsePhones = (v) => String(v || '').split(/[\n,]/).map((s) => s.replace(/[^\d+]/g, '')).filter(Boolean);
+
 router.get('/daily-report', async (req, res) => {
   const r = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
-  res.json({ phone: (r && r.value) || '' });
+  res.json({ value: (r && r.value) || '' });
 });
 router.put('/daily-report', async (req, res) => {
-  const phone = String((req.body && req.body.phone) || '').replace(/[^\d+]/g, '');
+  const value = parsePhones(req.body && req.body.value).join('\n');
   await q(`INSERT INTO app_settings(key,value) VALUES('daily_report_phone',$1)
-           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [phone]);
-  res.json({ ok: true, phone });
+           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [value]);
+  res.json({ ok: true, value });
 });
-// Admin views the PDF straight from the panel (cookie-authed).
+
+// Admin previews the PDF straight from the panel (cookie-authed). Optional ?emp= for a person's scoped view.
 router.get('/report-daily.pdf', async (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
     ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  let scope = null, subtitle = null;
+  if (req.query.emp) {
+    const s = (await q(`SELECT s.category_ids, s.trade_ids, e.name FROM report_subscriptions s JOIN employees e ON e.id=s.employee_id WHERE s.employee_id=$1`, [+req.query.emp])).rows[0];
+    if (s) { scope = { categoryIds: s.category_ids, tradeIds: s.trade_ids }; subtitle = s.name; }
+  }
   try {
-    const { pdf } = await require('../lib/report').dailyReportPdf(date);
+    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
     res.send(pdf);
   } catch (e) { console.error('admin report pdf', e); res.status(500).json({ error: 'report error' }); }
 });
-// Admin "send now" — pushes today's report to the configured recipient immediately.
+
+// "Send now" — runs the full dispatch (overall recipients + per-person subscribers).
 router.post('/daily-report/send', async (req, res) => {
   const date = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const report = require('../lib/report');
-  const rows = await report.dailyRows(date); const sum = report.summary(rows);
-  const [y, m, d] = date.split('-');
-  const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const r = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
-  const phone = (r && r.value) || process.env.DAILY_REPORT_PHONE;
-  if (!phone) return res.status(400).json({ error: 'Set the recipient WhatsApp number first.' });
-  await require('../lib/wati').notify.dailyReport({ phone, name: 'Sir' }, { dateISO: date, label, ...sum });
-  res.json({ ok: true, sent_to: phone, ...sum });
+  try {
+    const r = await require('../lib/report').dispatchDailyReports(date);
+    if (!r.overall_sent.length && !r.scoped_sent.length)
+      return res.status(400).json({ error: 'Nobody to send to — add an overall recipient or a per-person subscriber.' });
+    res.json({ ok: true, ...r });
+  } catch (e) { console.error('send report', e); res.status(500).json({ error: 'Could not send report' }); }
+});
+
+// ----- Per-employee report subscriptions -----
+router.get('/report-subscriptions', async (req, res) => {
+  const rows = (await q(
+    `SELECT s.employee_id, s.enabled, s.category_ids, s.trade_ids, e.name, e.emp_no, e.phone
+     FROM report_subscriptions s JOIN employees e ON e.id=s.employee_id
+     ORDER BY e.name`)).rows;
+  res.json(rows);
+});
+router.put('/report-subscriptions/:empId', async (req, res) => {
+  const empId = +req.params.empId;
+  const b = req.body || {};
+  const enabled = b.enabled === undefined ? true : !!b.enabled;
+  const cats = Array.isArray(b.category_ids) ? b.category_ids.map(Number).filter(Boolean) : [];
+  const trades = Array.isArray(b.trade_ids) ? b.trade_ids.map(Number).filter(Boolean) : [];
+  await q(
+    `INSERT INTO report_subscriptions(employee_id,enabled,category_ids,trade_ids)
+     VALUES($1,$2,$3,$4)
+     ON CONFLICT(employee_id) DO UPDATE SET enabled=EXCLUDED.enabled, category_ids=EXCLUDED.category_ids, trade_ids=EXCLUDED.trade_ids`,
+    [empId, enabled, cats, trades]);
+  res.json({ ok: true });
+});
+router.delete('/report-subscriptions/:empId', async (req, res) => {
+  await q(`DELETE FROM report_subscriptions WHERE employee_id=$1`, [+req.params.empId]);
+  res.json({ ok: true });
 });
 
 // ===================== DASHBOARD =====================

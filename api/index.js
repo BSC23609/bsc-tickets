@@ -311,36 +311,38 @@ app.all('/api/cron/escalate', async (req, res) => {
 app.get('/api/report/daily.pdf', async (req, res) => {
   const token = process.env.REPORT_TOKEN;
   if (!token || req.query.key !== token) return res.status(401).send('unauthorized');
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
-    ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  let date = today, scope = null, subtitle = null;
   try {
-    const { pdf } = await require('../lib/report').dailyReportPdf(date);
+    if (req.query.q) {
+      // scoped per-employee link: q = "<YYYY-MM-DD>_<employeeId>"
+      const [qd, empId] = String(req.query.q).split('_');
+      if (/^\d{4}-\d{2}-\d{2}$/.test(qd)) date = qd;
+      if (empId) {
+        const s = (await q(`SELECT s.category_ids, s.trade_ids, e.name FROM report_subscriptions s JOIN employees e ON e.id=s.employee_id WHERE s.employee_id=$1`, [+empId])).rows[0];
+        if (s) { scope = { categoryIds: s.category_ids, tradeIds: s.trade_ids }; subtitle = s.name; }
+      }
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')) {
+      date = req.query.date;
+    }
+    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
     res.send(pdf);
   } catch (e) { console.error('report pdf', e); res.status(500).send('report error'); }
 });
 
-// ---- Cron: 6:30pm IST daily report to the configured recipient (Goverdhan) ----
+// ---- Cron: 6:30pm IST daily report — overall recipients + per-person subscribers ----
 app.all('/api/cron/daily-report', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
-
   const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
     ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-  const report = require('../lib/report');
-  const rows = await report.dailyRows(date);
-  const sum = report.summary(rows);
-  const [y, m, d] = date.split('-');
-  const label = new Date(y, m - 1, d).toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-
-  const cfg = (await q(`SELECT value FROM app_settings WHERE key='daily_report_phone'`)).rows[0];
-  const phone = (cfg && cfg.value) || process.env.DAILY_REPORT_PHONE;
-  if (!phone) return res.json({ ok: false, skipped: 'no recipient configured', ...sum });
-
-  await require('../lib/wati').notify.dailyReport({ phone, name: 'Sir' }, { dateISO: date, label, ...sum });
-  res.json({ ok: true, date, sent_to: phone, ...sum });
+  try {
+    const r = await require('../lib/report').dispatchDailyReports(date);
+    res.json({ ok: true, ...r });
+  } catch (e) { console.error('cron daily-report', e); res.status(500).json({ error: 'dispatch failed' }); }
 });
 
 app.use((err, req, res, next) => {

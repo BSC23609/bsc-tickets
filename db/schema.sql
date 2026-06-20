@@ -326,3 +326,12 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS can_self_raise BOOLEAN NOT NULL D
 -- Rotated on every resolve, so an old resolved message's buttons stop working after a re-resolve.
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS confirm_token TEXT;
 CREATE INDEX IF NOT EXISTS idx_tickets_confirm_token ON tickets(confirm_token);
+
+-- Per-employee scoped daily reports: each subscriber gets a report filtered to the
+-- categories / trades they care about. Empty scope or no tickets that day = nothing sent.
+CREATE TABLE IF NOT EXISTS report_subscriptions (
+  employee_id  INT PRIMARY KEY REFERENCES employees(id) ON DELETE CASCADE,
+  enabled      BOOLEAN NOT NULL DEFAULT TRUE,
+  category_ids INT[] NOT NULL DEFAULT '{}',
+  trade_ids    INT[] NOT NULL DEFAULT '{}'
+);
