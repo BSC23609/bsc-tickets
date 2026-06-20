@@ -321,3 +321,8 @@ INSERT INTO app_settings(key,value)
 
 -- Per-employee gate for the "Raise for myself" (self-task) feature. Off by default.
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS can_self_raise BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Per-ticket token for the requester's one-tap WhatsApp actions (confirm-close / reopen).
+-- Rotated on every resolve, so an old resolved message's buttons stop working after a re-resolve.
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS confirm_token TEXT;
+CREATE INDEX IF NOT EXISTS idx_tickets_confirm_token ON tickets(confirm_token);

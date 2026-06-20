@@ -192,6 +192,47 @@ app.all('/api/cron/auto-close', async (req, res) => {
   res.json({ ok: true, auto_closed: rows.length });
 });
 
+// ---- Ticket resolve: one-tap Confirm-close / Reopen from the requester's WhatsApp ----
+// Token = the ticket's confirm_token (rotated on every resolve). No login needed.
+async function loadTicketByToken(token) {
+  return (await q(
+    `SELECT t.*, c.name AS category_name, r.name AS requester_name
+     FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     WHERE t.confirm_token=$1`, [token])).rows[0];
+}
+
+app.get('/rc/:token', async (req, res) => {
+  try {
+    const t = await loadTicketByToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This link is not recognised, or a newer update has replaced it.'));
+    if (t.status === 'closed') return res.send(actionPage('✅', 'Already closed', `Ticket ${t.ref_no} is already closed. Thank you!`));
+    if (t.status !== 'resolved') return res.send(actionPage('ℹ️', 'Ticket is active', `Ticket ${t.ref_no} is currently "${t.status}", so there's nothing to confirm right now.`));
+    await q(`UPDATE tickets SET status='closed', closed_at=now() WHERE id=$1`, [t.id]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'confirmed_closed',$2,'Confirmed from WhatsApp')`, [t.id, t.requester_id]);
+    require('../lib/bg').background(require('../lib/excel').syncLogToOneDrive());
+    res.send(actionPage('✅', 'Confirmed & closed', `Thanks! Ticket ${t.ref_no} — "${t.subject}" is now closed.`));
+  } catch (e) { console.error('rc', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again, or open the app.')); }
+});
+
+app.get('/rr/:token', async (req, res) => {
+  try {
+    const t = await loadTicketByToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This link is not recognised, or a newer update has replaced it.'));
+    if (['open', 'in_progress', 'reopened'].includes(t.status))
+      return res.send(actionPage('↩️', 'Already reopened', `Ticket ${t.ref_no} is open again — the team is on it.`));
+    if (!['resolved', 'closed'].includes(t.status))
+      return res.send(actionPage('ℹ️', 'No action needed', `Ticket ${t.ref_no} is "${t.status}".`));
+    await q(`UPDATE tickets SET status='reopened', resolved_at=NULL, closed_at=NULL WHERE id=$1`, [t.id]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'reopened',$2,'Reopened from WhatsApp')`, [t.id, t.requester_id]);
+    require('../lib/bg').background((async () => {
+      const l1 = (await q('SELECT id,name,phone FROM employees WHERE id=$1', [t.l1_emp_id])).rows[0];
+      if (l1 && l1.phone) await wati.notify.reopened(l1, { ...t, requester_name: t.requester_name });
+      await require('../lib/excel').syncLogToOneDrive();
+    })());
+    res.send(actionPage('↩️', 'Reopened', `Ticket ${t.ref_no} — "${t.subject}" has been reopened and the handler notified.`));
+  } catch (e) { console.error('rr', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again, or open the app.')); }
+});
+
 // ---- Cron: working-hours reminder / escalation engine ----
 // Runs every ~15 min (GitHub Actions). Protected by CRON_SECRET. Only sends
 // during Mon–Sat 09:30–18:00 IST (minus holidays); timers count working minutes.

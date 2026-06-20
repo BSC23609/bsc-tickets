@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { q, pool } = require('../lib/db');
 const auth = require('../lib/auth');
 const graph = require('../lib/graph');
@@ -367,9 +368,11 @@ router.post('/:id/resolve', async (req, res) => {
 
   if (t.is_self) {
     // Raiser is the doer — close it straight away and notify the L2 + the delegator (CMD/CEO).
-    await q(`UPDATE tickets SET status='closed', resolved_at=now(), closed_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
+    const selfToken = crypto.randomBytes(20).toString('hex');
+    await q(`UPDATE tickets SET status='closed', resolved_at=now(), closed_at=now(), resolution_note=$2, confirm_token=$3 WHERE id=$1`, [t.id, note, selfToken]);
     await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`, [t.id, req.user.id, note]);
     await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'confirmed_closed',$2,'Self-closed')`, [t.id, req.user.id]);
+    t.confirm_token = selfToken;
     res.json({ ok: true, self: true });
     background((async () => {
       const seen = new Set([req.user.id]);
@@ -383,9 +386,11 @@ router.post('/:id/resolve', async (req, res) => {
     return;
   }
 
-  await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2 WHERE id=$1`, [t.id, note]);
+  const confirmToken = crypto.randomBytes(20).toString('hex');
+  await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2, confirm_token=$3 WHERE id=$1`, [t.id, note, confirmToken]);
   await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`,
     [t.id, req.user.id, note]);
+  t.confirm_token = confirmToken;
   background((async () => {
     const seen = new Set();
     const targets = [{ id: t.requester_id, name: t.requester_name, phone: t.requester_phone }];
