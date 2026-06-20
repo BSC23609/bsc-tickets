@@ -586,6 +586,10 @@
             <input id="ed_opvhr" type="checkbox" ${e.outpass_via_hr?'checked':''}>
             <span>Own outpass approved by HR <span class="text-slate-400 normal-case font-normal">(for outpass approvers — their own passes route to the HR fallback approver, not themselves)</span></span>
           </label>
+          <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
+            <input id="ed_selfraise" type="checkbox" ${e.can_self_raise?'checked':''}>
+            <span>Can raise self-tickets <span class="text-slate-400 normal-case font-normal">(shows the "Raise this for myself" option — for people who log their own tasks)</span></span>
+          </label>
         </div>
         <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
           <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
@@ -603,6 +607,7 @@
         active: document.getElementById('ed_active').checked,
         conveyance_needs_manager: document.getElementById('ed_convmgr').checked,
         outpass_via_hr: document.getElementById('ed_opvhr').checked,
+        can_self_raise: document.getElementById('ed_selfraise').checked,
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
       try{

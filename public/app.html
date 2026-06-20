@@ -70,7 +70,7 @@
             <label class="fieldlabel" id="locLabel">Location</label>
             <select id="f_location" class="field"><option value="">Select a location</option></select>
           </div>
-          <div class="sm:col-span-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
+          <div id="selfBlock" class="hidden sm:col-span-2 bg-indigo-50/60 border border-indigo-100 rounded-lg p-3">
             <label class="flex items-center gap-2 text-sm font-medium text-ink">
               <input type="checkbox" id="f_self" onchange="onSelfChange()"> Raise this for myself — a task I'll work on
             </label>
@@ -153,6 +153,7 @@
       me = await api('/me');
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
       if (me.is_admin) document.getElementById('adminLink').classList.remove('hidden');
+      if (me.can_self_raise) document.getElementById('selfBlock').classList.remove('hidden');
       meta = await api('/tickets/meta');
       fillForm();
       // show "Assigned" tab only if the user handles any category/trade

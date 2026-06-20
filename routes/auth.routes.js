@@ -38,6 +38,7 @@ router.get('/me', auth.requireAuth, async (req, res) => {
     id: u.id, emp_no: u.emp_no, name: u.name, email: u.email,
     department: u.department, job_title: u.job_title,
     is_admin: u.is_admin, must_reset: u.must_reset,
+    can_self_raise: u.can_self_raise === true,
   });
 });
 

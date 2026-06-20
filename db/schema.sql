@@ -318,3 +318,6 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS requested_by_label TEXT;
 INSERT INTO app_settings(key,value)
   VALUES ('requester_groups', E'Crayon\nMetfraa Office\nMetfraa Factory\nG2')
   ON CONFLICT(key) DO NOTHING;
+
+-- Per-employee gate for the "Raise for myself" (self-task) feature. Off by default.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS can_self_raise BOOLEAN NOT NULL DEFAULT FALSE;

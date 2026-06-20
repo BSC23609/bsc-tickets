@@ -61,6 +61,8 @@ router.post('/', async (req, res) => {
   if (!category_id || !subject) return res.status(400).json({ error: 'Category and subject are required' });
   const pri = ['Low','Medium','High','Critical'].includes(priority) ? priority : 'Medium';
   const isSelf = !!(req.body && req.body.self);
+  if (isSelf && req.user.can_self_raise !== true)
+    return res.status(403).json({ error: 'Self-tickets are not enabled for your account.' });
   const requestedById = (req.body && +req.body.requested_by_id) || null;
   const requestedByLabel = isSelf && !requestedById
     ? (String((req.body && req.body.requested_by_label) || '').trim().slice(0, 120) || null) : null;
