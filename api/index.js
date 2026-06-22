@@ -233,6 +233,43 @@ app.get('/rr/:token', async (req, res) => {
   } catch (e) { console.error('rr', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again, or open the app.')); }
 });
 
+// ---- Resolution attachments: tokenized download (no login), linked from the WhatsApp button ----
+const _docMime = (name) => {
+  const ext = (name || '').toLowerCase().split('.').pop();
+  return ({ pdf: 'application/pdf', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif',
+    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    txt: 'text/plain', csv: 'text/csv' })[ext] || 'application/octet-stream';
+};
+async function streamDoc(res, doc) {
+  const buf = await require('../lib/graph').fetchDriveItemContent(doc.drive_item_id);
+  if (!buf) return res.status(502).send('Could not fetch the file from storage.');
+  res.setHeader('Content-Type', _docMime(doc.file_name));
+  res.setHeader('Content-Disposition', `inline; filename="${(doc.file_name || 'document').replace(/"/g, '')}"`);
+  res.send(buf);
+}
+app.get('/rd/:token', async (req, res) => {
+  try {
+    const t = (await q(`SELECT id, ref_no, subject FROM tickets WHERE confirm_token=$1`, [req.params.token])).rows[0];
+    if (!t) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This link is not recognised, or a newer update has replaced it.'));
+    const docs = (await q(`SELECT id, file_name, drive_item_id FROM ticket_photos WHERE ticket_id=$1 AND kind='resolution' ORDER BY id`, [t.id])).rows;
+    if (!docs.length) return res.send(actionPage('📄', 'No documents', `No documents are attached to ticket ${t.ref_no}.`));
+    if (docs.length === 1) return streamDoc(res, docs[0]);
+    const tok = encodeURIComponent(req.params.token);
+    const items = docs.map((d) => `<a href="/rd/${tok}/file/${d.id}" style="display:block;margin:8px 0;padding:12px 16px;background:#1B7BC0;color:#fff;border-radius:10px;text-decoration:none;font-weight:600">⬇ ${String(d.file_name).replace(/</g, '&lt;')}</a>`).join('');
+    return res.send(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1"><body style="font-family:system-ui,sans-serif;max-width:520px;margin:40px auto;padding:0 16px;color:#112532"><h2 style="margin:0 0 4px">Resolution documents</h2><div style="color:#8A97A3;font-size:14px;margin-bottom:16px">${t.ref_no} — ${String(t.subject).replace(/</g, '&lt;')}</div>${items}</body>`);
+  } catch (e) { console.error('rd', e); res.status(500).send('error'); }
+});
+app.get('/rd/:token/file/:docId', async (req, res) => {
+  try {
+    const t = (await q(`SELECT id FROM tickets WHERE confirm_token=$1`, [req.params.token])).rows[0];
+    if (!t) return res.status(404).send('Link not valid');
+    const d = (await q(`SELECT file_name, drive_item_id FROM ticket_photos WHERE id=$1 AND ticket_id=$2 AND kind='resolution'`, [+req.params.docId, t.id])).rows[0];
+    if (!d) return res.status(404).send('Not found');
+    return streamDoc(res, d);
+  } catch (e) { console.error('rd file', e); res.status(500).send('error'); }
+});
+
 // ---- SSO: hand a sibling app (e.g. QMS) a short-lived signed emp_no token ----
 // The portal is the login authority; the other app trusts this token and starts its own session.
 app.get('/sso/go', require('../lib/auth').requireAuth, (req, res) => {
@@ -339,7 +376,7 @@ app.get('/api/report/daily.pdf', async (req, res) => {
     } else if (/^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')) {
       date = req.query.date;
     }
-    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle);
+    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle, { remark: !!scope });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
     res.send(pdf);
