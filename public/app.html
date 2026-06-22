@@ -497,19 +497,49 @@
       catch(e){ toast(e.message,'error'); }
     }
     let resolveId = null;
+    let resolveDocCount = 0, resolveUploading = 0;
     function resolveTicket(id){
       resolveId = id;
       document.getElementById('resolveRemark').value = '';
+      document.getElementById('resolveDocs').value = '';
+      document.getElementById('resolveDocList').innerHTML = '';
+      resolveDocCount = 0; resolveUploading = 0;
       const m = document.getElementById('remarkModal'); m.classList.remove('hidden'); m.classList.add('flex');
       setTimeout(() => document.getElementById('resolveRemark').focus(), 50);
     }
+    async function onResolveDocs(e){
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      const list = document.getElementById('resolveDocList');
+      const btn = document.getElementById('resolveGo');
+      for (const f of files){
+        if (resolveDocCount >= 5){ toast('Max 5 documents', 'error'); break; }
+        const row = document.createElement('div');
+        row.className = 'flex items-center gap-2 text-xs bg-slate-50 border border-line rounded px-2 py-1';
+        row.innerHTML = `<span class="flex-1 truncate">${f.name}</span><span class="text-slate-400">uploading…</span>`;
+        list.appendChild(row);
+        resolveUploading++; btn.disabled = true;
+        try {
+          await uploadPhotoToOneDrive(resolveId, f, 'resolution');
+          resolveDocCount++;
+          row.querySelector('span:last-child').textContent = '✓';
+          row.querySelector('span:last-child').className = 'text-emerald-600';
+        } catch (err){
+          row.querySelector('span:last-child').textContent = 'failed';
+          row.querySelector('span:last-child').className = 'text-red-600';
+          toast('Upload: ' + err.message, 'error');
+        } finally { resolveUploading--; if (resolveUploading === 0) btn.disabled = false; }
+      }
+    }
     function closeRemark(){ const m = document.getElementById('remarkModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
     async function submitResolve(){
+      if (resolveUploading > 0) return toast('Wait for the document upload to finish', 'error');
       const note = document.getElementById('resolveRemark').value.trim();
       const btn = document.getElementById('resolveGo'); btn.disabled = true;
       try {
         const r = await api(`/tickets/${resolveId}/resolve`, {method:'POST', body:{note}});
-        toast(r.self ? 'Done & closed — L2 and requester notified' : 'Resolved — requester and L2 notified','success');
+        const docMsg = resolveDocCount ? ` with ${resolveDocCount} document${resolveDocCount>1?'s':''}` : '';
+        toast((r.self ? 'Done & closed — L2 and requester notified' : 'Resolved — requester and L2 notified') + docMsg,'success');
         closeRemark(); openDetail(resolveId);
       } catch(e){ toast(e.message,'error'); }
       finally { btn.disabled = false; }
@@ -560,6 +590,13 @@
       <div class="p-4">
         <label class="fieldlabel">Remark</label>
         <textarea id="resolveRemark" rows="3" class="field" placeholder="What was done / root cause / any note…"></textarea>
+        <div class="mt-3">
+          <label class="fieldlabel">Attach document(s) <span class="text-slate-400 font-normal normal-case">— optional, up to 5</span></label>
+          <input id="resolveDocs" type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.csv,.txt" onchange="onResolveDocs(event)"
+                 class="block w-full text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-violet-50 file:text-violet-700 file:font-semibold" />
+          <div id="resolveDocList" class="mt-2 space-y-1"></div>
+          <p class="text-[11px] text-slate-400 mt-1">Attached files are sent to the requester and the L2 with a download button.</p>
+        </div>
       </div>
       <div class="p-4 border-t border-line flex justify-end gap-2">
         <button onclick="closeRemark()" class="text-sm px-4 py-2 rounded-xl border border-line">Cancel</button>

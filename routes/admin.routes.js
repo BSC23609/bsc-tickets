@@ -297,7 +297,7 @@ router.get('/report-daily.pdf', async (req, res) => {
     if (s) { scope = { categoryIds: s.category_ids, tradeIds: s.trade_ids }; subtitle = s.name; }
   }
   try {
-    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle);
+    const { pdf } = await require('../lib/report').dailyReportPdf(date, scope, subtitle, { remark: !!scope });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
     res.send(pdf);

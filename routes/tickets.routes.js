@@ -56,6 +56,15 @@ async function empById(id) {
   return rows[0] || null;
 }
 
+// If the resolver attached document(s), send each recipient a WhatsApp with a download button.
+async function sendResolutionDocs(t, recipients) {
+  const docs = (await q(`SELECT id FROM ticket_photos WHERE ticket_id=$1 AND kind='resolution'`, [t.id])).rows;
+  if (!docs.length) return;
+  for (const p of recipients) {
+    if (p && p.phone) await wati.notify.document(p, t);
+  }
+}
+
 // ---- create ticket ----
 router.post('/', async (req, res) => {
   const { category_id, trade_id, priority, subject, description, location_id } = req.body || {};
@@ -285,16 +294,20 @@ router.get('/:id', async (req, res) => {
 
 // ---- photos: mint upload session (browser uploads straight to OneDrive) ----
 router.post('/:id/photo-session', async (req, res) => {
-  const { rows } = await q('SELECT ref_no,requester_id FROM tickets WHERE id=$1', [req.params.id]);
+  const { rows } = await q('SELECT ref_no,requester_id,l1_emp_id,l2_emp_id,l3_emp_id FROM tickets WHERE id=$1', [req.params.id]);
   if (!rows.length) return res.status(404).json({ error: 'Not found' });
-  if (rows[0].requester_id !== req.user.id && !req.user.is_admin)
-    return res.status(403).json({ error: 'Not allowed' });
+  const t = rows[0];
+  const kind = req.body.kind || 'issue';
+  const isHandler = [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(req.user.id) || req.user.is_admin;
+  // Resolution attachments are uploaded by the handler resolving the ticket; issue photos by the requester.
+  const allowed = kind === 'resolution' ? isHandler : (t.requester_id === req.user.id || req.user.is_admin);
+  if (!allowed) return res.status(403).json({ error: 'Not allowed' });
   const count = (await q('SELECT COUNT(*)::int n FROM ticket_photos WHERE ticket_id=$1 AND kind=$2',
-    [req.params.id, req.body.kind || 'issue'])).rows[0].n;
-  if (count >= 5) return res.status(400).json({ error: 'Maximum 5 photos' });
-  const fileName = (req.body.file_name || `photo_${Date.now()}.jpg`).replace(/[^\w.\- ]/g, '_');
-  const sess = await graph.createUploadSession(rows[0].ref_no, fileName);
-  if (!sess) return res.status(503).json({ error: 'Photo storage not configured yet', skipped: true });
+    [req.params.id, kind])).rows[0].n;
+  if (count >= 5) return res.status(400).json({ error: 'Maximum 5 files' });
+  const fileName = (req.body.file_name || `file_${Date.now()}`).replace(/[^\w.\- ]/g, '_');
+  const sess = await graph.createUploadSession(t.ref_no, fileName);
+  if (!sess) return res.status(503).json({ error: 'File storage not configured yet', skipped: true });
   res.json({ uploadUrl: sess.uploadUrl, file_name: fileName });
 });
 
@@ -376,11 +389,13 @@ router.post('/:id/resolve', async (req, res) => {
     res.json({ ok: true, self: true });
     background((async () => {
       const seen = new Set([req.user.id]);
+      const recipients = [];
       for (const id of [t.l2_emp_id, t.requested_by_id]) {
         if (!id || seen.has(id)) continue; seen.add(id);
         const p = await empById(id);
-        if (p && p.phone) await wati.notify.resolved(p, t, req.user.name, note);
+        if (p && p.phone) { await wati.notify.resolved(p, t, req.user.name, note); recipients.push(p); }
       }
+      await sendResolutionDocs(t, recipients);
       await excel.syncLogToOneDrive();
     })());
     return;
@@ -395,10 +410,13 @@ router.post('/:id/resolve', async (req, res) => {
     const seen = new Set();
     const targets = [{ id: t.requester_id, name: t.requester_name, phone: t.requester_phone }];
     if (t.l2_emp_id) { const l2 = await empById(t.l2_emp_id); if (l2) targets.push(l2); }
+    const recipients = [];
     for (const p of targets) {
       if (!p || !p.phone || seen.has(p.id)) continue; seen.add(p.id);
       await wati.notify.resolved(p, t, req.user.name, note);
+      recipients.push(p);
     }
+    await sendResolutionDocs(t, recipients);
     await excel.syncLogToOneDrive();
   })());
   res.json({ ok: true });
