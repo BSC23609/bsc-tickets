@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Genset Log — BSC</title>
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = { theme: { extend: {
+      colors: { brand: { 50:'#EAF2F8',100:'#D5E6F1',300:'#7FB3D5',500:'#1B7BC0',600:'#0E6AA6',700:'#0A557F',800:'#0A4566',ink:'#112532' },
+                ink:'#112532', mist:'#F5F8FB', line:'#E6EDF3' },
+      fontFamily: { sans:['Inter','ui-sans-serif','system-ui','sans-serif'],
+                    display:['Space Grotesk','ui-sans-serif','sans-serif'],
+                    mono:['Space Mono','ui-monospace','monospace'] }
+    } } };
+  </script>
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+
+  <!-- Header -->
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
+        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-5xl mx-auto px-4 py-7">
+    <div class="mb-6">
+      <div class="text-xs font-bold uppercase tracking-widest text-brand-600">BSC Chennai</div>
+      <h1 class="font-display text-2xl md:text-3xl font-bold text-ink mt-0.5">Genset (DG) Log</h1>
+      <p class="text-sm text-slate-500 mt-1">Record each DG running session. Running time is auto-calculated and the entry is signed by you.</p>
+    </div>
+
+    <!-- Entry form -->
+    <div class="card p-6 mb-6">
+      <h2 class="font-display font-bold text-lg mb-4">New log entry</h2>
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div>
+          <label class="fieldlabel">Genset</label>
+          <select id="f_genset" class="field" onchange="onGensetChange()"></select>
+        </div>
+        <div>
+          <label class="fieldlabel">Date</label>
+          <input id="f_date" type="date" class="field" />
+        </div>
+        <div class="hidden lg:block"></div>
+
+        <div>
+          <label class="fieldlabel">Start — hour-meter</label>
+          <input id="f_start" type="number" step="0.1" min="0" class="field mono" oninput="calcRunning()" placeholder="0.0" />
+          <p id="prefillNote" class="text-[11px] text-slate-400 mt-1"></p>
+        </div>
+        <div>
+          <label class="fieldlabel">Stop — hour-meter</label>
+          <input id="f_stop" type="number" step="0.1" min="0" class="field mono" oninput="calcRunning()" placeholder="0.0" />
+        </div>
+        <div>
+          <label class="fieldlabel">Running time (auto)</label>
+          <input id="f_running" class="field mono bg-mist" readonly placeholder="0.0 hrs" />
+        </div>
+
+        <div>
+          <label class="fieldlabel">Fuel added (litres)</label>
+          <input id="f_fuel" type="number" step="0.1" min="0" class="field mono" placeholder="optional" />
+        </div>
+        <div>
+          <label class="fieldlabel">Load (%)</label>
+          <input id="f_load" type="number" step="1" min="0" max="100" class="field mono" placeholder="optional" />
+        </div>
+        <div class="hidden lg:block"></div>
+
+        <div>
+          <label class="fieldlabel">Engine oil level</label>
+          <select id="f_eoil" class="field">
+            <option value="">—</option>
+            <option>OK</option><option>Low</option><option>Topped up</option>
+          </select>
+        </div>
+        <div>
+          <label class="fieldlabel">Coolant oil level</label>
+          <select id="f_coil" class="field">
+            <option value="">—</option>
+            <option>OK</option><option>Low</option><option>Topped up</option>
+          </select>
+        </div>
+        <div class="hidden lg:block"></div>
+
+        <div class="sm:col-span-2 lg:col-span-3">
+          <label class="fieldlabel">Remarks</label>
+          <textarea id="f_remarks" rows="2" class="field" placeholder="optional — anything noteworthy"></textarea>
+        </div>
+      </div>
+      <div class="flex items-center justify-between gap-3 mt-5">
+        <div class="text-xs text-slate-400">Signed as <span id="signWho" class="font-semibold text-slate-600"></span> · auto-timestamped</div>
+        <button id="saveBtn" onclick="submitLog()" class="btn">Save log entry</button>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="card p-6 mb-6">
+      <div class="flex items-center justify-between flex-wrap gap-3 mb-4">
+        <h2 class="font-display font-bold text-lg">History</h2>
+        <div class="flex items-end gap-2 flex-wrap">
+          <div>
+            <label class="fieldlabel">Genset</label>
+            <select id="h_genset" class="field" onchange="loadLogs()"><option value="">All</option></select>
+          </div>
+          <div>
+            <label class="fieldlabel">From</label>
+            <input id="h_from" type="date" class="field" onchange="loadLogs()" />
+          </div>
+          <div>
+            <label class="fieldlabel">To</label>
+            <input id="h_to" type="date" class="field" onchange="loadLogs()" />
+          </div>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left border-b border-line">
+              <th class="fieldlabel py-2">Date</th>
+              <th class="fieldlabel py-2">Genset</th>
+              <th class="fieldlabel py-2 text-right">Start</th>
+              <th class="fieldlabel py-2 text-right">Stop</th>
+              <th class="fieldlabel py-2 text-right">Running</th>
+              <th class="fieldlabel py-2 text-right">Fuel L</th>
+              <th class="fieldlabel py-2 text-right">Load %</th>
+              <th class="fieldlabel py-2">E-Oil</th>
+              <th class="fieldlabel py-2">C-Oil</th>
+              <th class="fieldlabel py-2">Remarks</th>
+              <th class="fieldlabel py-2">Signed by</th>
+            </tr>
+          </thead>
+          <tbody id="logRows"></tbody>
+        </table>
+      </div>
+      <div id="logEmpty" class="hidden text-center text-slate-400 text-sm py-8">No entries for this filter.</div>
+    </div>
+
+    <!-- Admin: manage gensets -->
+    <div id="adminCard" class="hidden card p-6">
+      <h2 class="font-display font-bold text-lg mb-1">Manage gensets <span class="text-xs font-normal text-slate-400">(admin)</span></h2>
+      <p class="text-sm text-slate-500 mb-4">Add, rename, set kVA, or deactivate. Deactivated gensets stay in history but can't take new entries.</p>
+      <div id="gensetAdminRows" class="space-y-2 mb-4"></div>
+      <div class="flex items-end gap-2 flex-wrap border-t border-line pt-4">
+        <div><label class="fieldlabel">Name</label><input id="ng_name" class="field" placeholder="DG-3" /></div>
+        <div><label class="fieldlabel">kVA</label><input id="ng_kva" class="field" placeholder="250 kVA" /></div>
+        <button onclick="addGenset()" class="btn-ghost">+ Add genset</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="/js/common.js"></script>
+  <script>
+    let me = {};
+    let gensets = [];       // active gensets (for the form)
+    const lastStop = {};    // genset_id -> last stop reading
+
+    async function init() {
+      me = await api('/me');
+      document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
+      document.getElementById('signWho').textContent = me.name;
+      if (!(me.apps && me.apps.genset)) { location.href = '/home.html'; return; }
+      document.getElementById('f_date').value = today();
+      await loadGensets();
+      if (me.is_admin) { document.getElementById('adminCard').classList.remove('hidden'); loadGensetAdmin(); }
+      await loadLogs();
+    }
+
+    function today() { return new Date().toLocaleDateString('en-CA'); }
+
+    async function loadGensets() {
+      gensets = await api('/genset/gensets');
+      const f = document.getElementById('f_genset');
+      const h = document.getElementById('h_genset');
+      f.innerHTML = '';
+      h.innerHTML = '<option value="">All gensets</option>';
+      gensets.forEach(g => {
+        lastStop[g.id] = g.last_stop;
+        const label = g.kva ? `${g.name} — ${g.kva}` : g.name;
+        f.insertAdjacentHTML('beforeend', `<option value="${g.id}">${label}</option>`);
+        h.insertAdjacentHTML('beforeend', `<option value="${g.id}">${label}</option>`);
+      });
+      onGensetChange();
+    }
+
+    function onGensetChange() {
+      const id = +document.getElementById('f_genset').value;
+      const ls = lastStop[id];
+      const note = document.getElementById('prefillNote');
+      if (ls != null) {
+        document.getElementById('f_start').value = ls;
+        note.textContent = `Pre-filled from last Stop reading (${(+ls).toFixed(1)}). Adjust if the meter differs.`;
+      } else {
+        document.getElementById('f_start').value = '';
+        note.textContent = 'No previous reading — enter the current hour-meter value.';
+      }
+      calcRunning();
+    }
+
+    function calcRunning() {
+      const s = parseFloat(document.getElementById('f_start').value);
+      const e = parseFloat(document.getElementById('f_stop').value);
+      const out = document.getElementById('f_running');
+      if (isFinite(s) && isFinite(e)) {
+        const r = e - s;
+        out.value = (r >= 0 ? r.toFixed(1) + ' hrs' : 'check readings');
+        out.style.color = r < 0 ? '#dc2626' : '';
+      } else { out.value = ''; out.style.color = ''; }
+    }
+
+    async function submitLog() {
+      const body = {
+        genset_id: +document.getElementById('f_genset').value,
+        log_date: document.getElementById('f_date').value,
+        start_hrs: document.getElementById('f_start').value,
+        stop_hrs: document.getElementById('f_stop').value,
+        fuel_added: document.getElementById('f_fuel').value,
+        load_pct: document.getElementById('f_load').value,
+        e_oil: document.getElementById('f_eoil').value,
+        c_oil: document.getElementById('f_coil').value,
+        remarks: document.getElementById('f_remarks').value,
+      };
+      const btn = document.getElementById('saveBtn'); btn.disabled = true;
+      try {
+        const r = await api('/genset/logs', { method: 'POST', body });
+        toast(`Logged — ${r.running_hrs} hrs running`, 'success');
+        // reset the session fields, keep genset + date
+        ['f_stop','f_fuel','f_load','f_remarks'].forEach(id => document.getElementById(id).value = '');
+        document.getElementById('f_eoil').value = '';
+        document.getElementById('f_coil').value = '';
+        await loadGensets();   // refresh last-stop prefill
+        await loadLogs();
+      } catch (e) { toast(e.message, 'error'); }
+      finally { btn.disabled = false; }
+    }
+
+    function fmtDate(d) { const [y,m,da] = String(d).slice(0,10).split('-'); return `${da}/${m}/${y}`; }
+    function oilBadge(v) {
+      if (!v) return '<span class="text-slate-300">—</span>';
+      const c = v === 'OK' ? 'bg-emerald-50 text-emerald-700' : v === 'Low' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700';
+      return `<span class="text-[11px] font-semibold px-1.5 py-0.5 rounded ${c}">${v}</span>`;
+    }
+
+    async function loadLogs() {
+      const p = new URLSearchParams();
+      const g = document.getElementById('h_genset').value;
+      const from = document.getElementById('h_from').value;
+      const to = document.getElementById('h_to').value;
+      if (g) p.set('genset_id', g);
+      if (from) p.set('from', from);
+      if (to) p.set('to', to);
+      const rows = await api('/genset/logs?' + p.toString());
+      const tb = document.getElementById('logRows');
+      tb.innerHTML = rows.map(r => `
+        <tr class="border-b border-line/70 hover:bg-mist/60">
+          <td class="py-2 mono whitespace-nowrap">${fmtDate(r.log_date)}</td>
+          <td class="py-2 font-semibold">${r.genset_name}</td>
+          <td class="py-2 text-right mono">${(+r.start_hrs).toFixed(1)}</td>
+          <td class="py-2 text-right mono">${(+r.stop_hrs).toFixed(1)}</td>
+          <td class="py-2 text-right mono font-semibold">${(+r.running_hrs).toFixed(1)}</td>
+          <td class="py-2 text-right mono">${r.fuel_added != null ? (+r.fuel_added).toFixed(1) : '—'}</td>
+          <td class="py-2 text-right mono">${r.load_pct != null ? (+r.load_pct).toFixed(0) : '—'}</td>
+          <td class="py-2">${oilBadge(r.e_oil)}</td>
+          <td class="py-2">${oilBadge(r.c_oil)}</td>
+          <td class="py-2 text-slate-600 max-w-[220px]">${(r.remarks || '').replace(/</g,'&lt;') || '<span class="text-slate-300">—</span>'}</td>
+          <td class="py-2 text-slate-500 text-xs">${r.recorded_by_name || '—'}</td>
+        </tr>`).join('');
+      document.getElementById('logEmpty').classList.toggle('hidden', rows.length > 0);
+    }
+
+    // ---- admin: manage gensets ----
+    async function loadGensetAdmin() {
+      const rows = await api('/genset/gensets?all=1');
+      document.getElementById('gensetAdminRows').innerHTML = rows.map(g => `
+        <div class="flex items-center gap-2 flex-wrap bg-mist/50 border border-line rounded-lg px-3 py-2">
+          <input class="field !py-1 !w-28" value="${g.name}" id="gn_${g.id}" />
+          <input class="field !py-1 !w-28" value="${g.kva || ''}" placeholder="kVA" id="gk_${g.id}" />
+          <label class="flex items-center gap-1.5 text-sm"><input type="checkbox" id="ga_${g.id}" ${g.active?'checked':''}> Active</label>
+          <button onclick="saveGenset(${g.id})" class="btn-ghost !py-1 text-xs">Save</button>
+        </div>`).join('') || '<div class="text-sm text-slate-400">No gensets yet.</div>';
+    }
+    async function saveGenset(id) {
+      const body = {
+        name: document.getElementById('gn_'+id).value.trim(),
+        kva: document.getElementById('gk_'+id).value.trim(),
+        active: document.getElementById('ga_'+id).checked,
+      };
+      try { await api('/genset/gensets/'+id, { method:'PUT', body }); toast('Saved','success'); await loadGensets(); loadGensetAdmin(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function addGenset() {
+      const name = document.getElementById('ng_name').value.trim();
+      const kva = document.getElementById('ng_kva').value.trim();
+      if (!name) return toast('Enter a name','error');
+      try { await api('/genset/gensets', { method:'POST', body:{ name, kva } });
+        document.getElementById('ng_name').value=''; document.getElementById('ng_kva').value='';
+        toast('Genset added','success'); await loadGensets(); loadGensetAdmin();
+      } catch(e){ toast(e.message,'error'); }
+    }
+
+    async function logout() { await api('/logout', { method: 'POST' }); location.href = '/'; }
+    init().catch(e => { console.error(e); location.href = '/'; });
+  </script>
+</body>
+</html>

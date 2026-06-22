@@ -700,6 +700,10 @@
               <input id="ed_app_dispatch" type="checkbox" ${(e.app_access&&e.app_access.dispatch)?'checked':''}>
               <span>Dispatch / Weighbridge</span>
             </label>
+            <label class="flex items-center gap-2 text-sm py-0.5">
+              <input id="ed_app_genset" type="checkbox" ${(e.app_access&&e.app_access.genset)?'checked':''}>
+              <span>Genset Log</span>
+            </label>
           </div>
         </div>
         <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
@@ -722,6 +726,7 @@
         app_access: {
           qms: document.getElementById('ed_app_qms').checked,
           dispatch: document.getElementById('ed_app_dispatch').checked,
+          genset: document.getElementById('ed_app_genset').checked,
         },
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');

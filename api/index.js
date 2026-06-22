@@ -150,6 +150,7 @@ app.use('/api/tickets', require('../routes/tickets.routes'));
 app.use('/api/outpass', require('../routes/outpass.routes'));
 app.use('/api/expense', require('../routes/expense.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
+app.use('/api/genset', require('../routes/genset.routes'));
 
 // Public, no-login download of an expense PDF (token from the portal / email).
 app.get('/dlx/:token', async (req, res) => {

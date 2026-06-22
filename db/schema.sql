@@ -337,3 +337,36 @@ CREATE TABLE IF NOT EXISTS report_subscriptions (
   category_ids INT[] NOT NULL DEFAULT '{}',
   trade_ids    INT[] NOT NULL DEFAULT '{}'
 );
+
+-- ===== Genset (DG) daily logs =====
+CREATE TABLE IF NOT EXISTS gensets (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  kva TEXT,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- seed DG-1 / DG-2 only when the table is empty (safe to re-run)
+INSERT INTO gensets (name, kva, sort_order)
+SELECT v.name, v.kva, v.so
+FROM (VALUES ('DG-1','42 kVA',1), ('DG-2','125 kVA',2)) AS v(name, kva, so)
+WHERE NOT EXISTS (SELECT 1 FROM gensets);
+
+CREATE TABLE IF NOT EXISTS genset_logs (
+  id SERIAL PRIMARY KEY,
+  genset_id INT NOT NULL REFERENCES gensets(id),
+  log_date DATE NOT NULL,
+  start_hrs NUMERIC(10,1) NOT NULL,
+  stop_hrs  NUMERIC(10,1) NOT NULL,
+  running_hrs NUMERIC(10,1) NOT NULL,
+  fuel_added NUMERIC(10,1),
+  load_pct   NUMERIC(6,1),
+  e_oil TEXT,
+  c_oil TEXT,
+  remarks TEXT,
+  recorded_by INT REFERENCES employees(id),
+  recorded_by_name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_genset_logs_genset_date ON genset_logs(genset_id, log_date);
