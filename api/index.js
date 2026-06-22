@@ -233,6 +233,20 @@ app.get('/rr/:token', async (req, res) => {
   } catch (e) { console.error('rr', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again, or open the app.')); }
 });
 
+// ---- SSO: hand a sibling app (e.g. QMS) a short-lived signed emp_no token ----
+// The portal is the login authority; the other app trusts this token and starts its own session.
+app.get('/sso/go', require('../lib/auth').requireAuth, (req, res) => {
+  const targets = { qms: process.env.QMS_SSO_URL || 'https://qms.bharatsteels.in/auth/sso' };
+  const base = targets[req.query.to];
+  if (!base) return res.status(404).send('Unknown app');
+  const secret = process.env.SSO_SECRET;
+  if (!secret) return res.status(500).send('SSO is not configured (set SSO_SECRET).');
+  const token = require('jsonwebtoken').sign(
+    { emp_no: req.user.emp_no, name: req.user.name }, secret,
+    { expiresIn: '90s', issuer: 'bsc-portal' });
+  res.redirect(`${base}?token=${encodeURIComponent(token)}`);
+});
+
 // ---- Cron: working-hours reminder / escalation engine ----
 // Runs every ~15 min (GitHub Actions). Protected by CRON_SECRET. Only sends
 // during Mon–Sat 09:30–18:00 IST (minus holidays); timers count working minutes.
