@@ -276,6 +276,9 @@ app.get('/sso/go', require('../lib/auth').requireAuth, (req, res) => {
   const targets = { qms: process.env.QMS_SSO_URL || 'https://qms.bharatsteels.in/auth/sso' };
   const base = targets[req.query.to];
   if (!base) return res.status(404).send('Unknown app');
+  // Restricted apps require an explicit grant (admins always allowed).
+  if (!require('../lib/apps').appAccessFor(req.user)[req.query.to])
+    return res.status(403).send('You do not have access to this app. Contact IT if you need it.');
   const secret = process.env.SSO_SECRET;
   if (!secret) return res.status(500).send('SSO is not configured (set SSO_SECRET).');
   const token = require('jsonwebtoken').sign(

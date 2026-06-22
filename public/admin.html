@@ -687,6 +687,17 @@
             <input id="ed_selfraise" type="checkbox" ${e.can_self_raise?'checked':''}>
             <span>Can raise self-tickets <span class="text-slate-400 normal-case font-normal">(shows the "Raise this for myself" option — for people who log their own tasks)</span></span>
           </label>
+          <div class="sm:col-span-2 bg-mist/60 border border-line rounded-lg px-3 py-2">
+            <div class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">App access <span class="text-slate-400 normal-case font-normal">(restricted apps — hidden unless granted; admins always see all)</span></div>
+            <label class="flex items-center gap-2 text-sm py-0.5">
+              <input id="ed_app_qms" type="checkbox" ${(e.app_access&&e.app_access.qms)?'checked':''}>
+              <span>Quality (QMS)</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm py-0.5">
+              <input id="ed_app_dispatch" type="checkbox" ${(e.app_access&&e.app_access.dispatch)?'checked':''}>
+              <span>Dispatch / Weighbridge</span>
+            </label>
+          </div>
         </div>
         <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
           <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
@@ -705,6 +716,10 @@
         conveyance_needs_manager: document.getElementById('ed_convmgr').checked,
         outpass_via_hr: document.getElementById('ed_opvhr').checked,
         can_self_raise: document.getElementById('ed_selfraise').checked,
+        app_access: {
+          qms: document.getElementById('ed_app_qms').checked,
+          dispatch: document.getElementById('ed_app_dispatch').checked,
+        },
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
       try{

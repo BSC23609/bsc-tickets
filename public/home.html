@@ -74,13 +74,23 @@
       </a>
 
       <!-- Quality / QMS (separate app, one-click SSO) -->
-      <a href="/sso/go?to=qms" class="card lift in in-4 p-6 block group">
+      <a href="/sso/go?to=qms" data-app="qms" class="hidden card lift in in-4 p-6 block group">
         <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
         </div>
         <h2 class="font-display font-bold text-lg text-ink">Quality (QMS)</h2>
         <p class="text-sm text-slate-500 mt-1">Coil inward, CTL &amp; shearing checks, and sales/purchase quality complaints.</p>
         <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
+      </a>
+
+      <!-- Dispatch / Weighbridge (separate app, own login) -->
+      <a href="https://dispatch.bharatsteels.in" target="_blank" rel="noopener" data-app="dispatch" class="hidden card lift in in-4 p-6 block group">
+        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        </div>
+        <h2 class="font-display font-bold text-lg text-ink">Dispatch / Weighbridge</h2>
+        <p class="text-sm text-slate-500 mt-1">Live vehicle movement and weighbridge tracking from SAP.</p>
+        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open ↗</div>
       </a>
 
       <!-- Admin (admins only) -->
@@ -103,6 +113,10 @@
       const first = (me.name || '').split(' ')[0];
       document.getElementById('firstName').textContent = first ? (', ' + first) : '';
       if (me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
+      // Reveal restricted app tiles only where this person has access.
+      document.querySelectorAll('[data-app]').forEach(el => {
+        if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');
+      });
     }
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e => { console.error(e); location.href='/'; });
