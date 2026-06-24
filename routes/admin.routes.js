@@ -265,6 +265,31 @@ router.delete('/outpass/:id', async (req, res) => {
   res.json({ ok: true, ref_no: r.rows[0].ref_no });
 });
 
+// Recent expense submissions (for review + cleanup of test entries).
+router.get('/expense-list', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-12-31';
+  const rows = (await q(
+    `SELECT s.id, s.ref_no, s.form_type, s.period, s.status, s.total_amount,
+            e.name AS employee_name
+     FROM expense_submissions s LEFT JOIN employees e ON e.id=s.employee_id
+     WHERE s.created_at::date BETWEEN $1 AND $2
+     ORDER BY s.id DESC LIMIT 300`, [from, to])).rows;
+  res.json(rows);
+});
+
+// Delete a single expense submission. For conveyance, also clear that month's trips
+// so the period resets cleanly (trips are keyed by employee+period, not the submission).
+router.delete('/expense/:id', async (req, res) => {
+  const row = (await q('SELECT id, ref_no, form_type, employee_id, period FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Entry not found' });
+  if (row.form_type === 'conveyance' && row.period) {
+    await q('DELETE FROM conveyance_trips WHERE employee_id=$1 AND period=$2', [row.employee_id, row.period]);
+  }
+  await q('DELETE FROM expense_submissions WHERE id=$1', [row.id]);
+  res.json({ ok: true, ref_no: row.ref_no });
+});
+
 // ===================== REQUESTER GROUPS (self-ticket "Requested by") =====================
 router.get('/requester-groups', async (req, res) => {
   const r = (await q(`SELECT value FROM app_settings WHERE key='requester_groups'`)).rows[0];

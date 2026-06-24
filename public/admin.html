@@ -112,6 +112,10 @@
         <h3 class="font-bold text-sm mb-3">Outpass / Gatepass entries <span class="font-normal text-slate-400">— review &amp; clean up test entries</span></h3>
         <div id="outpassTable" class="overflow-x-auto"></div>
       </div>
+      <div class="card p-4 mt-5">
+        <h3 class="font-bold text-sm mb-3">Expense entries <span class="font-normal text-slate-400">— review &amp; clean up test entries</span></h3>
+        <div id="expenseTable" class="overflow-x-auto"></div>
+      </div>
     </section>
 
     <!-- EMPLOYEES -->
@@ -311,6 +315,15 @@
         ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
           o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
           `<button onclick="delOutpass(${o.id}, ${jsArg(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+
+      const FORML = { conveyance:'Local Conveyance', outstation:'Outstation', misc:'Miscellaneous' };
+      const exps = await api(`/admin/expense-list?from=${from}&to=${to}`);
+      document.getElementById('expenseTable').innerHTML = table(
+        ['Ref','Type','Employee','Period','Amount','Status',''],
+        exps.map(e => [e.ref_no, FORML[e.form_type]||e.form_type, e.employee_name||'—', e.period||'—',
+          (e.total_amount!=null?'₹'+Number(e.total_amount).toLocaleString('en-IN'):'—'),
+          STATUS_STYLE[e.status]?.[1]||e.status,
+          `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
     }
     async function delTicket(id, ref){
       if(!confirm(`Delete ticket ${ref}?\n\nThis permanently removes the ticket and its history. Use only for test entries.`)) return;
@@ -422,6 +435,12 @@
     async function delOutpass(id, ref){
       if(!confirm(`Delete pass ${ref}?\n\nThis permanently removes the entry. Use only for test entries.`)) return;
       try{ await api(`/admin/outpass/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function delExpense(id, ref, form){
+      const extra = form==='conveyance' ? '\n\nThis also clears that month\u2019s logged trips.' : '';
+      if(!confirm(`Delete expense entry ${ref}?\n\nThis permanently removes the submission.${extra} Use only for test entries.`)) return;
+      try{ await api(`/admin/expense/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
       catch(e){ toast(e.message,'error'); }
     }
     function drawBar(id, labels, data) {
