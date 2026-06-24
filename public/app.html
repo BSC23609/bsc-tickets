@@ -336,7 +336,7 @@
              <span class="mono text-[11px] text-slate-400">${t.ref_no}</span>
              <span class="font-medium text-ink truncate flex-1">${t.subject}</span>
              <span class="pill text-slate-600 bg-slate-100">${t.my_role||''}</span>
-             ${statusBadge(t.status)}
+             ${statusBadgeT(t)}
            </div>`).join('') + `</div>` : `<div class="text-sm text-slate-400 py-3">Nothing open assigned to you.</div>`);
       const hm = m => Math.floor(m/60) + ':' + String(m%60).padStart(2,'0');
       const ts = d.timesheet || [];
@@ -382,7 +382,7 @@
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="mono text-[11px] text-slate-400">${t.ref_no}</span>
-              ${statusBadge(t.status)} ${priorityBadge(t.priority)}
+              ${statusBadgeT(t)} ${priorityBadge(t.priority)}
               ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">↑ L${t.escalation_level}</span>` : ''}
             </div>
             <div class="font-semibold text-ink mt-1.5 truncate">${t.subject}</div>
@@ -406,6 +406,8 @@
         actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
       if (p.isL1 && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
+      if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
+        actions.push(btn(`externalHold(${id})`, t.external_hold ? 'Update external ETA' : 'Requires external support', 'fuchsia'));
       if (p.canEscalateL3)
         actions.push(btn(`escalateL3(${id})`, 'Escalate to L3', 'red'));
       if (p.isRequester && t.status === 'resolved') {
@@ -445,19 +447,30 @@
       const photos = t.photos.filter(x => x.kind === 'issue');
       const resPhotos = t.photos.filter(x => x.kind === 'resolution');
 
+      const extBanner = (t.external_hold && ['open','in_progress','reopened'].includes(t.status)) ? `
+        <div class="bg-fuchsia-50 border border-fuchsia-200 rounded-lg p-3">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="pill bg-fuchsia-100 text-fuchsia-800"><span class="dot"></span>Escalated externally</span>
+            <span class="text-xs text-fuchsia-700">ETA ${t.external_hours} working hrs${(t.external_count>1)?` · extended ${t.external_count}×`:''}</span>
+          </div>
+          <div class="text-sm text-slate-700 mt-1.5">${(t.external_reason||'').replace(/</g,'&lt;')}</div>
+          <div class="text-[11px] text-slate-400 mt-1">Reminders are paused until the ETA lapses, then they resume automatically.</div>
+        </div>` : '';
+
       document.getElementById('detailInner').innerHTML = `
         <div class="seam rounded-t-2xl"></div>
         <div class="p-5 border-b border-line flex items-start justify-between">
           <div>
             <div class="mono text-[11px] text-slate-400">${t.ref_no}</div>
             <h3 class="font-display font-bold text-lg text-ink mt-0.5">${t.subject}</h3>
-            <div class="flex items-center gap-2 mt-2">${statusBadge(t.status)} ${priorityBadge(t.priority)}
+            <div class="flex items-center gap-2 mt-2">${statusBadgeT(t)} ${priorityBadge(t.priority)}
               ${t.is_self ? '<span class="pill text-indigo-700 bg-indigo-50">Self-task</span>' : ''}
               ${t.escalation_level ? `<span class="pill text-red-600 bg-red-50">Escalated → L${t.escalation_level}</span>` : ''}</div>
           </div>
           <button onclick="closeDetail()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
         </div>
         <div class="p-5 space-y-4 text-sm">
+          ${extBanner}
           <div class="grid grid-cols-2 gap-3">
             ${field('Category', t.category_name + (t.trade_name ? ' · ' + t.trade_name : ''))}
             ${field('Location', t.location_text || '—')}
@@ -486,7 +499,7 @@
     const btn = (fn, txt, color) => color==='brand'
       ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
-    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened'}[e] || e);
+    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened',external_hold:'Sent to external/vendor support'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
     function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
 
@@ -571,6 +584,35 @@
         toast('Forwarded to '+(r.to||'the new area')+' — handlers notified','success'); closeDetail(); }
       catch(e){ toast(e.message,'error'); }
     }
+    let extId = null;
+    function externalHold(id){
+      extId = id;
+      document.getElementById('extReason').value = '';
+      document.getElementById('extHours').value = '';
+      document.querySelectorAll('.extPreset').forEach(b=>b.classList.remove('bg-fuchsia-100','border-fuchsia-400'));
+      const m=document.getElementById('extModal'); m.classList.remove('hidden'); m.classList.add('flex');
+    }
+    function closeExt(){ const m=document.getElementById('extModal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+    document.addEventListener('click', (e)=>{
+      const b = e.target.closest && e.target.closest('.extPreset'); if(!b) return;
+      document.querySelectorAll('.extPreset').forEach(x=>x.classList.remove('bg-fuchsia-100','border-fuchsia-400'));
+      b.classList.add('bg-fuchsia-100','border-fuchsia-400');
+      document.getElementById('extHours').value = b.dataset.h;
+    });
+    async function submitExternal(){
+      const reason = document.getElementById('extReason').value.trim();
+      const hours = Number(document.getElementById('extHours').value);
+      if (reason.length < 3) return toast('Add a short reason','error');
+      if (!(hours > 0)) return toast('Enter the resolution hours','error');
+      const go = document.getElementById('extGo'); go.disabled = true;
+      try {
+        await api(`/tickets/${extId}/external-hold`, { method:'POST', body:{ reason, hours } });
+        toast('Marked external — reminders paused, requester & L2 notified','success');
+        closeExt(); openDetail(extId);
+      } catch(e){ toast(e.message,'error'); }
+      finally { go.disabled = false; }
+    }
+
     async function escalateL3(id){
       if(!confirm('Escalate this ticket to L3 now?')) return;
       try{ await api(`/tickets/${id}/escalate-l3`,{method:'POST',body:{}}); toast('Escalated to L3','success'); openDetail(id); }
@@ -604,6 +646,30 @@
       <div class="p-4 border-t border-line flex justify-end gap-2">
         <button onclick="closeRemark()" class="text-sm px-4 py-2 rounded-xl border border-line">Cancel</button>
         <button id="resolveGo" onclick="submitResolve()" class="text-sm px-4 py-2 rounded-xl bg-violet-600 text-white font-semibold">Mark resolved</button>
+      </div>
+    </div>
+  </div>
+  <div id="extModal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+      <div class="p-4 border-b border-line">
+        <h3 class="font-bold text-ink">Requires external / vendor support</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Ticket stays open but reminders pause until your ETA. Requester &amp; L2 are notified.</p>
+      </div>
+      <div class="p-4">
+        <label class="fieldlabel">Reason / detail</label>
+        <textarea id="extReason" rows="3" class="field" placeholder="e.g. Awaiting OEM spare; vendor visit booked for Thursday"></textarea>
+        <label class="fieldlabel mt-3">Resolution time needed <span class="text-slate-400 font-normal normal-case">— working hours</span></label>
+        <div class="flex flex-wrap gap-2 mt-1">
+          <button type="button" data-h="12" class="extPreset px-3 py-1.5 rounded-lg border border-line text-sm hover:border-fuchsia-400">12h</button>
+          <button type="button" data-h="24" class="extPreset px-3 py-1.5 rounded-lg border border-line text-sm hover:border-fuchsia-400">24h</button>
+          <button type="button" data-h="48" class="extPreset px-3 py-1.5 rounded-lg border border-line text-sm hover:border-fuchsia-400">48h</button>
+          <button type="button" data-h="72" class="extPreset px-3 py-1.5 rounded-lg border border-line text-sm hover:border-fuchsia-400">72h</button>
+        </div>
+        <input id="extHours" type="number" min="1" max="720" step="1" class="field mono mt-2" placeholder="or type hours" />
+      </div>
+      <div class="p-4 border-t border-line flex justify-end gap-2">
+        <button onclick="closeExt()" class="text-sm px-4 py-2 rounded-xl border border-line">Cancel</button>
+        <button id="extGo" onclick="submitExternal()" class="text-sm px-4 py-2 rounded-xl bg-fuchsia-600 text-white font-semibold">Send &amp; pause reminders</button>
       </div>
     </div>
   </div>

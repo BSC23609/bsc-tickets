@@ -184,7 +184,7 @@ router.get('/my-dashboard', async (req, res) => {
 
   // Tickets I raised within the range (by raised date, IST)
   const raised = (await q(
-    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.is_self, t.raised_at,
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.is_self, t.raised_at, t.external_hold,
             c.name AS category_name
      FROM tickets t JOIN categories c ON c.id=t.category_id
      WHERE t.requester_id=$1 AND (t.raised_at AT TIME ZONE $2)::date BETWEEN $3 AND $4
@@ -192,7 +192,7 @@ router.get('/my-dashboard', async (req, res) => {
 
   // Tickets currently on my plate (assigned to me as any level, still open)
   const assigned = (await q(
-    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.escalation_level, t.raised_at, t.assigned_at,
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority, t.escalation_level, t.raised_at, t.assigned_at, t.external_hold,
             c.name AS category_name, r.name AS requester_name,
             CASE WHEN t.l1_emp_id=$1 THEN 'L1' WHEN t.l2_emp_id=$1 THEN 'L2' WHEN t.l3_emp_id=$1 THEN 'L3' END AS my_role
      FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
@@ -509,6 +509,35 @@ router.post('/:id/escalate-l3', async (req, res) => {
     const l3 = await empById(t.l3_emp_id);
     if (l3) await wati.notify.raised(l3, { ...t });
     await excel.syncLogToOneDrive();
+  })());
+});
+
+// ---- "Requires external / vendor support": pause reminders for N working hours ----
+// Same endpoint handles the initial mark and each re-extension when the ETA lapses.
+router.post('/:id/external-hold', async (req, res) => {
+  const { rows } = await q('SELECT id,ref_no,subject,status,l1_emp_id,l2_emp_id,l3_emp_id,requester_id,external_count FROM tickets WHERE id=$1', [req.params.id]);
+  const t = rows[0];
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const isHandler = [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(req.user.id) || req.user.is_admin;
+  if (!isHandler) return res.status(403).json({ error: 'Only the assigned handler can do this' });
+  if (!['open', 'in_progress', 'reopened'].includes(t.status)) return res.status(409).json({ error: 'Ticket is not open' });
+  const reason = ((req.body && req.body.reason) || '').trim();
+  const hours = Number(req.body && req.body.hours);
+  if (reason.length < 3) return res.status(400).json({ error: 'Add a short reason' });
+  if (!(hours > 0) || hours > 720) return res.status(400).json({ error: 'Enter resolution hours (1–720)' });
+  await q(`UPDATE tickets SET external_hold=TRUE, external_reason=$2, external_hours=$3, external_set_at=now(),
+           external_count=external_count+1 WHERE id=$1`, [t.id, reason, hours]);
+  const again = (t.external_count || 0) > 0;
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'external_hold',$2,$3)`,
+    [t.id, req.user.id, `${again ? 'Re-extended' : 'Sent to external/vendor'} · ${hours} working hrs · ${reason}`]);
+  res.json({ ok: true });
+  background((async () => {
+    const eta = `${hours % 1 === 0 ? hours : hours.toFixed(1)} working hours`;
+    const targets = [];
+    const requester = await empById(t.requester_id); if (requester) targets.push(requester);
+    if (t.l2_emp_id) { const l2 = await empById(t.l2_emp_id); if (l2) targets.push(l2); }
+    const seen = new Set();
+    for (const p of targets) { if (p && p.phone && !seen.has(p.id)) { seen.add(p.id); await wati.notify.external(p, t, req.user.name, eta, reason); } }
   })());
 });
 

@@ -305,6 +305,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   const { rows: tickets } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.priority, t.status, t.escalation_level,
             t.l1_emp_id, t.l2_emp_id, t.l3_emp_id, t.raised_at, t.last_reminder_at,
+            t.external_hold, t.external_set_at, t.external_hours,
             c.name AS category_name, c.wait_cycle_mins, c.wait_l3_mins, r.name AS requester_name,
             l1.name AS l1_name, l1.phone AS l1_phone, l2.name AS l2_name, l2.phone AS l2_phone,
             l3.name AS l3_name, l3.phone AS l3_phone
@@ -327,6 +328,11 @@ app.all('/api/cron/escalate', async (req, res) => {
   const now = Date.now();
   let sent = 0, fired = 0;
   for (const t of tickets) {
+    // On external/vendor hold: stay quiet until the working-hours ETA lapses, then resume reminders.
+    if (t.external_hold && t.external_set_at) {
+      const held = businessMinutesBetween(t.external_set_at, now, holidaySet);
+      if (held < (Number(t.external_hours) || 0) * 60) continue;
+    }
     const L2_AFTER = t.wait_cycle_mins || S.remind_l2_mins || 120;
     const L3_AFTER = t.wait_l3_mins || S.remind_l3_mins || 240;
     const sinceRaised = businessMinutesBetween(t.raised_at, now, holidaySet);

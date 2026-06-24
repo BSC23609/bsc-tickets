@@ -370,3 +370,10 @@ CREATE TABLE IF NOT EXISTS genset_logs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_genset_logs_genset_date ON genset_logs(genset_id, log_date);
+
+-- ===== External / vendor support hold (pauses reminders until a working-hours ETA) =====
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_hold   BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_hours  NUMERIC(6,1);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_set_at TIMESTAMPTZ;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_reason TEXT;
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_count  INT NOT NULL DEFAULT 0;

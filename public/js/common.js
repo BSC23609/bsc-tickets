@@ -47,7 +47,12 @@ const STATUS_STYLE = {
   reopened:    ['bg-orange-100 text-orange-800', 'Reopened'],
   resolved:    ['bg-violet-100 text-violet-800', 'Resolved'],
   closed:      ['bg-emerald-100 text-emerald-800', 'Closed'],
+  external:    ['bg-fuchsia-100 text-fuchsia-800', 'Escalated externally'],
 };
+// While a ticket is on external/vendor hold and still open, show the external status.
+function tStatusKey(t) {
+  return (t && t.external_hold && ['open', 'in_progress', 'reopened'].includes(t.status)) ? 'external' : (t && t.status);
+}
 const PRIORITY_STYLE = {
   Low: 'bg-slate-100 text-slate-700', Medium: 'bg-sky-100 text-sky-800',
   High: 'bg-amber-100 text-amber-800', Critical: 'bg-red-100 text-red-700',
@@ -56,6 +61,7 @@ function statusBadge(s) {
   const [cls, label] = STATUS_STYLE[s] || ['bg-slate-100 text-slate-700', s];
   return `<span class="pill ${cls}"><span class="dot"></span>${label}</span>`;
 }
+function statusBadgeT(t) { return statusBadge(tStatusKey(t)); }
 function priorityBadge(p) {
   return `<span class="pill ${PRIORITY_STYLE[p] || ''}">${p}</span>`;
 }

@@ -403,7 +403,7 @@ router.get('/dashboard', async (req, res) => {
      FROM tickets WHERE closed_at IS NOT NULL AND raised_at BETWEEN $1 AND $2`, range)).rows[0].m;
 
   const recent = (await q(
-    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.escalation_level,t.raised_at,t.closed_at,
+    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.escalation_level,t.raised_at,t.closed_at,t.external_hold,
             c.name AS category_name, r.name AS requester_name, l1.name AS l1_name
      FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
      LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
