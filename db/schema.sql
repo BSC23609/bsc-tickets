@@ -274,7 +274,7 @@ INSERT INTO categories(name, has_trades, pattern, sort_order)
 SELECT v.name, TRUE, 'assign', v.so FROM (VALUES
   ('IT and Systems', 10), ('SAP', 20), ('HR', 30)
 ) AS v(name, so)
-WHERE NOT EXISTS (SELECT 1 FROM categories c WHERE lower(c.name)=lower(v.name));
+WHERE NOT EXISTS (SELECT 1 FROM categories);
 
 INSERT INTO trades(category_id, name, sort_order)
 SELECT c.id, t.name, t.so FROM categories c
@@ -291,7 +291,7 @@ JOIN (VALUES
   ('HR','Conveyance / Reimbursement',2),
   ('HR','PF / ESI',3)
 ) AS t(cat,name,so) ON lower(c.name)=lower(t.cat)
-WHERE NOT EXISTS (SELECT 1 FROM trades x WHERE x.category_id=c.id AND lower(x.name)=lower(t.name));
+WHERE NOT EXISTS (SELECT 1 FROM trades);
 
 -- Self-tickets: a person logs a task for themselves (often delegated by CMD/CEO).
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS is_self         BOOLEAN DEFAULT FALSE;

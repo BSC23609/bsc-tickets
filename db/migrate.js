@@ -16,17 +16,21 @@ async function main() {
     console.log('→ Applying schema…');
     await client.query(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
 
+    // Seed default data ONLY on a brand-new database. After first setup, the admin panel
+    // owns employees, designations, categories and routing — so re-running migrate never
+    // overwrites your changes; it only applies new tables/columns from schema.sql above.
+    const firstRun = (await client.query('SELECT COUNT(*)::int AS n FROM employees')).rows[0].n === 0;
+    if (!firstRun) {
+      console.log('→ Existing data found — schema applied; seeding skipped so your admin edits are preserved.');
+    } else {
     const hash = await bcrypt.hash(DEFAULT_PASSWORD, 10);
 
-    console.log(`→ Seeding ${roster.length} employees…`);
+    console.log(`→ Fresh database — seeding ${roster.length} employees…`);
     for (const e of roster) {
       await client.query(
         `INSERT INTO employees (emp_no,name,email,phone,department,job_title,app_role,is_admin,password_hash,must_reset)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,TRUE)
-         ON CONFLICT (emp_no) DO UPDATE SET
-           name=EXCLUDED.name, email=EXCLUDED.email, phone=EXCLUDED.phone,
-           department=EXCLUDED.department, job_title=EXCLUDED.job_title,
-           app_role=EXCLUDED.app_role, is_admin=EXCLUDED.is_admin`,
+         ON CONFLICT (emp_no) DO NOTHING`,
         [e.emp_no, e.name, e.email, e.phone, e.department, e.job_title, e.app_role, e.is_admin, hash]
       );
     }
@@ -104,6 +108,8 @@ async function main() {
 
     console.log('✓ Seed complete.');
     console.log(`  Default login password: ${DEFAULT_PASSWORD} (must reset on first login).`);
+    }
+    console.log('✓ Migration complete (schema up to date).');
   } finally {
     client.release();
     await pool.end();

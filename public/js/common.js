@@ -88,3 +88,34 @@ async function uploadPhotoToOneDrive(ticketId, file, kind = 'issue') {
     kind, file_name: sj.file_name, web_url: item.webUrl, drive_item_id: item.id } });
   return item.webUrl;
 }
+
+// ===== PWA: service-worker registration + "Install app" prompt =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
+// Capture the install event (Android / desktop Chrome) and reveal an #installBtn if the page has one.
+let _bscInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _bscInstallPrompt = e;
+  const b = document.getElementById('installBtn');
+  if (b) b.classList.remove('hidden');
+});
+window.installApp = async function () {
+  if (_bscInstallPrompt) {
+    _bscInstallPrompt.prompt();
+    try { await _bscInstallPrompt.userChoice; } catch (e) {}
+    _bscInstallPrompt = null;
+    const b = document.getElementById('installBtn');
+    if (b) b.classList.add('hidden');
+  } else {
+    // iOS Safari has no prompt API — guide the user through the Share sheet.
+    alert('To install the app:\n\niPhone/iPad — tap the Share icon, then "Add to Home Screen".\nAndroid — open the browser menu (⋮) and tap "Install app" / "Add to Home screen".');
+  }
+};
+window.addEventListener('appinstalled', () => {
+  const b = document.getElementById('installBtn');
+  if (b) b.classList.add('hidden');
+});
