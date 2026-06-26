@@ -119,3 +119,27 @@ window.addEventListener('appinstalled', () => {
   const b = document.getElementById('installBtn');
   if (b) b.classList.add('hidden');
 });
+
+// ===== In-app launch splash (full logo) — works on Android AND iOS =====
+window.hideBscSplash = function () {
+  const el = document.getElementById('bscSplash');
+  if (!el) return;
+  el.style.opacity = '0';
+  el.style.pointerEvents = 'none';
+  setTimeout(() => { if (el && el.parentNode) el.remove(); }, 450);
+};
+(function () {
+  const el = document.getElementById('bscSplash');
+  if (!el) return;
+  const page = el.dataset.splash;
+  if (page === 'home') {
+    // Show once per launch session; skip on in-app navigation back to home.
+    if (sessionStorage.getItem('bsc_home_splash')) { el.remove(); return; }
+    const fade = () => { window.hideBscSplash(); sessionStorage.setItem('bsc_home_splash', '1'); };
+    if (document.readyState === 'complete') setTimeout(fade, 650);
+    else window.addEventListener('load', () => setTimeout(fade, 650));
+  }
+  // 'entry' (login page) is faded by index.html once the session check resolves.
+  // Hard failsafe so the splash can never get stuck if a request hangs.
+  setTimeout(() => { if (document.getElementById('bscSplash')) window.hideBscSplash(); }, 6000);
+})();

@@ -29,6 +29,9 @@
   <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}</style>
 </head>
 <body class="min-h-screen bg-white flex flex-col p-4 relative overflow-hidden">
+  <div id="bscSplash" data-splash="entry" style="position:fixed;inset:0;z-index:9999;background:#ffffff;display:flex;align-items:center;justify-content:center;transition:opacity .45s ease">
+    <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" style="width:min(72vw,340px);height:auto" />
+  </div>
   <!-- signature: the bSc arc, oversized and faint, echoing the logo mark -->
   <svg class="pointer-events-none absolute -top-40 -right-40 w-[34rem] h-[34rem] opacity-[0.06]" viewBox="0 0 200 200" fill="none" aria-hidden="true">
     <circle cx="100" cy="100" r="92" stroke="#0E6AA6" stroke-width="3"/>
@@ -85,13 +88,15 @@
     const targetOg = new URLSearchParams(location.search).get('og');
     const targetClaim = new URLSearchParams(location.search).get('claim');
 
-    // If a valid session already exists and we have a deep-link target, skip login.
+    // On launch, honour an existing session. If already signed in, go straight through
+    // (to the deep-link target, otherwise home). Only reveal the login form when there's
+    // no valid session — so a signed-in user is never asked to log in again.
     (async () => {
-      if (!targetTicket && !targetOg && !targetClaim) return;
       try {
         const r = await fetch('/api/me', { credentials: 'same-origin' });
-        if (r.ok) go();
+        if (r.ok) { go(); return; }
       } catch {}
+      if (window.hideBscSplash) window.hideBscSplash();   // not signed in → show login
     })();
 
     async function doLogin() {
