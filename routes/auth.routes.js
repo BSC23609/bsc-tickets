@@ -12,8 +12,9 @@ router.post('/login', async (req, res) => {
   if (!emp || !emp.active) return res.status(401).json({ error: 'Invalid employee number or password' });
   const ok = await auth.checkPw(password, emp.password_hash);
   if (!ok) return res.status(401).json({ error: 'Invalid employee number or password' });
-  auth.setAuthCookie(res, auth.sign(emp));
-  res.json({ ok: true, must_reset: emp.must_reset, is_admin: emp.is_admin, name: emp.name });
+  const token = auth.sign(emp);
+  auth.setAuthCookie(res, token);
+  res.json({ ok: true, must_reset: emp.must_reset, is_admin: emp.is_admin, name: emp.name, token });
 });
 
 // POST /api/change-password  { current?, new_password }  (used for forced + voluntary reset)
@@ -34,15 +35,17 @@ router.post('/change-password', auth.requireAuth, async (req, res) => {
 // GET /api/me
 router.get('/me', auth.requireAuth, async (req, res) => {
   const u = req.user;
-  // Sliding session: every time the app opens / loads, refresh the cookie so an
-  // active user is never logged out. The session only lapses after a full year idle.
-  auth.setAuthCookie(res, auth.sign(u));
+  // Sliding session: every time the app opens / loads, refresh the cookie AND hand back a
+  // fresh token, so an active user is never logged out. Lapses only after a full year idle.
+  const token = auth.sign(u);
+  auth.setAuthCookie(res, token);
   res.json({
     id: u.id, emp_no: u.emp_no, name: u.name, email: u.email,
     department: u.department, job_title: u.job_title,
     is_admin: u.is_admin, must_reset: u.must_reset,
     can_self_raise: u.can_self_raise === true,
     apps: require('../lib/apps').appAccessFor(u),
+    token,
   });
 });
 

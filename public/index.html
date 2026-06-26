@@ -12,6 +12,10 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="BSC Portal">
+  <style>
+    #bscSplash{position:fixed;inset:0;z-index:2147483000;background:#fff;display:flex;align-items:center;justify-content:center;transition:opacity .4s ease}
+    #bscSplash img{width:260px;max-width:70vw;height:auto;display:block}
+  </style>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -29,9 +33,7 @@
   <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}</style>
 </head>
 <body class="min-h-screen bg-white flex flex-col p-4 relative overflow-hidden">
-  <div id="bscSplash" data-splash="entry" style="position:fixed;inset:0;z-index:9999;background:#ffffff;display:flex;align-items:center;justify-content:center;transition:opacity .45s ease">
-    <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" style="width:min(72vw,340px);height:auto" />
-  </div>
+    <div id="bscSplash" data-splash="entry"><img src="data:image/png;base64,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" alt="Bharat Steel (Chennai)" width="320" height="89"></div>
   <!-- signature: the bSc arc, oversized and faint, echoing the logo mark -->
   <svg class="pointer-events-none absolute -top-40 -right-40 w-[34rem] h-[34rem] opacity-[0.06]" viewBox="0 0 200 200" fill="none" aria-hidden="true">
     <circle cx="100" cy="100" r="92" stroke="#0E6AA6" stroke-width="3"/>
@@ -90,12 +92,19 @@
 
     // On launch, honour an existing session. If already signed in, go straight through
     // (to the deep-link target, otherwise home). Only reveal the login form when there's
-    // no valid session — so a signed-in user is never asked to log in again.
+    // no valid session — so a signed-in user is never asked to log in again. The stored
+    // token covers installed PWAs that drop the cookie when the app is closed.
     (async () => {
+      let tok = null; try { tok = localStorage.getItem('bsc_token'); } catch {}
       try {
-        const r = await fetch('/api/me', { credentials: 'same-origin' });
-        if (r.ok) { go(); return; }
+        const r = await fetch('/api/me', { credentials: 'same-origin', headers: tok ? { Authorization: 'Bearer ' + tok } : {} });
+        if (r.ok) {
+          const me = await r.json().catch(() => null);
+          if (me && me.token) { try { localStorage.setItem('bsc_token', me.token); } catch {} }
+          go(); return;
+        }
       } catch {}
+      try { localStorage.removeItem('bsc_token'); } catch {}
       if (window.hideBscSplash) window.hideBscSplash();   // not signed in → show login
     })();
 

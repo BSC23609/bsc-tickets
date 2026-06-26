@@ -1,13 +1,21 @@
 // Shared helpers used by every page.
+function bscToken() { try { return localStorage.getItem('bsc_token'); } catch { return null; } }
 async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  const tok = bscToken();
+  if (tok) headers['Authorization'] = 'Bearer ' + tok;
   const res = await fetch('/api' + path, {
     method: opts.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     credentials: 'same-origin',
   });
   let data = null; try { data = await res.json(); } catch {}
-  if (res.status === 401) { location.href = '/'; throw new Error('Not signed in'); }
+  // Persist any token the server hands back (login + every /me refresh) so the session
+  // survives the app being closed, even if the PWA drops the cookie.
+  if (data && data.token) { try { localStorage.setItem('bsc_token', data.token); } catch {} }
+  if (path === '/logout') { try { localStorage.removeItem('bsc_token'); } catch {} }
+  if (res.status === 401) { try { localStorage.removeItem('bsc_token'); } catch {} location.href = '/'; throw new Error('Not signed in'); }
   if (!res.ok) throw new Error((data && data.error) || 'Request failed');
   return data;
 }
@@ -70,7 +78,7 @@ function priorityBadge(p) {
 // server, then register its metadata. Keeps large photos off the Vercel function.
 async function uploadPhotoToOneDrive(ticketId, file, kind = 'issue') {
   const sess = await fetch(`/api/tickets/${ticketId}/photo-session`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, bscToken() ? { Authorization: 'Bearer ' + bscToken() } : {}),
     body: JSON.stringify({ file_name: file.name, kind }), credentials: 'same-origin',
   });
   const sj = await sess.json();
