@@ -34,6 +34,9 @@ router.post('/change-password', auth.requireAuth, async (req, res) => {
 // GET /api/me
 router.get('/me', auth.requireAuth, async (req, res) => {
   const u = req.user;
+  // Sliding session: every time the app opens / loads, refresh the cookie so an
+  // active user is never logged out. The session only lapses after a full year idle.
+  auth.setAuthCookie(res, auth.sign(u));
   res.json({
     id: u.id, emp_no: u.emp_no, name: u.name, email: u.email,
     department: u.department, job_title: u.job_title,
