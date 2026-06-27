@@ -628,9 +628,7 @@
     }
     async function sendWelcome(id, name, mustReset, hasPhone){
       if(!hasPhone){ toast('No WhatsApp number on file for '+name,'error'); return; }
-      let msg = `Send the welcome WhatsApp to ${name}?`;
-      if(!mustReset) msg = `${name} has already set their own password.\n\nThe welcome message includes the first-time password (Bsc@123), which will NOT work for them anymore. Send anyway?`;
-      if(!confirm(msg)) return;
+      if(!confirm(`Send the welcome WhatsApp to ${name}?`)) return;
       try{ await api(`/admin/employees/${id}/welcome`,{method:'POST'}); toast('Welcome message sent to '+name,'success'); }
       catch(e){ toast(e.message,'error'); }
     }

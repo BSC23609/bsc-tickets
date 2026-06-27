@@ -31,8 +31,7 @@ router.post('/employees', async (req, res) => {
     // Non-blocking: adding the employee never fails if WhatsApp/template isn't ready.
     const wphone = normPhone(phone);
     if (wphone) background(wati.notify.welcome(
-      { name, emp_no: String(emp_no).trim(), phone: wphone },
-      process.env.DEFAULT_PASSWORD || 'Bsc@123'));
+      { name, emp_no: String(emp_no).trim(), phone: wphone }));
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Employee number already exists' });
@@ -46,7 +45,7 @@ router.post('/employees/:id/welcome', async (req, res) => {
   const row = (await q('SELECT emp_no,name,phone,must_reset FROM employees WHERE id=$1', [req.params.id])).rows[0];
   if (!row) return res.status(404).json({ error: 'Employee not found' });
   if (!row.phone) return res.status(400).json({ error: 'No WhatsApp number on file for this employee' });
-  background(wati.notify.welcome(row, process.env.DEFAULT_PASSWORD || 'Bsc@123'));
+  background(wati.notify.welcome(row));
   res.json({ ok: true });
 });
 
