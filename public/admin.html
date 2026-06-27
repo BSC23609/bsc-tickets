@@ -612,6 +612,7 @@
           <td class="py-2 pr-3 whitespace-nowrap">
             <button onclick="editEmp(${e.id})" class="text-xs font-semibold text-brand-600 hover:underline mr-2">Edit</button>
             <button onclick="resetPw(${e.id},'${esc(e.emp_no)}')" class="text-xs text-slate-600 hover:underline mr-2">Reset PW</button>
+            <button onclick="sendWelcome(${e.id}, ${jsArg(e.name)}, ${!!e.must_reset}, ${!!e.phone})" class="text-xs text-slate-600 hover:underline mr-2">Welcome</button>
             <button onclick="toggleActive(${e.id},${!e.active})" class="text-xs ${e.active?'text-red-600':'text-emerald-600'} hover:underline">${e.active?'Deactivate':'Activate'}</button>
           </td></tr>`).join('')}</tbody></table>`;
     }
@@ -623,6 +624,14 @@
       try { await api('/admin/employees',{method:'POST',body}); toast('Employee added','success');
         ['e_no','e_name','e_email','e_phone','e_dept','e_title'].forEach(id=>document.getElementById(id).value='');
         document.getElementById('e_admin').checked=false; renderEmployees(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function sendWelcome(id, name, mustReset, hasPhone){
+      if(!hasPhone){ toast('No WhatsApp number on file for '+name,'error'); return; }
+      let msg = `Send the welcome WhatsApp to ${name}?`;
+      if(!mustReset) msg = `${name} has already set their own password.\n\nThe welcome message includes the first-time password (Bsc@123), which will NOT work for them anymore. Send anyway?`;
+      if(!confirm(msg)) return;
+      try{ await api(`/admin/employees/${id}/welcome`,{method:'POST'}); toast('Welcome message sent to '+name,'success'); }
       catch(e){ toast(e.message,'error'); }
     }
     async function resetPw(id, no) {

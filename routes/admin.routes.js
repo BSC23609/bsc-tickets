@@ -3,6 +3,8 @@ const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const { downtimeMins } = require('../lib/util');
 const excel = require('../lib/excel');
+const wati = require('../lib/wati');
+const { background } = require('../lib/bg');
 const router = express.Router();
 
 router.use(auth.requireAuth, auth.requireAdmin);
@@ -25,12 +27,27 @@ router.post('/employees', async (req, res) => {
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING id`,
       [String(emp_no).trim(), name, email || null, normPhone(phone), department || null,
        job_title || null, !!is_admin, hash]);
+    // Fire a one-time WhatsApp welcome (install + module intro + first-time login).
+    // Non-blocking: adding the employee never fails if WhatsApp/template isn't ready.
+    const wphone = normPhone(phone);
+    if (wphone) background(wati.notify.welcome(
+      { name, emp_no: String(emp_no).trim(), phone: wphone },
+      process.env.DEFAULT_PASSWORD || 'Bsc@123'));
     res.json({ ok: true, id: rows[0].id });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'Employee number already exists' });
     console.error('[add-employee] failed:', e.code, e.message);
     return res.status(400).json({ error: 'Could not add employee: ' + (e.detail || e.message) });
   }
+});
+
+// Resend the WhatsApp welcome/onboarding message to one employee (admin button).
+router.post('/employees/:id/welcome', async (req, res) => {
+  const row = (await q('SELECT emp_no,name,phone,must_reset FROM employees WHERE id=$1', [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Employee not found' });
+  if (!row.phone) return res.status(400).json({ error: 'No WhatsApp number on file for this employee' });
+  background(wati.notify.welcome(row, process.env.DEFAULT_PASSWORD || 'Bsc@123'));
+  res.json({ ok: true });
 });
 
 router.put('/employees/:id', async (req, res) => {
