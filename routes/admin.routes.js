@@ -246,15 +246,43 @@ router.delete('/tickets/:id', async (req, res) => {
 });
 
 // Recent outpass/gatepass entries (for review + cleanup).
+// Recent tickets (review + cleanup of test entries), filterable by status/search.
+router.get('/ticket-list', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-12-31';
+  const params = [from, to];
+  let where = 't.raised_at::date BETWEEN $1 AND $2';
+  if (req.query.status === 'external') {
+    where += " AND t.external_hold=TRUE AND t.status IN ('open','in_progress','reopened')";
+  } else if (req.query.status) {
+    params.push(req.query.status); where += ` AND t.status=$${params.length}`;
+  }
+  if (req.query.q) {
+    params.push('%' + String(req.query.q).toLowerCase() + '%');
+    where += ` AND (lower(t.ref_no) LIKE $${params.length} OR lower(t.subject) LIKE $${params.length})`;
+  }
+  const rows = (await q(
+    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.closed_at,t.external_hold,
+            c.name AS category_name, r.name AS requester_name
+     FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     WHERE ${where}
+     ORDER BY t.raised_at DESC LIMIT 300`, params)).rows;
+  res.json(rows.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })));
+});
+
 router.get('/outpass-list', async (req, res) => {
   const from = req.query.from || '2000-01-01';
   const to = req.query.to || '2999-12-31';
+  const params = [from, to];
+  let where = 'o.req_date BETWEEN $1 AND $2';
+  if (req.query.type)   { params.push(req.query.type);   where += ` AND o.type=$${params.length}`; }
+  if (req.query.status) { params.push(req.query.status); where += ` AND o.status=$${params.length}`; }
   const rows = (await q(
     `SELECT o.id, o.ref_no, o.type, o.req_date, o.status, o.purpose,
             r.name AS requester_name
      FROM outpass_requests o LEFT JOIN employees r ON r.id=o.requester_id
-     WHERE o.req_date BETWEEN $1 AND $2
-     ORDER BY o.id DESC LIMIT 300`, [from, to])).rows;
+     WHERE ${where}
+     ORDER BY o.id DESC LIMIT 300`, params)).rows;
   res.json(rows);
 });
 
@@ -269,12 +297,16 @@ router.delete('/outpass/:id', async (req, res) => {
 router.get('/expense-list', async (req, res) => {
   const from = req.query.from || '2000-01-01';
   const to = req.query.to || '2999-12-31';
+  const params = [from, to];
+  let where = 's.created_at::date BETWEEN $1 AND $2';
+  if (req.query.form_type) { params.push(req.query.form_type); where += ` AND s.form_type=$${params.length}`; }
+  if (req.query.status)    { params.push(req.query.status);    where += ` AND s.status=$${params.length}`; }
   const rows = (await q(
     `SELECT s.id, s.ref_no, s.form_type, s.period, s.status, s.total_amount,
             e.name AS employee_name
      FROM expense_submissions s LEFT JOIN employees e ON e.id=s.employee_id
-     WHERE s.created_at::date BETWEEN $1 AND $2
-     ORDER BY s.id DESC LIMIT 300`, [from, to])).rows;
+     WHERE ${where}
+     ORDER BY s.id DESC LIMIT 300`, params)).rows;
   res.json(rows);
 });
 

@@ -109,17 +109,89 @@
         <h3 class="font-bold text-sm mb-3">By Handler (L1) — performance</h3>
         <div id="handlerTable" class="overflow-x-auto"></div>
       </div>
-      <div class="card p-4">
-        <h3 class="font-bold text-sm mb-3">Recent Tickets</h3>
-        <div id="recentTable" class="overflow-x-auto"></div>
-      </div>
+      <!-- ===== Data & cleanup: own short window, independent of the KPI range above ===== -->
       <div class="card p-4 mt-5">
-        <h3 class="font-bold text-sm mb-3">Outpass / Gatepass entries <span class="font-normal text-slate-400">— review &amp; clean up test entries</span></h3>
-        <div id="outpassTable" class="overflow-x-auto"></div>
-      </div>
-      <div class="card p-4 mt-5">
-        <h3 class="font-bold text-sm mb-3">Expense entries <span class="font-normal text-slate-400">— review &amp; clean up test entries</span></h3>
-        <div id="expenseTable" class="overflow-x-auto"></div>
+        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <h3 class="font-bold text-sm">Data &amp; cleanup <span class="font-normal text-slate-400">— review &amp; remove test entries</span></h3>
+          <div class="flex items-center gap-2 flex-wrap text-sm">
+            <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
+            <div class="flex gap-1">
+              <button data-d="3"  onclick="setCleanupRange(3)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">3d</button>
+              <button data-d="7"  onclick="setCleanupRange(7)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">7d</button>
+              <button data-d="30" onclick="setCleanupRange(30)" class="cl-range px-2.5 py-1 rounded-md border border-slate-200">30d</button>
+              <button data-d="0"  onclick="setCleanupRange(0)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">Custom</button>
+            </div>
+            <span id="clCustom" class="hidden items-center gap-1.5">
+              <input type="date" id="cl_from" class="inp !py-1 !text-xs" onchange="loadCleanup()">
+              <span class="text-slate-400">→</span>
+              <input type="date" id="cl_to" class="inp !py-1 !text-xs" onchange="loadCleanup()">
+            </span>
+          </div>
+        </div>
+
+        <!-- Tickets -->
+        <div class="mt-2">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Tickets</h4>
+            <div class="flex items-center gap-2">
+              <select id="cl_t_status" class="inp !py-1 !text-xs" onchange="loadCleanupTickets()">
+                <option value="">All statuses</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="reopened">Reopened</option>
+                <option value="external">Escalated externally</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+              </select>
+              <input id="cl_t_q" placeholder="Search ref / subject" class="inp !py-1 !text-xs" oninput="debouncedTickets()">
+            </div>
+          </div>
+          <div id="recentTable" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- Outpass / Gatepass -->
+        <div class="mt-5 pt-4 border-t border-slate-100">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Outpass / Gatepass</h4>
+            <div class="flex items-center gap-2">
+              <select id="cl_o_type" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
+                <option value="">All types</option>
+                <option value="outpass">Outpass</option>
+                <option value="gatepass">Gatepass</option>
+              </select>
+              <select id="cl_o_status" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
+                <option value="">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div id="outpassTable" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- Expense -->
+        <div class="mt-5 pt-4 border-t border-slate-100">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Expense</h4>
+            <div class="flex items-center gap-2">
+              <select id="cl_e_type" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
+                <option value="">All types</option>
+                <option value="conveyance">Local Conveyance</option>
+                <option value="outstation">Outstation</option>
+                <option value="misc">Miscellaneous</option>
+              </select>
+              <select id="cl_e_status" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
+                <option value="">All statuses</option>
+                <option value="pending_hr">Pending HR</option>
+                <option value="pending_final">Pending final</option>
+                <option value="approved">Approved</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div id="expenseTable" class="overflow-x-auto"></div>
+        </div>
       </div>
     </section>
 
@@ -267,6 +339,7 @@
       document.querySelectorAll('.tabBtn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
       employees = await api('/admin/employees');
       loadDash();
+      setCleanupRange(3);
     }
 
     function switchTab(tab) {
@@ -307,32 +380,13 @@
             d.byHandler.map(x => [x.handler, x.resolved, x.forwarded, x.open_now]))
         : '<div class="text-sm text-slate-400 py-3">No handler activity in this range.</div>';
 
-      document.getElementById('recentTable').innerHTML = table(
-        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime',''],
-        d.recent.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
-          STATUS_STYLE[tStatusKey(t)]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
-          t.status==='closed'?fmtDuration(t.downtime_mins):'—',
-          `<button onclick="delTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
-
-      const ops = await api(`/admin/outpass-list?from=${from}&to=${to}`);
-      document.getElementById('outpassTable').innerHTML = table(
-        ['Ref','Type','Requester','Date','Purpose','Status',''],
-        ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
-          o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
-          `<button onclick="delOutpass(${o.id}, ${jsArg(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
-
-      const FORML = { conveyance:'Local Conveyance', outstation:'Outstation', misc:'Miscellaneous' };
-      const exps = await api(`/admin/expense-list?from=${from}&to=${to}`);
-      document.getElementById('expenseTable').innerHTML = table(
-        ['Ref','Type','Employee','Period','Amount','Status',''],
-        exps.map(e => [e.ref_no, FORML[e.form_type]||e.form_type, e.employee_name||'—', e.period||'—',
-          (e.total_amount!=null?'₹'+Number(e.total_amount).toLocaleString('en-IN'):'—'),
-          STATUS_STYLE[e.status]?.[1]||e.status,
-          `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+      // The recent-tickets / outpass / expense lists now live in the
+      // "Data & cleanup" section below, with their own short window + filters
+      // (see loadCleanup). loadDash only renders the monthly KPIs/charts.
     }
     async function delTicket(id, ref){
       if(!confirm(`Delete ticket ${ref}?\n\nThis permanently removes the ticket and its history. Use only for test entries.`)) return;
-      try{ await api(`/admin/tickets/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      try{ await api(`/admin/tickets/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadCleanupTickets(); }
       catch(e){ toast(e.message,'error'); }
     }
     async function loadDailyReportCfg(){
@@ -439,15 +493,88 @@
     }
     async function delOutpass(id, ref){
       if(!confirm(`Delete pass ${ref}?\n\nThis permanently removes the entry. Use only for test entries.`)) return;
-      try{ await api(`/admin/outpass/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      try{ await api(`/admin/outpass/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadCleanupOutpass(); }
       catch(e){ toast(e.message,'error'); }
     }
     async function delExpense(id, ref, form){
       const extra = form==='conveyance' ? '\n\nThis also clears that month\u2019s logged trips.' : '';
       if(!confirm(`Delete expense entry ${ref}?\n\nThis permanently removes the submission.${extra} Use only for test entries.`)) return;
-      try{ await api(`/admin/expense/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadDash(); }
+      try{ await api(`/admin/expense/${id}`,{method:'DELETE'}); toast('Deleted '+ref,'info'); loadCleanupExpense(); }
       catch(e){ toast(e.message,'error'); }
     }
+    // ===== Data & cleanup: short window (default 3 days) + per-type filters =====
+    let cleanupDays = 3;
+    function istToday(){ return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}); }
+    function isoDaysAgo(n){ const d=new Date(istToday()+'T00:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+    function cleanupRange(){
+      if (cleanupDays === 0){
+        const f=document.getElementById('cl_from').value||isoDaysAgo(2);
+        const t=document.getElementById('cl_to').value||istToday();
+        return { from:f, to:t };
+      }
+      return { from: isoDaysAgo(cleanupDays-1), to: istToday() };
+    }
+    function setCleanupRange(days){
+      cleanupDays = days;
+      document.querySelectorAll('.cl-range').forEach(b=>{
+        const on = Number(b.dataset.d)===days;
+        b.classList.toggle('bg-ink', on);
+        b.classList.toggle('text-white', on);
+        b.classList.toggle('border-ink', on);
+      });
+      const custom=document.getElementById('clCustom');
+      if (days===0){
+        custom.classList.remove('hidden'); custom.classList.add('flex');
+        if(!document.getElementById('cl_from').value) document.getElementById('cl_from').value=isoDaysAgo(2);
+        if(!document.getElementById('cl_to').value)   document.getElementById('cl_to').value=istToday();
+      } else {
+        custom.classList.add('hidden'); custom.classList.remove('flex');
+      }
+      loadCleanup();
+    }
+
+    async function loadCleanupTickets(){
+      const {from,to}=cleanupRange();
+      const qs=new URLSearchParams({from,to});
+      const st=document.getElementById('cl_t_status').value; if(st) qs.set('status',st);
+      const qv=document.getElementById('cl_t_q').value.trim(); if(qv) qs.set('q',qv);
+      const rows=await api('/admin/ticket-list?'+qs.toString());
+      document.getElementById('recentTable').innerHTML = table(
+        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime',''],
+        rows.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
+          STATUS_STYLE[tStatusKey(t)]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
+          t.status==='closed'?fmtDuration(t.downtime_mins):'—',
+          `<button onclick="delTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    async function loadCleanupOutpass(){
+      const {from,to}=cleanupRange();
+      const qs=new URLSearchParams({from,to});
+      const ty=document.getElementById('cl_o_type').value;   if(ty) qs.set('type',ty);
+      const st=document.getElementById('cl_o_status').value; if(st) qs.set('status',st);
+      const ops=await api('/admin/outpass-list?'+qs.toString());
+      document.getElementById('outpassTable').innerHTML = table(
+        ['Ref','Type','Requester','Date','Purpose','Status',''],
+        ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
+          o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
+          `<button onclick="delOutpass(${o.id}, ${jsArg(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    const FORML = { conveyance:'Local Conveyance', outstation:'Outstation', misc:'Miscellaneous' };
+    async function loadCleanupExpense(){
+      const {from,to}=cleanupRange();
+      const qs=new URLSearchParams({from,to});
+      const ty=document.getElementById('cl_e_type').value;   if(ty) qs.set('form_type',ty);
+      const st=document.getElementById('cl_e_status').value; if(st) qs.set('status',st);
+      const exps=await api('/admin/expense-list?'+qs.toString());
+      document.getElementById('expenseTable').innerHTML = table(
+        ['Ref','Type','Employee','Period','Amount','Status',''],
+        exps.map(e => [e.ref_no, FORML[e.form_type]||e.form_type, e.employee_name||'—', e.period||'—',
+          (e.total_amount!=null?'₹'+Number(e.total_amount).toLocaleString('en-IN'):'—'),
+          STATUS_STYLE[e.status]?.[1]||e.status,
+          `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    function loadCleanup(){ loadCleanupTickets(); loadCleanupOutpass(); loadCleanupExpense(); }
+    let _tkDeb; function debouncedTickets(){ clearTimeout(_tkDeb); _tkDeb=setTimeout(loadCleanupTickets, 350); }
+
     function drawBar(id, labels, data) {
       if (charts[id]) charts[id].destroy();
       charts[id] = new Chart(document.getElementById(id), { type:'bar',
