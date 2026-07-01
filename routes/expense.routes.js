@@ -255,8 +255,14 @@ router.post('/conveyance/:period/submit', async (req, res) => {
   if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted.' });
   const trips = (await q(`SELECT ${TRIP_COLS} FROM conveyance_trips WHERE employee_id=$1 AND period=$2 ORDER BY trip_date, id`, [req.user.id, period])).rows;
   if (!trips.length) return res.status(400).json({ error: 'Add at least one trip before submitting.' });
+  // Every trip must be actioned by the reporting manager first — block while any is still pending.
+  const stillPending = trips.filter(t => t.status === 'pending').length;
+  if (stillPending) return res.status(400).json({ error: `${stillPending} trip(s) are still awaiting manager approval. All trips must be approved before this month can be submitted to HR.` });
+  // Only manager-approved trips are claimed; rejected trips are left out of the payment.
+  const claimTrips = trips.filter(t => t.status === 'approved');
+  if (!claimTrips.length) return res.status(400).json({ error: 'None of this month\u2019s trips were approved, so there is nothing to submit.' });
   let total = 0;
-  const entries = trips.map(t => {
+  const entries = claimTrips.map(t => {
     total += Number(t.amount || 0);
     return { date: t.trip_date, from: t.from_loc || '', to: t.to_loc || '', purpose: t.purpose || '',
       vehicle: t.vehicle, vehicle_label: t.vehicle === 'car' ? 'Car' : 'Bike', km: Number(t.km), rate: Number(t.rate),
@@ -267,6 +273,20 @@ router.post('/conveyance/:period/submit', async (req, res) => {
     [row.id, JSON.stringify({ entries }), +total.toFixed(2)]);
   await enterChain(row.id);
   res.json({ ok: true, pending_count: trips.filter(t => t.status === 'pending').length });
+});
+
+// Employee recalls their OWN month while it's still awaiting HR (before HR acts on it).
+// Reverts to draft so they can add/edit trips and submit again. Blocked once HR has moved it on.
+router.post('/conveyance/:period/recall', async (req, res) => {
+  const period = req.params.period;
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Nothing to recall.' });
+  if (row.status !== 'pending_hr') {
+    return res.status(409).json({ error: 'This month can no longer be recalled — HR has already started processing it. Ask HR to return it.' });
+  }
+  await q(`UPDATE expense_submissions SET status='draft', submitted_at=NULL, updated_at=now() WHERE id=$1`, [row.id]);
+  res.json({ ok: true });
 });
 
 // One-tap helpers (used by the public /cva /cvr endpoints) — operate on a single trip.

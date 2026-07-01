@@ -295,11 +295,21 @@
         : `<span class="text-red-600 font-semibold">⚠ No reporting manager set — ask an admin before adding trips.</span>`);
       const st=(cv.submission&&cv.submission.status)||'draft';
       const inFlight=['pending_hr','pending_final','approved'].includes(st);
+      const pendingTrips = cv.needs_manager ? cv.trips.filter(t=>t.status==='pending').length : 0;
       document.getElementById('cv_addcard').classList.toggle('hidden', inFlight);
-      document.getElementById('cv_submit').classList.toggle('hidden', !(cv.can_submit && !inFlight));
+      document.getElementById('cv_submit').classList.toggle('hidden', !(cv.can_submit && !inFlight && pendingTrips===0));
       const lockBox=document.getElementById('cv_locked');
-      if(inFlight){ lockBox.classList.remove('hidden'); lockBox.textContent=`This month is ${pillText(st)}. ${statusText(st)}`; }
+      if(inFlight){ lockBox.classList.remove('hidden');
+        if(st==='pending_hr'){
+          lockBox.innerHTML = `This month is with HR for review. Submitted by mistake, or need to add more trips? `
+            + `<button onclick="recallConveyance()" class="underline font-semibold text-brand-700 hover:text-brand-800">Recall it from HR</button>`;
+        } else {
+          lockBox.textContent = `This month is ${pillText(st)}. ${statusText(st)}`;
+        }
+      }
       else if(st==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(cv.submission.return_reason||'')} — adjust trips and resubmit.`; }
+      else if(pendingTrips>0){ lockBox.classList.remove('hidden');
+        lockBox.textContent=`${pendingTrips} trip${pendingTrips===1?'':'s'} still awaiting manager approval. The Submit button opens once all trips are approved.`; }
       else if(!cv.can_submit){ lockBox.classList.remove('hidden'); const [y,m]=period.split('-').map(Number);
         const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding trips through the month. The Submit button opens on ${next}.`; }
@@ -376,6 +386,15 @@
       try{ await api('/expense/conveyance/trip/'+id,{method:'DELETE'}); toast('Trip withdrawn','info'); await loadConveyance(); }
       catch(e){ toast(e.message,'error'); }
     }
+    async function recallConveyance(){
+      if(!confirm('Recall this month from HR?\n\nIt will reopen so you can add or edit trips, then submit again. Only works while HR hasn\u2019t started processing it.')) return;
+      try{
+        await api('/expense/conveyance/'+cv.period+'/recall',{method:'POST'});
+        toast('Recalled from HR — add your trips and submit again.','success');
+        await loadConveyance();
+      }catch(e){ toast(e.message,'error'); }
+    }
+
     async function submitConveyance(){
       if(!cv.trips.length) return toast('Add at least one trip first','error');
       const period = cv.period || document.getElementById('cv_month').value;
