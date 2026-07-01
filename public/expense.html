@@ -494,14 +494,14 @@
               <tbody>${(t.items||[]).map(i=>`<tr class="border-b border-line ${i.flag?'bg-amber-50/60':''}">
                 <td class="py-1.5">${catL[i.category]||i.category}</td><td>${i.date||''}</td><td>${esc(i.desc)||'—'}</td>
                 <td class="text-right mono">${fmtMoney(i.amount)}${i.flag?' <span class="text-amber-600 text-[10px] font-bold">!</span>':''}</td>
-                <td>${i.bill&&i.bill.web_url?`<a href="${i.bill.web_url}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>
+                <td>${i.bill&&i.bill.drive_item_id?`<a href="/expense/bill/${encodeURIComponent(i.bill.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>
           </div>`).join('') + (flags.length?`<div class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3"><div class="eyebrow" style="color:#b45309">Flagged for HR review</div><ul class="text-xs text-amber-800 list-disc pl-5 mt-1">${flags.map(f=>`<li>${f}</li>`).join('')}</ul></div>`:'');
       }
       const items=(s.payload&&s.payload.items)||[];
       return `<table class="w-full text-sm mt-2"><thead><tr class="text-left border-b border-line">
         <th class="pb-1 fieldlabel">Date</th><th class="pb-1 fieldlabel">Description</th><th class="pb-1 fieldlabel text-right">Amount</th><th class="pb-1 fieldlabel">Bill</th></tr></thead>
         <tbody>${items.map(i=>`<tr class="border-b border-line"><td class="py-1.5">${i.date||''}</td><td>${esc(i.desc)||'—'}</td>
-          <td class="text-right mono">${fmtMoney(i.amount)}</td><td>${i.bill&&i.bill.web_url?`<a href="${i.bill.web_url}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>`;
+          <td class="text-right mono">${fmtMoney(i.amount)}</td><td>${i.bill&&i.bill.drive_item_id?`<a href="/expense/bill/${encodeURIComponent(i.bill.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>`;
     }
 
     async function openDetail(id){
@@ -569,8 +569,8 @@
     }
     function billCell(bill, locked, camCall, fileCall){
       fileCall = fileCall || camCall;
-      if(locked) return bill&&bill.web_url?`<a href="${bill.web_url}" target="_blank" class="text-brand-600 text-xs underline">view</a>`:'<span class="text-slate-300 text-xs">—</span>';
-      if(bill&&bill.web_url) return `<a href="${bill.web_url}" target="_blank" class="text-brand-600 text-xs underline mr-1">view</a><button onclick="${fileCall}" class="text-slate-400 text-xs hover:underline">replace</button>`;
+      if(locked) return bill&&bill.drive_item_id?`<a href="/expense/bill/${encodeURIComponent(bill.drive_item_id)}" target="_blank" class="text-brand-600 text-xs underline">view</a>`:'<span class="text-slate-300 text-xs">—</span>';
+      if(bill&&bill.drive_item_id) return `<a href="/expense/bill/${encodeURIComponent(bill.drive_item_id)}" target="_blank" class="text-brand-600 text-xs underline mr-1">view</a><button onclick="${fileCall}" class="text-slate-400 text-xs hover:underline">replace</button>`;
       return `<span class="inline-flex gap-1">
         <button type="button" onclick="${camCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Take photo">📷</button>
         <button type="button" onclick="${fileCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Choose from gallery / files">Upload</button></span>`;

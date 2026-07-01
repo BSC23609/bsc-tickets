@@ -501,6 +501,34 @@ router.post('/bill-session', async (req, res) => {
   res.json({ uploadUrl: sess.uploadUrl, file_name: safe });
 });
 
+// Stream a bill back THROUGH the portal, so it opens with only a portal login —
+// no OneDrive/SharePoint sign-in. Authorized like the submission it belongs to
+// (owner, an HR approver, or the assigned final approver).
+router.get('/bill/:itemId', async (req, res) => {
+  const itemId = String(req.params.itemId || '');
+  if (!itemId) return res.status(400).send('Bad request');
+  const sub = (await q(
+    `SELECT employee_id, final_approver_id, payload FROM expense_submissions
+     WHERE payload::text LIKE '%' || $1 || '%' ORDER BY id DESC LIMIT 1`, [itemId])).rows[0];
+  if (!sub) return res.status(404).send('Bill not found');
+  const owner = sub.employee_id === req.user.id;
+  const hr = await isHrApprover(req.user);
+  if (!owner && !hr && sub.final_approver_id !== req.user.id) return res.status(403).send('Not allowed');
+  // Best-effort: read the stored name/mime so the browser shows it inline correctly.
+  let mime = 'application/octet-stream', name = 'bill';
+  try {
+    const items = [].concat(...((sub.payload && sub.payload.trips) || []).map(t => t.items || []), (sub.payload && sub.payload.items) || []);
+    const hit = items.find(it => it.bill && it.bill.drive_item_id === itemId);
+    if (hit && hit.bill) { mime = hit.bill.mime || guessMime(hit.bill.name); name = hit.bill.name || name; }
+  } catch (_) { /* fall back to generic */ }
+  const bytes = await graph.fetchDriveItemContent(itemId);
+  if (!bytes) return res.status(502).send('Could not fetch the bill from storage');
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Disposition', `inline; filename="${name.replace(/"/g, '')}"`);
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.send(bytes);
+});
+
 // ---------------- OUTSTATION ----------------
 router.get('/outstation/:period', async (req, res) => {
   const period = req.params.period;
