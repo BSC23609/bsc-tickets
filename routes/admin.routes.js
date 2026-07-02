@@ -314,7 +314,7 @@ router.get('/expense-list', async (req, res) => {
   const from = req.query.from || '2000-01-01';
   const to = req.query.to || '2999-12-31';
   const params = [from, to];
-  let where = 's.created_at::date BETWEEN $1 AND $2';
+  let where = `s.created_at::date BETWEEN $1 AND $2 AND NOT (s.status='draft' AND COALESCE(s.total_amount,0)=0)`;
   if (req.query.form_type) { params.push(req.query.form_type); where += ` AND s.form_type=$${params.length}`; }
   if (req.query.status)    { params.push(req.query.status);    where += ` AND s.status=$${params.length}`; }
   const rows = (await q(

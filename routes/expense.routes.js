@@ -16,6 +16,8 @@ const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation Tra
 const STAGE_LABEL = { hr: 'HR review', final: 'final approval' };
 
 async function empById(id) { if (!id) return null; return (await q('SELECT id,name,phone,emp_no,email FROM employees WHERE id=$1', [id])).rows[0] || null; }
+// TEMP test CC for CMD WhatsApp — set env CMD_TEST_PHONE (e.g. 7395956648); unset to disable.
+const CMD_TEST_PHONE = (() => { const d = String(process.env.CMD_TEST_PHONE || '').replace(/\D/g, ''); return d ? (d.length === 10 ? '91' + d : d) : null; })();
 async function isHrApprover(u) { if (u.is_admin) return true; const c = await chain.getChain(); return c.hr_approver_ids.includes(u.id); }
 function chainSummary(full) { return { id: full.id, ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount), pdf_token: full.pdf_token }; }
 function chainPdfName(full) { const lbl = FORM_LABEL[full.form_type] || full.form_type; const per = full.period ? (' ' + monthLabel(full.period)) : ''; return `${full.emp_name} - ${lbl}${per} (${full.ref_no.replace(/\//g, '-')}).pdf`; }
@@ -417,6 +419,7 @@ router.post('/:id/final-approve', async (req, res) => {
     });
     if (c.accounts_notify_id) { const acc = await empById(c.accounts_notify_id); if (acc && acc.phone) await wati.notify.expense.paid(acc, chainSummary(full)); }
     if (c.cmd_notify_id) { const cmd = await empById(c.cmd_notify_id); if (cmd && cmd.phone) await wati.notify.expense.cmd(cmd, chainSummary(full), 'Approved for payment'); }
+    if (CMD_TEST_PHONE) await wati.notify.expense.cmd({ name: 'Test', phone: CMD_TEST_PHONE }, chainSummary(full), 'Approved for payment');
   })());
 });
 
@@ -428,12 +431,13 @@ router.post('/:id/send-cmd', async (req, res) => {
   const canReview = req.user.is_admin || c.hr_approver_ids.includes(req.user.id) || c.final_approver_ids.includes(req.user.id) || row.final_approver_id === req.user.id;
   if (!canReview) return res.status(403).json({ error: 'Not allowed' });
   if (!['pending_hr', 'pending_final', 'approved'].includes(row.status)) return res.status(400).json({ error: 'Only a submitted claim can be sent for verification.' });
-  if (!c.cmd_notify_id) return res.status(400).json({ error: 'Set the CMD WhatsApp contact first (Admin \u2192 Approval chain).' });
-  const cmd = await empById(c.cmd_notify_id);
-  if (!cmd || !cmd.phone) return res.status(400).json({ error: 'The CMD contact has no WhatsApp number on file.' });
+  const cmd = c.cmd_notify_id ? await empById(c.cmd_notify_id) : null;
+  if ((!cmd || !cmd.phone) && !CMD_TEST_PHONE) return res.status(400).json({ error: 'Set the CMD WhatsApp contact first (Admin \u2192 Approval chain).' });
   if (!row.pdf_token) { const tok = crypto.randomBytes(12).toString('hex'); await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, tok]); row.pdf_token = tok; }
-  background(wati.notify.expense.cmd(cmd, chainSummary(row), 'For your verification'));
-  res.json({ ok: true, to: cmd.name });
+  const sum = chainSummary(row);
+  if (cmd && cmd.phone) background(wati.notify.expense.cmd(cmd, sum, 'For your verification'));
+  if (CMD_TEST_PHONE) background(wati.notify.expense.cmd({ name: 'Test', phone: CMD_TEST_PHONE }, sum, 'For your verification'));
+  res.json({ ok: true, to: cmd ? cmd.name : 'test number' });
 });
 router.post('/:id/final-return', async (req, res) => {
   const reason = ((req.body && req.body.reason) || '').trim();

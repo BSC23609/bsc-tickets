@@ -571,7 +571,14 @@
         exps.map(e => [e.ref_no, FORML[e.form_type]||e.form_type, e.employee_name||'—', e.period||'—',
           (e.total_amount!=null?'₹'+Number(e.total_amount).toLocaleString('en-IN'):'—'),
           STATUS_STYLE[e.status]?.[1]||e.status,
-          `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+          (['pending_hr','pending_final','approved'].includes(e.status)
+            ? `<button onclick="cmdExpense(${e.id}, ${jsArg(e.ref_no)})" class="text-brand-700 hover:underline text-xs font-semibold mr-3">Send to CMD</button>` : '')
+          + `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    async function cmdExpense(id, ref){
+      if(!confirm('Send '+ref+' to the CMD on WhatsApp?')) return;
+      try{ const r=await api('/expense/'+id+'/send-cmd',{method:'POST'}); toast('Sent to '+(r.to||'CMD')+' on WhatsApp','success'); }
+      catch(e){ toast(e.message,'error'); }
     }
     function loadCleanup(){ loadCleanupTickets(); loadCleanupOutpass(); loadCleanupExpense(); }
     let _tkDeb; function debouncedTickets(){ clearTimeout(_tkDeb); _tkDeb=setTimeout(loadCleanupTickets, 350); }
