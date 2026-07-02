@@ -594,7 +594,7 @@ router.put('/expense-policy', async (req, res) => {
 const chain = require('../lib/chain');
 router.get('/expense-chain', async (req, res) => {
   const c = await chain.getChain();
-  const ids = [...c.hr_approver_ids, ...c.final_approver_ids, ...(c.accounts_notify_id ? [c.accounts_notify_id] : [])];
+  const ids = [...c.hr_approver_ids, ...c.final_approver_ids, ...(c.accounts_notify_id ? [c.accounts_notify_id] : []), ...(c.cmd_notify_id ? [c.cmd_notify_id] : [])];
   const employees_ref = ids.length ? (await q('SELECT id,name,emp_no FROM employees WHERE id=ANY($1)', [ids])).rows : [];
   res.json({ ...c, employees_ref });
 });
@@ -605,6 +605,7 @@ router.put('/expense-chain', async (req, res) => {
     final_approver_ids: Array.isArray(b.final_approver_ids) ? b.final_approver_ids.map(Number) : [],
     accounts_email: (b.accounts_email || '').trim() || 'accounts@bharatsteels.in',
     accounts_notify_id: b.accounts_notify_id ? Number(b.accounts_notify_id) : null,
+    cmd_notify_id: b.cmd_notify_id ? Number(b.cmd_notify_id) : null,
   });
   res.json({ ok: true });
 });

@@ -305,6 +305,7 @@
         <div class="grid grid-cols-2 gap-4 mb-4">
           <div><label class="lbl">Accounts email (approved report)</label><input id="ch_email" class="inp" placeholder="accounts@bharatsteels.in"></div>
           <div><label class="lbl">Accounts WhatsApp contact</label><select id="ch_notify" class="inp"></select></div>
+          <div><label class="lbl">CMD WhatsApp contact (approved claim + verification)</label><select id="ch_cmd" class="inp"></select></div>
         </div>
         <div class="flex justify-end"><button onclick="saveChain()" class="btn text-sm">Save chain</button></div>
       </div>
@@ -950,6 +951,8 @@
       document.getElementById('ch_email').value = c.accounts_email || 'accounts@bharatsteels.in';
       document.getElementById('ch_notify').innerHTML = '<option value="">— none —</option>' +
         act.map(e=>`<option value="${e.id}" ${c.accounts_notify_id===e.id?'selected':''}>${esc(e.name)} (${esc(e.emp_no)})</option>`).join('');
+      document.getElementById('ch_cmd').innerHTML = '<option value="">— none —</option>' +
+        act.map(e=>`<option value="${e.id}" ${c.cmd_notify_id===e.id?'selected':''}>${esc(e.name)} (${esc(e.emp_no)})</option>`).join('');
     }
     function checkedVals(id){ return Array.from(document.querySelectorAll('#'+id+' input:checked')).map(i=>+i.value); }
     async function saveChain(){
@@ -958,6 +961,7 @@
         final_approver_ids: checkedVals('ch_final'),
         accounts_email: document.getElementById('ch_email').value.trim(),
         accounts_notify_id: document.getElementById('ch_notify').value || null,
+        cmd_notify_id: document.getElementById('ch_cmd').value || null,
       };
       if(!body.hr_approver_ids.length) return toast('Pick at least one HR approver','error');
       if(!body.final_approver_ids.length) return toast('Pick at least one final approver','error');

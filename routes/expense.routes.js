@@ -17,7 +17,7 @@ const STAGE_LABEL = { hr: 'HR review', final: 'final approval' };
 
 async function empById(id) { if (!id) return null; return (await q('SELECT id,name,phone,emp_no,email FROM employees WHERE id=$1', [id])).rows[0] || null; }
 async function isHrApprover(u) { if (u.is_admin) return true; const c = await chain.getChain(); return c.hr_approver_ids.includes(u.id); }
-function chainSummary(full) { return { id: full.id, ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount) }; }
+function chainSummary(full) { return { id: full.id, ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount), pdf_token: full.pdf_token }; }
 function chainPdfName(full) { const lbl = FORM_LABEL[full.form_type] || full.form_type; const per = full.period ? (' ' + monthLabel(full.period)) : ''; return `${full.emp_name} - ${lbl}${per} (${full.ref_no.replace(/\//g, '-')}).pdf`; }
 async function pdfFor(full, status, approver, at) {
   if (full.form_type === 'conveyance') return conveyancePdf(full, status, approver, at);
@@ -46,6 +46,7 @@ async function enterChain(rowId) {
 async function returnToEmployee(row, stage, reason, byName) {
   await q(`UPDATE expense_submissions SET status='returned', return_reason=$2, return_stage=$3, reviewed_by_name=$4, reviewed_at=now() WHERE id=$1`,
     [row.id, reason, stage, byName]);
+  await q(`UPDATE conveyance_trips SET claim_ref=NULL WHERE claim_ref=$1`, [row.ref_no]); // free the trips to be edited/resubmitted
   background((async () => {
     const full = await loadRow(row.id);
     const emp = await empById(full.employee_id);
@@ -148,32 +149,35 @@ function sendTripToManager(trip, mgr, requester) {
   })());
 }
 const TRIP_COLS = `id, employee_id, to_char(trip_date,'YYYY-MM-DD') AS trip_date, from_loc, to_loc, purpose,
-  vehicle, km, rate, amount, status, approver_name, reject_reason, reviewed_at, action_token, logged_at`;
+  vehicle, km, rate, amount, status, approver_name, reject_reason, reviewed_at, action_token, logged_at, claim_ref`;
 
 // Get-or-create the month container + the month's trips.
 router.get('/conveyance/:period', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
-  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
-  if (!row) {
-    const ref = await refNo('CNV');
-    row = (await q(`INSERT INTO expense_submissions(ref_no,employee_id,form_type,period,payload,status)
-      VALUES($1,$2,'conveyance',$3,$4,'draft') RETURNING *`, [ref, req.user.id, period, JSON.stringify({ entries: [] })])).rows[0];
-  }
+  // Working draft (created lazily at submit-time). May not exist yet — that's fine.
+  const row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 AND status IN ('draft','returned') ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0] || null;
+  // Prior claims for this month (submitted / paid). The month stays open alongside these.
+  const claims = (await q(`SELECT id, ref_no, status, total_amount, pdf_token, submitted_at FROM expense_submissions
+    WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 AND status IN ('pending_hr','pending_final','approved') ORDER BY id`, [req.user.id, period])).rows;
+  const claimStatus = {}; for (const c of claims) claimStatus[c.ref_no] = c.status;
   const pol = await getPolicy();
   const trips = (await q(`SELECT ${TRIP_COLS} FROM conveyance_trips WHERE employee_id=$1 AND period=$2 ORDER BY trip_date, id`, [req.user.id, period])).rows
-    .map(t => ({ ...t, late: entryIsLate(t.trip_date, t.logged_at, pol.log_hours) }));
+    .map(t => ({ ...t, late: entryIsLate(t.trip_date, t.logged_at, pol.log_hours),
+      claimed: !!t.claim_ref, claim_status: t.claim_ref ? (claimStatus[t.claim_ref] || 'submitted') : null }));
   const mgr = await resolveManager(req.user.id);
   const allow = await submitAllowed('conveyance', period);
+  const openTrips = trips.filter(t => !t.claimed);           // "new" trips = not yet in any claim
   res.json({
     period, period_label: monthLabel(period),
-    can_submit: ['draft', 'returned'].includes(row.status) && allow,
-    submission: { id: row.id, ref_no: row.ref_no, status: row.status, total_amount: row.total_amount,
-      pdf_token: row.pdf_token, return_reason: row.return_reason, return_stage: row.return_stage },
+    can_submit: allow && openTrips.some(t => t.status === 'approved'),
+    submission: row ? { id: row.id, ref_no: row.ref_no, status: row.status, total_amount: row.total_amount,
+      pdf_token: row.pdf_token, return_reason: row.return_reason, return_stage: row.return_stage } : null,
+    claims,
     manager: mgr ? { name: mgr.name } : null,
     needs_manager: req.user.conveyance_needs_manager !== false,
     log_hours: pol.log_hours,
-    pending_count: trips.filter(t => t.status === 'pending').length,
+    pending_count: openTrips.filter(t => t.status === 'pending').length,
     trips,
   });
 });
@@ -250,17 +254,20 @@ router.post('/conveyance/:period/submit', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
   if (!(await submitAllowed('conveyance', period))) return res.status(400).json({ error: 'This month can be submitted from the 1st of next month.' });
-  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
-  if (!row) return res.status(404).json({ error: 'Nothing to submit.' });
-  if (!['draft', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Already submitted.' });
   const trips = (await q(`SELECT ${TRIP_COLS} FROM conveyance_trips WHERE employee_id=$1 AND period=$2 ORDER BY trip_date, id`, [req.user.id, period])).rows;
-  if (!trips.length) return res.status(400).json({ error: 'Add at least one trip before submitting.' });
-  // Every trip must be actioned by the reporting manager first — block while any is still pending.
-  const stillPending = trips.filter(t => t.status === 'pending').length;
-  if (stillPending) return res.status(400).json({ error: `${stillPending} trip(s) are still awaiting manager approval. All trips must be approved before this month can be submitted to HR.` });
-  // Only manager-approved trips are claimed; rejected trips are left out of the payment.
-  const claimTrips = trips.filter(t => t.status === 'approved');
-  if (!claimTrips.length) return res.status(400).json({ error: 'None of this month\u2019s trips were approved, so there is nothing to submit.' });
+  const open = trips.filter(t => !t.claim_ref); // not yet in any claim
+  if (!open.length) return res.status(400).json({ error: 'No new trips to submit — everything here is already in a claim.' });
+  const stillPending = open.filter(t => t.status === 'pending').length;
+  if (stillPending) return res.status(400).json({ error: `${stillPending} new trip(s) are still awaiting manager approval. All must be approved before submitting.` });
+  const claimTrips = open.filter(t => t.status === 'approved');
+  if (!claimTrips.length) return res.status(400).json({ error: 'None of the new trips were approved, so there is nothing to submit.' });
+  // Reuse a working draft, or create a fresh claim row for this batch.
+  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 AND status IN ('draft','returned') ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
+  if (!row) {
+    const ref = await refNo('CNV');
+    row = (await q(`INSERT INTO expense_submissions(ref_no,employee_id,form_type,period,payload,status)
+      VALUES($1,$2,'conveyance',$3,$4,'draft') RETURNING *`, [ref, req.user.id, period, JSON.stringify({ entries: [] })])).rows[0];
+  }
   let total = 0;
   const entries = claimTrips.map(t => {
     total += Number(t.amount || 0);
@@ -271,8 +278,11 @@ router.post('/conveyance/:period/submit', async (req, res) => {
   });
   await q(`UPDATE expense_submissions SET payload=$2, total_amount=$3, updated_at=now() WHERE id=$1`,
     [row.id, JSON.stringify({ entries }), +total.toFixed(2)]);
+  // Lock these trips to this claim so they can't be edited or re-claimed.
+  await q(`UPDATE conveyance_trips SET claim_ref=$3, updated_at=now() WHERE employee_id=$1 AND id = ANY($2)`,
+    [req.user.id, claimTrips.map(t => t.id), row.ref_no]);
   await enterChain(row.id);
-  res.json({ ok: true, pending_count: trips.filter(t => t.status === 'pending').length });
+  res.json({ ok: true, claimed: claimTrips.length });
 });
 
 // Employee recalls their OWN month while it's still awaiting HR (before HR acts on it).
@@ -280,12 +290,10 @@ router.post('/conveyance/:period/submit', async (req, res) => {
 router.post('/conveyance/:period/recall', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
-  const row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
-  if (!row) return res.status(404).json({ error: 'Nothing to recall.' });
-  if (row.status !== 'pending_hr') {
-    return res.status(409).json({ error: 'This month can no longer be recalled — HR has already started processing it. Ask HR to return it.' });
-  }
+  const row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 AND status='pending_hr' ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
+  if (!row) return res.status(404).json({ error: 'No claim is awaiting HR to recall.' });
   await q(`UPDATE expense_submissions SET status='draft', submitted_at=NULL, updated_at=now() WHERE id=$1`, [row.id]);
+  await q(`UPDATE conveyance_trips SET claim_ref=NULL, updated_at=now() WHERE employee_id=$1 AND claim_ref=$2`, [req.user.id, row.ref_no]);
   res.json({ ok: true });
 });
 
@@ -358,6 +366,7 @@ router.get('/:id', async (req, res) => {
       is_owner: owner,
       can_hr: row.status === 'pending_hr' && hr,
       can_final: row.status === 'pending_final' && (req.user.is_admin || row.final_approver_id === req.user.id),
+      can_send_cmd: (req.user.is_admin || hr || row.final_approver_id === req.user.id) && ['pending_hr', 'pending_final', 'approved'].includes(row.status),
       is_returned: row.status === 'returned' && owner,
     } });
 });
@@ -407,7 +416,24 @@ router.post('/:id/final-approve', async (req, res) => {
       attachments: [{ name: chainPdfName(full), contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
     });
     if (c.accounts_notify_id) { const acc = await empById(c.accounts_notify_id); if (acc && acc.phone) await wati.notify.expense.paid(acc, chainSummary(full)); }
+    if (c.cmd_notify_id) { const cmd = await empById(c.cmd_notify_id); if (cmd && cmd.phone) await wati.notify.expense.cmd(cmd, chainSummary(full), 'Approved for payment'); }
   })());
+});
+
+// Manually send a submitted claim to the CMD for verification (with a download-PDF WhatsApp button).
+router.post('/:id/send-cmd', async (req, res) => {
+  const row = await loadRow(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const c = await chain.getChain();
+  const canReview = req.user.is_admin || c.hr_approver_ids.includes(req.user.id) || c.final_approver_ids.includes(req.user.id) || row.final_approver_id === req.user.id;
+  if (!canReview) return res.status(403).json({ error: 'Not allowed' });
+  if (!['pending_hr', 'pending_final', 'approved'].includes(row.status)) return res.status(400).json({ error: 'Only a submitted claim can be sent for verification.' });
+  if (!c.cmd_notify_id) return res.status(400).json({ error: 'Set the CMD WhatsApp contact first (Admin \u2192 Approval chain).' });
+  const cmd = await empById(c.cmd_notify_id);
+  if (!cmd || !cmd.phone) return res.status(400).json({ error: 'The CMD contact has no WhatsApp number on file.' });
+  if (!row.pdf_token) { const tok = crypto.randomBytes(12).toString('hex'); await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, tok]); row.pdf_token = tok; }
+  background(wati.notify.expense.cmd(cmd, chainSummary(row), 'For your verification'));
+  res.json({ ok: true, to: cmd.name });
 });
 router.post('/:id/final-return', async (req, res) => {
   const reason = ((req.body && req.body.reason) || '').trim();
@@ -425,6 +451,7 @@ const { buildOutstationSummary, buildMiscSummary, mergeBills } = require('../lib
 const CAT_LABEL = { accommodation: 'Accommodation', food: 'Food', conveyance: 'Conveyance', others: 'Others' };
 const guessMime = (name) => { const e = (name || '').toLowerCase().split('.').pop();
   return e === 'png' ? 'image/png' : e === 'pdf' ? 'application/pdf' : (e === 'jpg' || e === 'jpeg') ? 'image/jpeg' : 'application/octet-stream'; };
+function itemBills(it) { return (it && it.bills && it.bills.length) ? it.bills : (it && it.bill ? [it.bill] : []); }
 const inr = (n) => '₹' + Number(n || 0).toLocaleString('en-IN');
 function flagsHtml(flags) {
   if (!flags || !flags.length) return '';
@@ -439,7 +466,7 @@ function computeOutstation(body, limits) {
       const amount = Math.max(0, parseFloat(it.amount) || 0); total += amount;
       const category = ['accommodation', 'food', 'conveyance', 'others', 'long_distance'].includes(it.category) ? it.category : 'others';
       return { category, date: it.date || '', desc: (it.desc || '').trim(), amount,
-        bill: it.bill || null, bill_name: (it.bill && it.bill.name) || null, flag: false };
+        bills: itemBills(it), flag: false };
     });
     for (const key of ['food', 'accommodation']) {
       const lim = key === 'food' ? limits.food : limits.accom;
@@ -467,9 +494,11 @@ async function outstationPdf(row, status, approver, approvedAt) {
     trips, total: Number(row.total_amount || 0), flags: row.flags || [], status, approver, approved_at: approvedAt });
   const bills = [];
   for (const t of trips) for (const it of (t.items || [])) {
-    if (it.bill && it.bill.drive_item_id) {
-      const bytes = await graph.fetchDriveItemContent(it.bill.drive_item_id);
-      if (bytes) bills.push({ bytes, mime: it.bill.mime || guessMime(it.bill.name), caption: `Bill: ${it.desc || ''} — ${CAT_LABEL[it.category] || it.category}` });
+    for (const b of itemBills(it)) {
+      if (b && b.drive_item_id) {
+        const bytes = await graph.fetchDriveItemContent(b.drive_item_id);
+        if (bytes) bills.push({ bytes, mime: b.mime || guessMime(b.name), caption: `Bill: ${it.desc || ''} — ${CAT_LABEL[it.category] || it.category}` });
+      }
     }
   }
   return bills.length ? await mergeBills(summary, bills) : summary;
@@ -482,9 +511,9 @@ async function miscPdf(row, status, approver, approvedAt) {
     items, total: Number(row.total_amount || 0), generated_at: fmtDateTime(new Date()),
     status, approver, approved_at: approvedAt });
   const bills = [];
-  for (const it of items) if (it.bill && it.bill.drive_item_id) {
-    const bytes = await graph.fetchDriveItemContent(it.bill.drive_item_id);
-    if (bytes) bills.push({ bytes, mime: it.bill.mime || guessMime(it.bill.name), caption: `Bill: ${it.desc || ''}` });
+  for (const it of items) for (const b of itemBills(it)) if (b && b.drive_item_id) {
+    const bytes = await graph.fetchDriveItemContent(b.drive_item_id);
+    if (bytes) bills.push({ bytes, mime: b.mime || guessMime(b.name), caption: `Bill: ${it.desc || ''}` });
   }
   return bills.length ? await mergeBills(summary, bills) : summary;
 }
@@ -518,8 +547,9 @@ router.get('/bill/:itemId', async (req, res) => {
   let mime = 'application/octet-stream', name = 'bill';
   try {
     const items = [].concat(...((sub.payload && sub.payload.trips) || []).map(t => t.items || []), (sub.payload && sub.payload.items) || []);
-    const hit = items.find(it => it.bill && it.bill.drive_item_id === itemId);
-    if (hit && hit.bill) { mime = hit.bill.mime || guessMime(hit.bill.name); name = hit.bill.name || name; }
+    let hit = null;
+    for (const it of items) { for (const b of itemBills(it)) { if (b && b.drive_item_id === itemId) { hit = b; break; } } if (hit) break; }
+    if (hit) { mime = hit.mime || guessMime(hit.name); name = hit.name || name; }
   } catch (_) { /* fall back to generic */ }
   const bytes = await graph.fetchDriveItemContent(itemId);
   if (!bytes) return res.status(502).send('Could not fetch the bill from storage');
@@ -533,14 +563,17 @@ router.get('/bill/:itemId', async (req, res) => {
 router.get('/outstation/:period', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
-  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='outstation' AND period=$2 ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
+  // Working draft (draft/returned). If none — e.g. a prior claim is already approved — start a fresh one so the month stays open.
+  let row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='outstation' AND period=$2 AND status IN ('draft','returned') ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0];
   if (!row) {
     const ref = await refNo('OUT');
     row = (await q(`INSERT INTO expense_submissions(ref_no,employee_id,form_type,period,payload,status)
       VALUES($1,$2,'outstation',$3,$4,'draft') RETURNING *`, [ref, req.user.id, period, JSON.stringify({ trips: [] })])).rows[0];
   }
+  const claims = (await q(`SELECT id, ref_no, status, total_amount, pdf_token, submitted_at FROM expense_submissions
+    WHERE employee_id=$1 AND form_type='outstation' AND period=$2 AND status IN ('pending_hr','pending_final','approved') ORDER BY id`, [req.user.id, period])).rows;
   const allow = await submitAllowed('outstation', period);
-  res.json({ ...row, can_submit: ['draft', 'returned'].includes(row.status) && allow, period_label: monthLabel(period) });
+  res.json({ ...row, can_submit: ['draft', 'returned'].includes(row.status) && allow, period_label: monthLabel(period), claims });
 });
 router.put('/outstation/:id', async (req, res) => {
   const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
@@ -579,7 +612,7 @@ router.put('/misc/:id', async (req, res) => {
   let total = 0;
   const items = (req.body.items || []).map(it => {
     const amount = Math.max(0, parseFloat(it.amount) || 0); total += amount;
-    return { date: it.date || '', desc: (it.desc || '').trim(), amount, bill: it.bill || null, bill_name: (it.bill && it.bill.name) || null };
+    return { date: it.date || '', desc: (it.desc || '').trim(), amount, bills: itemBills(it) };
   });
   await q(`UPDATE expense_submissions SET payload=$2, total_amount=$3, updated_at=now() WHERE id=$1`,
     [row.id, JSON.stringify({ items }), +total.toFixed(2)]);

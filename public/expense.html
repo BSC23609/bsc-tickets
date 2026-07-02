@@ -98,6 +98,8 @@
         <div id="cv_mgrline" class="text-xs text-slate-500 mt-2"></div>
       </div>
 
+      <div id="cv_claims" class="space-y-2 mb-4"></div>
+
       <div id="cv_locked" class="hidden card p-4 mb-4 bg-amber-50 border-amber-200 text-sm text-amber-800"></div>
 
       <div id="cv_addcard" class="card p-5 mb-4">
@@ -132,7 +134,7 @@
           <div class="amt" id="cv_total">₹0</div>
         </div>
         <div class="flex gap-2">
-          <button onclick="clickBusy(this,'Submitting…',submitConveyance)" id="cv_submit" class="btn text-sm">Submit month for approval</button>
+          <button onclick="clickBusy(this,'Submitting…',submitConveyance)" id="cv_submit" class="btn text-sm">Submit new trips for approval</button>
         </div>
       </div>
     </section>
@@ -155,6 +157,7 @@
         </div>
       </div>
 
+      <div id="ot_claims" class="space-y-2 mb-4"></div>
       <div id="ot_locked" class="hidden card p-4 mb-4 bg-amber-50 border-amber-200 text-sm text-amber-800"></div>
       <div id="ot_trips" class="space-y-4"></div>
       <button onclick="addTrip()" id="ot_addtrip" class="addrow mt-4">+ Add trip</button>
@@ -285,7 +288,7 @@
       let d;
       try{ d=await api('/expense/conveyance/'+period); }
       catch(e){ toast('Could not load conveyance — '+(e.message||'server error'),'error'); return; }
-      cv.trips=d.trips||[]; cv.submission=d.submission||{}; cv.manager=d.manager;
+      cv.trips=d.trips||[]; cv.submission=d.submission||{}; cv.claims=d.claims||[]; cv.manager=d.manager;
       cv.needs_manager=d.needs_manager!==false;
       cv.can_submit=d.can_submit; cv.log_hours=d.log_hours; cv.period=period;
       const ml=document.getElementById('cv_mgrline');
@@ -293,34 +296,41 @@
         ? `Your trips are logged directly — no reporting-manager approval needed.`
         : (cv.manager ? `Trips are approved by <b>${esc(cv.manager.name)}</b> · log within ${cv.log_hours}h to stay on-time`
         : `<span class="text-red-600 font-semibold">⚠ No reporting manager set — ask an admin before adding trips.</span>`);
+      // Month never hard-locks: submitted/paid trips stay as a record, new trips can always be added.
       const st=(cv.submission&&cv.submission.status)||'draft';
-      const inFlight=['pending_hr','pending_final','approved'].includes(st);
-      const pendingTrips = cv.needs_manager ? cv.trips.filter(t=>t.status==='pending').length : 0;
-      document.getElementById('cv_addcard').classList.toggle('hidden', inFlight);
-      document.getElementById('cv_submit').classList.toggle('hidden', !(cv.can_submit && !inFlight && pendingTrips===0));
+      const openTrips=cv.trips.filter(t=>!t.claimed);
+      const pendingTrips = cv.needs_manager ? openTrips.filter(t=>t.status==='pending').length : 0;
+      document.getElementById('cv_addcard').classList.remove('hidden');
+      document.getElementById('cv_submit').classList.toggle('hidden', !(cv.can_submit && pendingTrips===0));
       const lockBox=document.getElementById('cv_locked');
-      if(inFlight){ lockBox.classList.remove('hidden');
-        if(st==='pending_hr'){
-          lockBox.innerHTML = `This month is with HR for review. Submitted by mistake, or need to add more trips? `
-            + `<button onclick="recallConveyance()" class="underline font-semibold text-brand-700 hover:text-brand-800">Recall it from HR</button>`;
-        } else {
-          lockBox.textContent = `This month is ${pillText(st)}. ${statusText(st)}`;
-        }
-      }
-      else if(st==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(cv.submission.return_reason||'')} — adjust trips and resubmit.`; }
+      if(st==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(cv.submission.return_reason||'')} — adjust the new trips and resubmit.`; }
       else if(pendingTrips>0){ lockBox.classList.remove('hidden');
-        lockBox.textContent=`${pendingTrips} trip${pendingTrips===1?'':'s'} still awaiting manager approval. The Submit button opens once all trips are approved.`; }
-      else if(!cv.can_submit){ lockBox.classList.remove('hidden'); const [y,m]=period.split('-').map(Number);
+        lockBox.textContent=`${pendingTrips} new trip${pendingTrips===1?'':'s'} awaiting manager approval. The Submit button opens once they're approved.`; }
+      else if(!cv.can_submit && openTrips.length>0){ lockBox.classList.remove('hidden'); const [y,m]=period.split('-').map(Number);
         const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding trips through the month. The Submit button opens on ${next}.`; }
       else lockBox.classList.add('hidden');
-      cvRenderTrips(inFlight);
+      cvRenderClaims();
+      cvRenderTrips();
       if(cv.editingId && !cv.trips.some(t=>t.id===cv.editingId && t.status==='rejected')) resetTripForm();
     }
 
+    function cvRenderClaims(){
+      const box=document.getElementById('cv_claims'); const cs=cv.claims||[];
+      if(!cs.length){ box.innerHTML=''; return; }
+      const badge=s=>({pending_hr:['bg-amber-100 text-amber-700','With HR'],pending_final:['bg-blue-100 text-blue-700','With final approver'],approved:['bg-emerald-100 text-emerald-700','✓ Approved · paid']}[s]||['bg-slate-100 text-slate-600',s]);
+      box.innerHTML = `<div class="card p-4"><div class="sechead"><span class="t">Claims submitted for this month</span></div><div class="space-y-2 mt-2">`
+        + cs.map(c=>{ const b=badge(c.status);
+            const recall = c.status==='pending_hr' ? `<button onclick="recallConveyance()" class="text-xs underline text-brand-700 hover:text-brand-800 ml-2">Recall</button>`:'';
+            const pdf = c.pdf_token ? `<a href="/dlx/${c.pdf_token}" target="_blank" class="text-xs underline text-brand-600 ml-2">PDF</a>`:'';
+            return `<div class="flex items-center justify-between gap-2 border border-line rounded-lg px-3 py-2">`
+              + `<div class="text-sm"><span class="mono text-xs text-slate-500">${esc(c.ref_no)}</span> · <span class="font-semibold">${fmtMoney(c.total_amount)}</span></div>`
+              + `<div class="flex items-center"><span class="pill ${b[0]}">${b[1]}</span>${pdf}${recall}</div></div>`;
+          }).join('') + `</div></div>`;
+    }
     const TRIP_PILL={pending:['bg-amber-100 text-amber-700','⏳ Awaiting manager'],approved:['bg-emerald-100 text-emerald-700','✓ Approved'],rejected:['bg-red-100 text-red-700','✗ Rejected']};
     function fmtDateShort(s){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}); }
-    function cvRenderTrips(inFlight){
+    function cvRenderTrips(){
       const box=document.getElementById('cv_trips');
       document.getElementById('cv_empty').classList.toggle('hidden', cv.trips.length>0);
       document.getElementById('cv_count').textContent = `${cv.trips.length} trip${cv.trips.length===1?'':'s'}`;
@@ -330,16 +340,17 @@
         const pill=TRIP_PILL[t.status]||['bg-slate-100 text-slate-600',t.status];
         const route=[t.from_loc,t.to_loc].filter(Boolean).join(' → ')||(t.purpose||'Trip');
         const late=t.late?`<span class="pill bg-red-50 text-red-600 ml-1">⚠ logged late</span>`:'';
-        const actions = inFlight ? '' : (
+        const claimBadge = t.claimed ? `<span class="pill ${t.claim_status==='approved'?'bg-emerald-50 text-emerald-700':'bg-slate-100 text-slate-600'} ml-1">${t.claim_status==='approved'?'✓ Paid':'in claim'}</span>` : '';
+        const actions = t.claimed ? '' : (
           t.status==='approved' ? '' :
           t.status==='rejected'
             ? `<button onclick="cvEditTrip(${t.id})" class="btn text-xs" style="padding:.35rem .7rem">Edit &amp; resend</button>
                <button onclick="cvWithdrawTrip(${t.id})" class="btn-ghost text-xs">Withdraw</button>`
             : `<button onclick="cvWithdrawTrip(${t.id})" class="btn-ghost text-xs">Withdraw</button>`);
         const rej = (t.status==='rejected'&&t.reject_reason) ? `<div class="text-xs text-red-600 mt-1">Reason: ${esc(t.reject_reason)}</div>`:'';
-        return `<div class="border border-line rounded-xl p-3 flex items-start justify-between gap-3">
+        return `<div class="border border-line rounded-xl p-3 flex items-start justify-between gap-3 ${t.claimed?'bg-slate-50/60':''}">
           <div class="min-w-0">
-            <div class="flex items-center gap-2 flex-wrap"><span class="pill ${pill[0]}">${pill[1]}</span>${late}</div>
+            <div class="flex items-center gap-2 flex-wrap"><span class="pill ${pill[0]}">${pill[1]}</span>${claimBadge}${late}</div>
             <div class="text-sm font-semibold text-ink mt-1">${fmtDateShort(t.trip_date)} · ${esc(route)}</div>
             <div class="text-xs text-slate-500">${t.purpose?esc(t.purpose)+' · ':''}${t.vehicle==='car'?'Car':'Bike'} · ${t.km} km · ${fmtMoney(t.amount)}${t.status==='approved'&&t.approver_name?' · by '+esc(t.approver_name):''}</div>
             ${rej}
@@ -396,13 +407,12 @@
     }
 
     async function submitConveyance(){
-      if(!cv.trips.length) return toast('Add at least one trip first','error');
+      const open=cv.trips.filter(t=>!t.claimed);
+      const n=open.filter(t=>t.status==='approved').length;
+      if(!n) return toast('No new approved trips to submit','error');
       const period = cv.period || document.getElementById('cv_month').value;
       if(!/^\d{4}-\d{2}$/.test(period)) return toast('Pick a month first','error');
-      const pend=cv.trips.filter(t=>t.status==='pending').length;
-      let msg='Submit this month for payment approval? It goes to HR, then the final approver.';
-      if(pend) msg=`${pend} trip${pend===1?'':'s'} still awaiting your manager. Submit the whole month anyway? HR will see each trip's status.`;
-      if(!confirm(msg)) return;
+      if(!confirm(`Submit ${n} new approved trip${n===1?'':'s'} as a claim? It goes to HR, then the final approver. Already-claimed trips stay untouched.`)) return;
       await api('/expense/conveyance/'+period+'/submit',{method:'POST'});
       toast('Submitted for approval','success'); await loadConveyance();
     }
@@ -438,7 +448,7 @@
       else {
         const s=await api('/expense/'+id);
         msDraft={ id:s.id, ref_no:s.ref_no };
-        msItems=((s.payload&&s.payload.items)||[]).map(i=>({date:i.date||'',desc:i.desc||'',amount:i.amount||'',bill:i.bill||null}));
+        msItems=((s.payload&&s.payload.items)||[]).map(i=>({date:i.date||'',desc:i.desc||'',amount:i.amount||'',bills:i.bills||(i.bill?[i.bill]:[])}));
         showForm('misc');
       }
     }
@@ -494,14 +504,14 @@
               <tbody>${(t.items||[]).map(i=>`<tr class="border-b border-line ${i.flag?'bg-amber-50/60':''}">
                 <td class="py-1.5">${catL[i.category]||i.category}</td><td>${i.date||''}</td><td>${esc(i.desc)||'—'}</td>
                 <td class="text-right mono">${fmtMoney(i.amount)}${i.flag?' <span class="text-amber-600 text-[10px] font-bold">!</span>':''}</td>
-                <td>${i.bill&&i.bill.drive_item_id?`<a href="/api/expense/bill/${encodeURIComponent(i.bill.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>
+                <td>${itemBills(i).map(b=>b.drive_item_id?`<a href="/api/expense/bill/${encodeURIComponent(b.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs mr-1">view</a>`:'').join('')||'—'}</td></tr>`).join('')}</tbody></table>
           </div>`).join('') + (flags.length?`<div class="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-3"><div class="eyebrow" style="color:#b45309">Flagged for HR review</div><ul class="text-xs text-amber-800 list-disc pl-5 mt-1">${flags.map(f=>`<li>${f}</li>`).join('')}</ul></div>`:'');
       }
       const items=(s.payload&&s.payload.items)||[];
       return `<table class="w-full text-sm mt-2"><thead><tr class="text-left border-b border-line">
         <th class="pb-1 fieldlabel">Date</th><th class="pb-1 fieldlabel">Description</th><th class="pb-1 fieldlabel text-right">Amount</th><th class="pb-1 fieldlabel">Bill</th></tr></thead>
         <tbody>${items.map(i=>`<tr class="border-b border-line"><td class="py-1.5">${i.date||''}</td><td>${esc(i.desc)||'—'}</td>
-          <td class="text-right mono">${fmtMoney(i.amount)}</td><td>${i.bill&&i.bill.drive_item_id?`<a href="/api/expense/bill/${encodeURIComponent(i.bill.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs">view</a>`:'—'}</td></tr>`).join('')}</tbody></table>`;
+          <td class="text-right mono">${fmtMoney(i.amount)}</td><td>${itemBills(i).map(b=>b.drive_item_id?`<a href="/api/expense/bill/${encodeURIComponent(b.drive_item_id)}" target="_blank" class="text-brand-600 underline text-xs mr-1">view</a>`:'').join('')||'—'}</td></tr>`).join('')}</tbody></table>`;
     }
 
     async function openDetail(id){
@@ -524,6 +534,7 @@
           <button onclick="showReturn(${s.id},'final')" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700">Return</button></div>`;
       }
       const dl = s.pdf_token ? `<a href="/dlx/${s.pdf_token}" target="_blank" class="btn-ghost text-sm inline-flex">Download PDF</a>` : '';
+      const cmdBtn = p.can_send_cmd ? `<button onclick="clickBusy(this,'Sending…',()=>sendToCmd(${s.id}))" class="btn-ghost text-sm inline-flex">Send to CMD</button>` : '';
       const ret = s.status==='returned' ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm mt-3"><div class="eyebrow" style="color:#b91c1c">Returned by ${s.return_stage==='final'?'final approver':'HR'}</div><div class="mt-0.5">${esc(s.return_reason||'')}</div></div>`:'';
       const trail = [s.hr_by_name?`HR ✓ ${esc(s.hr_by_name)}`:'', s.final_by_name?`Final ✓ ${esc(s.final_by_name)}`:''].filter(Boolean).join(' · ');
       document.getElementById('expModalInner').innerHTML=`
@@ -537,7 +548,7 @@
         <div class="p-5 text-sm">
           <div class="flex items-center justify-between"><div class="eyebrow">Claim</div><div class="font-display font-bold text-lg">${fmtMoney(s.total_amount)}</div></div>
           ${table}${ret}
-          <div class="mt-3 flex items-center justify-between">${dl}${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
+          <div class="mt-3 flex items-center justify-between"><div class="flex items-center gap-2">${dl}${cmdBtn}</div>${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
           ${actions}<div id="retArea"></div>
         </div>`;
       document.getElementById('expModal').classList.remove('hidden');
@@ -548,6 +559,7 @@
     async function hrApprove(id){ const fid=document.getElementById('finalSel').value; if(!fid) return toast('Pick a final approver','error');
       try{ await api('/expense/'+id+'/hr-approve',{method:'POST',body:{final_approver_id:+fid}}); toast('Approved & sent to final approver','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
     async function finalApprove(id){ try{ await api('/expense/'+id+'/final-approve',{method:'POST'}); toast('Approved for payment','success'); closeModal(); refreshFinalCount(); loadFinalApprovals(); }catch(e){toast(e.message,'error');} }
+    async function sendToCmd(id){ try{ const r=await api('/expense/'+id+'/send-cmd',{method:'POST'}); toast('Sent to '+(r.to||'CMD')+' on WhatsApp','success'); }catch(e){ toast(e.message,'error'); } }
     async function doReturn(id,stage){ const reason=(document.getElementById('rjr').value||'').trim(); if(!reason) return toast('Add a reason','error');
       const ep = stage==='final'?'/final-return':'/hr-return';
       try{ await api('/expense/'+id+ep,{method:'POST',body:{reason}}); toast('Returned to employee','success'); closeModal();
@@ -556,10 +568,13 @@
 
     // ===== shared helpers =====
     const esc = s => (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-    function pickFile(cb, source){ const inp=document.createElement('input'); inp.type='file';
+    function pickFile(cb, source, multi){ const inp=document.createElement('input'); inp.type='file';
       if(source==='camera'){ inp.accept='image/*'; inp.setAttribute('capture','environment'); }
-      else { inp.accept='image/*,application/pdf'; }
-      inp.onchange=()=>{ if(inp.files[0]) cb(inp.files[0]); }; inp.click(); }
+      else { inp.accept='image/*,application/pdf'; if(multi) inp.multiple=true; }
+      inp.onchange=()=>{ if(!inp.files.length) return; cb(multi?Array.from(inp.files):inp.files[0]); }; inp.click(); }
+    // Multiple attachments per line (migrates old single-bill entries transparently).
+    function itemBills(it){ return (it&&it.bills&&it.bills.length) ? it.bills : (it&&it.bill ? [it.bill] : []); }
+    function ensureBills(it){ if(!it.bills){ it.bills = it.bill ? [it.bill] : []; delete it.bill; } return it.bills; }
     async function uploadBill(ref, file){
       const sess = await api('/expense/bill-session',{method:'POST',body:{ref, name:file.name}});
       const put = await fetch(sess.uploadUrl,{method:'PUT',headers:{'Content-Range':`bytes 0-${file.size-1}/${file.size}`,'Content-Type':file.type||'application/octet-stream'},body:file});
@@ -567,13 +582,18 @@
       const item = await put.json();
       return { name: sess.file_name, web_url:item.webUrl, drive_item_id:item.id, mime:file.type||'' };
     }
-    function billCell(bill, locked, camCall, fileCall){
-      fileCall = fileCall || camCall;
-      if(locked) return bill&&bill.drive_item_id?`<a href="/api/expense/bill/${encodeURIComponent(bill.drive_item_id)}" target="_blank" class="text-brand-600 text-xs underline">view</a>`:'<span class="text-slate-300 text-xs">—</span>';
-      if(bill&&bill.drive_item_id) return `<a href="/api/expense/bill/${encodeURIComponent(bill.drive_item_id)}" target="_blank" class="text-brand-600 text-xs underline mr-1">view</a><button onclick="${fileCall}" class="text-slate-400 text-xs hover:underline">replace</button>`;
-      return `<span class="inline-flex gap-1">
-        <button type="button" onclick="${camCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Take photo">📷</button>
-        <button type="button" onclick="${fileCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Choose from gallery / files">Upload</button></span>`;
+    function billsCell(bills, locked, camCall, fileCall, rmTmpl){
+      bills = bills || [];
+      const chips = bills.map((b,idx)=> (b&&b.drive_item_id)
+        ? `<span class="inline-flex items-center gap-1 bg-slate-100 rounded px-1.5 py-0.5 mr-1 mb-1">`
+          + `<a href="/api/expense/bill/${encodeURIComponent(b.drive_item_id)}" target="_blank" class="text-brand-600 text-xs underline">${esc((b.name||'file').replace(/\.[^.]+$/,'').slice(0,12))}</a>`
+          + (locked?'':`<button type="button" onclick="${rmTmpl.replace('IDX',idx)}" class="text-red-400 hover:text-red-600 text-xs leading-none" title="Remove">&times;</button>`)
+          + `</span>` : '').join('');
+      if(locked) return chips || '<span class="text-slate-300 text-xs">—</span>';
+      const add = `<span class="inline-flex gap-1">`
+        + `<button type="button" onclick="${camCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Take photo">📷</button>`
+        + `<button type="button" onclick="${fileCall}" class="btn-ghost !py-1 !px-2 text-xs" title="Add file(s)">＋ Add</button></span>`;
+      return `<span class="inline-flex flex-wrap items-center">${chips}${add}</span>`;
     }
 
     // ===== OUTSTATION =====
@@ -587,7 +607,7 @@
       ['others','Other',''],
     ];
     const blankTrip=()=>({place:'',from_date:'',to_date:'',reason:'',approved_by:'',items:[]});
-    const blankItem=()=>({category:'others',date:'',desc:'',amount:'',bill:null});
+    const blankItem=()=>({category:'others',date:'',desc:'',amount:'',bills:[]});
     const otTotal=()=>otTrips.reduce((s,t)=>s+t.items.reduce((a,i)=>a+(parseFloat(i.amount)||0),0),0);
 
     async function loadOutstation(){
@@ -597,18 +617,29 @@
       otDraft=await api('/expense/outstation/'+period);
       otTrips=((otDraft.payload&&otDraft.payload.trips)||[]).map(t=>({...t, items:(t.items||[]).map(i=>({...i}))}));
       if(!otTrips.length) otTrips=[blankTrip()];
-      const editable=['draft','returned'].includes(otDraft.status);
-      const locked=!editable;
+      renderOutClaims(otDraft.claims||[]);
+      // Always editable now: after a claim is approved the server hands back a fresh draft, so the month stays open for additional claims.
       const lockBox=document.getElementById('ot_locked'), sb=document.getElementById('ot_submit');
-      document.getElementById('ot_addtrip').disabled=locked; document.getElementById('ot_save').disabled=locked;
-      sb.classList.toggle('hidden', !(editable && otDraft.can_submit));
-      if(locked){ lockBox.classList.remove('hidden'); lockBox.textContent=`This month is ${pillText(otDraft.status)}. ${statusText(otDraft.status)}`; }
-      else if(otDraft.status==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(otDraft.return_reason||'')} — fix and resubmit.`; }
+      document.getElementById('ot_addtrip').disabled=false; document.getElementById('ot_save').disabled=false;
+      sb.classList.toggle('hidden', !otDraft.can_submit);
+      if(otDraft.status==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(otDraft.return_reason||'')} — fix and resubmit.`; }
       else if(!otDraft.can_submit){ lockBox.classList.remove('hidden');
         const [y,m]=period.split('-').map(Number); const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding through the month. The Submit button opens on ${next}.`; }
       else { lockBox.classList.add('hidden'); }
-      refreshOut(locked);
+      refreshOut(false);
+    }
+    function renderOutClaims(cs){
+      const box=document.getElementById('ot_claims'); if(!box) return;
+      if(!cs||!cs.length){ box.innerHTML=''; return; }
+      const badge=s=>({pending_hr:['bg-amber-100 text-amber-700','With HR'],pending_final:['bg-blue-100 text-blue-700','With final approver'],approved:['bg-emerald-100 text-emerald-700','✓ Approved · paid']}[s]||['bg-slate-100 text-slate-600',s]);
+      box.innerHTML=`<div class="card p-4"><div class="sechead"><span class="t">Claims submitted for this month</span></div><div class="space-y-2 mt-2">`
+        + cs.map(c=>{ const b=badge(c.status);
+            const pdf=c.pdf_token?`<a href="/dlx/${c.pdf_token}" target="_blank" class="text-xs underline text-brand-600 ml-2">PDF</a>`:'';
+            return `<div class="flex items-center justify-between gap-2 border border-line rounded-lg px-3 py-2">`
+              +`<div class="text-sm"><span class="mono text-xs text-slate-500">${esc(c.ref_no)}</span> · <span class="font-semibold">${fmtMoney(c.total_amount)}</span></div>`
+              +`<div class="flex items-center"><span class="pill ${b[0]}">${b[1]}</span>${pdf}</div></div>`;
+          }).join('')+`</div></div>`;
     }
     function computeFlags(){
       const lim=meta.limits[meta.category];
@@ -653,7 +684,7 @@
           <div class="w-24"><label class="fieldlabel">Amount (₹)</label>
             <input type="number" min="0" step="any" value="${it.amount||''}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'amount',this.value)" onchange="refreshOut()" class="field !py-1.5 text-xs text-right w-full"></div>
           <div class="flex items-center gap-2 pb-1">
-            ${billCell(it.bill,locked,`billOut(${ti},${ii},'camera')`,`billOut(${ti},${ii},'gallery')`)}
+            ${billsCell(itemBills(it),locked,`billOut(${ti},${ii},'camera')`,`billOut(${ti},${ii},'gallery')`,`rmBillOut(${ti},${ii},IDX)`)}
             ${locked?'':`<button onclick="delItem(${ti},${ii})" class="text-red-500 hover:text-red-700 text-xl leading-none" title="Remove">&times;</button>`}
           </div>
         </div>
@@ -672,13 +703,16 @@
     function updItem(ti,ii,k,v){ otTrips[ti].items[ii][k]=v; document.getElementById('ot_total').textContent=fmtMoney(otTotal()); }
     function addTrip(){ otTrips.push(blankTrip()); refreshOut(false); }
     function delTrip(ti){ otTrips.splice(ti,1); if(!otTrips.length) otTrips=[blankTrip()]; refreshOut(false); }
-    function addItem(ti,cat){ otTrips[ti].items.push({category:cat||'others',date:'',desc:'',amount:'',bill:null}); refreshOut(false); }
+    function addItem(ti,cat){ otTrips[ti].items.push({category:cat||'others',date:'',desc:'',amount:'',bills:[]}); refreshOut(false); }
     function delItem(ti,ii){ otTrips[ti].items.splice(ii,1); refreshOut(false); }
-    function billOut(ti,ii,source){ pickFile(async f=>{ try{ toast('Uploading bill…','info'); const bill=await uploadBill(otDraft.ref_no,f); otTrips[ti].items[ii].bill=bill; await saveOutstation(true); refreshOut(false); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source); }
+    function billOut(ti,ii,source){ pickFile(async files=>{ const arr=Array.isArray(files)?files:[files]; const it=otTrips[ti].items[ii]; ensureBills(it);
+        try{ toast('Uploading…','info'); for(const f of arr){ it.bills.push(await uploadBill(otDraft.ref_no,f)); } await saveOutstation(true); refreshOut(false); toast(arr.length>1?arr.length+' bills attached':'Bill attached','success'); }
+        catch(e){ toast(e.message,'error'); await saveOutstation(true); refreshOut(false); } }, source, source!=='camera'); }
+    function rmBillOut(ti,ii,idx){ const it=otTrips[ti].items[ii]; ensureBills(it); it.bills.splice(idx,1); saveOutstation(true).then(()=>refreshOut(false)); }
     async function saveOutstation(silent){ try{ const r=await api('/expense/outstation/'+otDraft.id,{method:'PUT',body:{trips:otTrips}}); if(!silent) toast(`Saved — ${fmtMoney(r.total)}`,'success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); throw e; } }
     async function submitOutstation(){
       try{ await saveOutstation(true); }catch(e){ return; }
-      if(!confirm("Submit this month's outstation claim to HR? You will not be able to edit it after.")) return;
+      if(!confirm("Submit this outstation claim to HR? It locks once submitted — but you can still add more to this month as a new claim.")) return;
       try{ await api('/expense/outstation/'+otDraft.id+'/submit',{method:'POST'}); toast('Submitted to HR','success'); loadOutstation(); }
       catch(e){ toast(e.message,'error'); }
     }
@@ -695,15 +729,16 @@
           <div><label class="fieldlabel">Date</label><input type="date" value="${it.date||''}" onchange="updMisc(${i},'date',this.value)" class="field !py-1.5 text-xs"></div>
           <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Description</label><input value="${esc(it.desc)}" oninput="updMisc(${i},'desc',this.value)" placeholder="Purpose" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Amount</label><input type="number" min="0" step="any" value="${it.amount||''}" oninput="updMisc(${i},'amount',this.value)" class="field !py-1.5 text-xs text-right w-28"></div>
-          <div><label class="fieldlabel">Bill</label><div>${billCell(it.bill,false,`billMisc(${i},'camera')`,`billMisc(${i},'gallery')`)}</div></div>
+          <div><label class="fieldlabel">Bill</label><div>${billsCell(itemBills(it),false,`billMisc(${i},'camera')`,`billMisc(${i},'gallery')`,`rmBillMisc(${i},IDX)`)}</div></div>
           <button onclick="delMisc(${i})" class="text-red-500 hover:text-red-700 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') || '<div class="text-sm text-slate-400 py-6 text-center">No items yet — add your first.</div>';
       document.getElementById('ms_total').textContent=fmtMoney(msTotal());
     }
     function updMisc(i,k,v){ msItems[i][k]=v; if(k==='amount') document.getElementById('ms_total').textContent=fmtMoney(msTotal()); }
-    async function addMiscItem(){ await ensureMiscDraft(); msItems.push({date:'',desc:'',amount:'',bill:null}); renderMisc(); }
+    async function addMiscItem(){ await ensureMiscDraft(); msItems.push({date:'',desc:'',amount:'',bills:[]}); renderMisc(); }
     function delMisc(i){ msItems.splice(i,1); renderMisc(); }
-    function billMisc(i,source){ pickFile(async f=>{ try{ await ensureMiscDraft(); toast('Uploading bill…','info'); const bill=await uploadBill(msDraft.ref_no,f); msItems[i].bill=bill; await saveMisc(true); renderMisc(); toast('Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source); }
+    function billMisc(i,source){ pickFile(async files=>{ const arr=Array.isArray(files)?files:[files]; try{ await ensureMiscDraft(); const it=msItems[i]; ensureBills(it); toast('Uploading…','info'); for(const f of arr){ it.bills.push(await uploadBill(msDraft.ref_no,f)); } await saveMisc(true); renderMisc(); toast(arr.length>1?arr.length+' bills attached':'Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source, source!=='camera'); }
+    function rmBillMisc(i,idx){ const it=msItems[i]; ensureBills(it); it.bills.splice(idx,1); saveMisc(true).then(()=>renderMisc()); }
     async function saveMisc(silent){ await ensureMiscDraft(); try{ const r=await api('/expense/misc/'+msDraft.id,{method:'PUT',body:{items:msItems}}); if(!silent) toast('Saved','success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); } }
     async function submitMisc(){
       if(!msItems.length) return toast('Add at least one item','error');
