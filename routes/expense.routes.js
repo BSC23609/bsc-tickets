@@ -20,6 +20,7 @@ async function empById(id) { if (!id) return null; return (await q('SELECT id,na
 // TEMP test CC for CMD WhatsApp — set env CMD_TEST_PHONE (e.g. 7395956648); unset to disable.
 const CMD_TEST_PHONE = (() => { const d = String(process.env.CMD_TEST_PHONE || '').replace(/\D/g, ''); return d ? (d.length === 10 ? '91' + d : d) : null; })();
 async function isHrApprover(u) { if (u.is_admin) return true; const c = await chain.getChain(); return c.hr_approver_ids.includes(u.id); }
+async function isAccounts(u) { if (u.is_admin) return true; const c = await chain.getChain(); return !!(c.accounts_notify_id && u.id === c.accounts_notify_id); }
 function chainSummary(full) { return { id: full.id, ref_no: full.ref_no, emp_name: full.emp_name, form_label: FORM_LABEL[full.form_type] || full.form_type, period_label: full.period ? monthLabel(full.period) : '\u2014', total_label: fmtMoney(full.total_amount), pdf_token: full.pdf_token }; }
 function chainPdfName(full) { const lbl = FORM_LABEL[full.form_type] || full.form_type; const per = full.period ? (' ' + monthLabel(full.period)) : ''; return `${full.emp_name} - ${lbl}${per} (${full.ref_no.replace(/\//g, '-')}).pdf`; }
 async function pdfFor(full, status, approver, at) {
@@ -141,6 +142,7 @@ router.get('/meta', async (req, res) => {
     reporting_manager: mgr ? mgr.name : null, conveyance_log_hours: pol.log_hours,
     is_hr_approver: req.user.is_admin || c.hr_approver_ids.includes(req.user.id),
     is_final_approver: req.user.is_admin || c.final_approver_ids.includes(req.user.id),
+    is_accounts: req.user.is_admin || !!(c.accounts_notify_id && req.user.id === c.accounts_notify_id),
     me: { emp_no: req.user.emp_no, name: req.user.name, designation: req.user.job_title || '' }, hr_email: HR_EMAIL });
 });
 
@@ -646,6 +648,31 @@ router.post('/misc/:id/submit', async (req, res) => {
 });
 
 // ===================== CONSOLIDATED CMD REPORT (approved-only) =====================
+// Accounts: list approved claims + their payment state.
+router.get('/payments/list', async (req, res) => {
+  if (!(await isAccounts(req.user))) return res.status(403).json({ error: 'Accounts/Admin only' });
+  const filter = req.query.filter === 'paid' ? 'paid' : req.query.filter === 'all' ? 'all' : 'unpaid';
+  const cond = filter === 'paid' ? 'AND s.paid_at IS NOT NULL' : filter === 'unpaid' ? 'AND s.paid_at IS NULL' : '';
+  const rows = (await q(`SELECT s.id, s.ref_no, s.form_type, s.total_amount, s.final_at, s.paid_at, s.paid_by_name, s.pdf_token,
+      e.name AS emp_name, e.emp_no
+    FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
+    WHERE s.status='approved' ${cond} ORDER BY (s.paid_at IS NULL) DESC, s.final_at DESC LIMIT 300`)).rows;
+  res.json(rows.map(r => ({ ...r, form_label: FORM_LABEL[r.form_type] || r.form_type })));
+});
+router.post('/:id/mark-paid', async (req, res) => {
+  if (!(await isAccounts(req.user))) return res.status(403).json({ error: 'Accounts/Admin only' });
+  const row = (await q('SELECT id, status FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'approved') return res.status(400).json({ error: 'Only approved claims can be marked paid.' });
+  await q(`UPDATE expense_submissions SET paid_at=COALESCE(paid_at, now()), paid_by_name=$2 WHERE id=$1`, [row.id, req.user.name]);
+  res.json({ ok: true });
+});
+router.post('/:id/unmark-paid', async (req, res) => {
+  if (!(await isAccounts(req.user))) return res.status(403).json({ error: 'Accounts/Admin only' });
+  await q(`UPDATE expense_submissions SET paid_at=NULL, paid_by_name=NULL WHERE id=$1`, [req.params.id]);
+  res.json({ ok: true });
+});
+
 // Admin/HR: force a claim into a specific CMD-report month (blank = auto; misc auto = submission date).
 router.post('/:id/report-month', async (req, res) => {
   if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });

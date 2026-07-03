@@ -76,6 +76,7 @@
         <button onclick="showForm('mine')" class="btn-ghost text-sm">My submissions</button>
         <button id="apprTab" onclick="showForm('appr')" class="btn-ghost text-sm hidden">Approvals <span id="apprCount" class="pill bg-amber-100 text-amber-700 ml-1 hidden"></span></button>
         <button id="finalTab" onclick="showForm('final')" class="btn-ghost text-sm hidden">Final approvals <span id="finalCount" class="pill bg-indigo-100 text-indigo-700 ml-1 hidden"></span></button>
+        <button id="payTab" onclick="showForm('pay')" class="btn-ghost text-sm hidden">Payments</button>
       </div>
     </div>
 
@@ -200,6 +201,14 @@
     <!-- APPROVALS -->
     <section id="tab-appr" class="hidden"><div id="apprList" class="space-y-3"></div></section>
     <section id="tab-final" class="hidden"><div id="finalList" class="space-y-3"></div></section>
+    <section id="tab-pay" class="hidden">
+      <div class="flex gap-2 mb-3">
+        <button onclick="loadPayments('unpaid')" class="btn-ghost text-xs">Awaiting payment</button>
+        <button onclick="loadPayments('paid')" class="btn-ghost text-xs">Paid</button>
+        <button onclick="loadPayments('all')" class="btn-ghost text-xs">All</button>
+      </div>
+      <div id="payList" class="space-y-3"></div>
+    </section>
   </main>
 
   <!-- detail / approval modal -->
@@ -242,21 +251,23 @@
       document.getElementById('ot_month').value = cycleOf(new Date());
       if (meta.is_hr_approver) { document.getElementById('apprTab').classList.remove('hidden'); refreshApprCount(); }
       if (meta.is_final_approver) { document.getElementById('finalTab').classList.remove('hidden'); refreshFinalCount(); }
+      if (meta.is_accounts) { document.getElementById('payTab').classList.remove('hidden'); }
       showLauncher();
     }
 
-    const FORM_TITLES = { conv:'Local Conveyance', out:'Outstation', misc:'Miscellaneous', mine:'My submissions', appr:'Approvals', final:'Final approvals' };
+    const FORM_TITLES = { conv:'Local Conveyance', out:'Outstation', misc:'Miscellaneous', mine:'My submissions', appr:'Approvals', final:'Final approvals', pay:'Payments' };
     function showForm(name){
       document.getElementById('launcher').classList.add('hidden');
       document.getElementById('backBtn').classList.remove('hidden');
       document.getElementById('pageTitle').textContent = FORM_TITLES[name] || 'Expense';
-      ['conv','out','misc','mine','appr','final'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==name));
+      ['conv','out','misc','mine','appr','final','pay'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==name));
       if (name==='conv') loadConveyance();
       if (name==='out') loadOutstation();
       if (name==='misc') ensureMisc();
       if (name==='mine') loadMine();
       if (name==='appr') loadApprovals();
       if (name==='final') loadFinalApprovals();
+      if (name==='pay') loadPayments();
     }
     function showLauncher(){
       document.getElementById('launcher').classList.remove('hidden');
@@ -482,6 +493,26 @@
 
     // ---- final approvals (stage 2) ----
     async function refreshFinalCount(){ const l=await api('/expense/final-approvals'); const el=document.getElementById('finalCount'); el.textContent=l.length; el.classList.toggle('hidden', l.length===0); }
+    let payFilter='unpaid';
+    const fmtWhen=x=>x?new Date(x).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}):'';
+    async function loadPayments(filter){
+      payFilter=filter||payFilter;
+      const el=document.getElementById('payList');
+      const list=await api('/expense/payments/list?filter='+payFilter);
+      if(!list.length){ el.innerHTML='<div class="text-sm text-slate-400 py-12 text-center">Nothing here.</div>'; return; }
+      el.innerHTML=list.map(s=>`<div class="card p-4 flex items-center justify-between gap-3">
+        <div class="min-w-0"><div class="flex items-center gap-2 flex-wrap"><span class="mono text-[11px] text-slate-400">${s.ref_no}</span>
+          <span class="pill bg-brand-50 text-brand-700">${formLabel(s.form_type)}</span>
+          ${s.paid_at?'<span class="pill bg-emerald-100 text-emerald-700">✓ Paid</span>':'<span class="pill bg-amber-100 text-amber-700">Awaiting</span>'}</div>
+          <div class="text-sm font-semibold text-ink mt-1">${esc(s.emp_name)} · ${fmtMoney(s.total_amount)}</div>
+          <div class="text-xs text-slate-400 mt-0.5">Approved ${fmtWhen(s.final_at)}${s.paid_at?` · Paid ${fmtWhen(s.paid_at)}${s.paid_by_name?' by '+esc(s.paid_by_name):''}`:''}</div></div>
+        <div class="flex items-center gap-2 shrink-0">
+          ${s.pdf_token?`<a href="/dlx/${s.pdf_token}" target="_blank" class="btn-ghost text-xs">PDF</a>`:''}
+          ${s.paid_at?`<button onclick="unmarkPaid(${s.id})" class="btn-ghost text-xs">Unmark</button>`:`<button onclick="markPaid(${s.id})" class="btn text-xs">Mark paid</button>`}
+        </div></div>`).join('');
+    }
+    async function markPaid(id){ try{ await api('/expense/'+id+'/mark-paid',{method:'POST'}); toast('Marked paid','success'); loadPayments(); }catch(e){ toast(e.message,'error'); } }
+    async function unmarkPaid(id){ if(!confirm('Unmark this as paid? It will drop out of its report month until paid again.')) return; try{ await api('/expense/'+id+'/unmark-paid',{method:'POST'}); toast('Unmarked','info'); loadPayments(); }catch(e){ toast(e.message,'error'); } }
     async function loadFinalApprovals(){
       const el=document.getElementById('finalList');
       const list=await api('/expense/final-approvals');

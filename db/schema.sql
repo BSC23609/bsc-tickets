@@ -385,3 +385,7 @@ CREATE INDEX IF NOT EXISTS idx_ctrips_claim ON conveyance_trips(claim_ref);
 
 -- Optional manual override for which CMD-report month a claim lands in (mainly ad-hoc misc).
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS report_period_override TEXT;
+
+-- Accounts "mark as paid" step (drives the misc report bucket).
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_by_name TEXT;
