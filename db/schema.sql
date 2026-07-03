@@ -382,3 +382,6 @@ ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_count  INT NOT NULL DEFAUL
 -- can stay open after approval and new trips form an additional claim without re-claiming paid ones.
 ALTER TABLE conveyance_trips ADD COLUMN IF NOT EXISTS claim_ref TEXT;
 CREATE INDEX IF NOT EXISTS idx_ctrips_claim ON conveyance_trips(claim_ref);
+
+-- Optional manual override for which CMD-report month a claim lands in (mainly ad-hoc misc).
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS report_period_override TEXT;

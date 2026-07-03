@@ -640,14 +640,22 @@ router.post('/misc/:id/submit', async (req, res) => {
   if (!['draft', 'generated', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Locked' });
   const items = (row.payload && row.payload.items) || [];
   if (!items.length) return res.status(400).json({ error: 'Add at least one item.' });
-  const per = report.miscPeriod(row.payload);
-  if (per) await q(`UPDATE expense_submissions SET period=$2 WHERE id=$1`, [row.id, per]); // bucket misc into a cycle for the CMD report
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
   await enterChain(row.id);
   res.json({ ok: true });
 });
 
 // ===================== CONSOLIDATED CMD REPORT (approved-only) =====================
+// Admin/HR: force a claim into a specific CMD-report month (blank = auto; misc auto = submission date).
+router.post('/:id/report-month', async (req, res) => {
+  if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });
+  const row = (await q('SELECT id FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const period = (req.body && req.body.period) || null;
+  if (period && !/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad month (YYYY-MM)' });
+  await q('UPDATE expense_submissions SET report_period_override=$2 WHERE id=$1', [row.id, period]);
+  res.json({ ok: true });
+});
 router.get('/report/:period/summary', async (req, res) => {
   if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });
   const period = req.params.period; if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });

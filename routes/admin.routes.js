@@ -506,6 +506,9 @@ router.get('/export.xlsx', async (req, res) => {
 router.get('/approvers', async (req, res) => {
   const employees = (await q(
     `SELECT id, emp_no, name, department FROM employees WHERE active = TRUE ORDER BY name`)).rows;
+  // Employees flagged as heads (own outpass routes to the Heads' approver).
+  const heads = (await q(
+    `SELECT id, name, department FROM employees WHERE active = TRUE AND outpass_via_hr = TRUE ORDER BY name`)).rows;
   // every department that exists on an employee, plus any already-mapped one
   const depts = (await q(
     `SELECT d FROM (
@@ -531,7 +534,7 @@ router.get('/approvers', async (req, res) => {
   res.json({ departments, employees,
     fallback_emp_id: fb && fb.value ? Number(fb.value) : null,
     leavecover_emp_id: lc && lc.value ? Number(lc.value) : null,
-    heads_emp_id: hd && hd.value ? Number(hd.value) : null });
+    heads_emp_id: hd && hd.value ? Number(hd.value) : null, heads });
 });
 
 router.put('/approvers/dept', async (req, res) => {

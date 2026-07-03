@@ -266,6 +266,7 @@
           <div><label class="lbl">Default leave-cover (e.g. Bakthavachalam)</label><select id="oa_leavecover" class="inp min-w-[16rem]"></select></div>
           <button onclick="saveLeaveCover()" class="btn text-sm shrink-0">Save leave-cover</button>
         </div>
+        <div id="oa_heads_list" class="text-xs text-slate-600 mt-3"></div>
       </div>
       <div class="card p-4"><div id="ogApprTable"></div></div>
     </section>
@@ -590,7 +591,31 @@
           STATUS_STYLE[e.status]?.[1]||e.status,
           (['pending_hr','pending_final','approved'].includes(e.status)
             ? `<button onclick="cmdExpense(${e.id}, ${jsArg(e.ref_no)})" class="text-brand-700 hover:underline text-xs font-semibold mr-3">Send to CMD</button>` : '')
+          + (e.form_type==='misc' ? `<button onclick="setReportMonth(${e.id}, ${jsArg(e.ref_no)})" class="text-slate-600 hover:underline text-xs font-semibold mr-3">Set month</button>` : '')
           + `<button onclick="delExpense(${e.id}, ${jsArg(e.ref_no)}, '${e.form_type}')" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    function setReportMonth(id, ref){
+      const w=document.createElement('div'); w.id='rmModal';
+      w.className='fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4';
+      w.innerHTML=`<div class="bg-white rounded-xl shadow-2xl max-w-sm w-full">
+        <div class="p-4 border-b border-line flex items-center justify-between"><h3 class="font-bold text-sm">Report month · ${esc(ref)}</h3>
+          <button onclick="document.getElementById('rmModal').remove()" class="text-slate-400 hover:text-ink text-xl leading-none">&times;</button></div>
+        <div class="p-4">
+          <p class="text-xs text-slate-500 mb-2">Force this claim into a specific CMD-report month. Leave to auto — misc auto-places by its <b>submission date</b>.</p>
+          <input id="rm_month" type="month" min="2026-06" class="inp w-full">
+        </div>
+        <div class="p-4 border-t border-line flex justify-between gap-2">
+          <button onclick="saveReportMonth(${id}, '')" class="btn-ghost text-sm">Clear (auto)</button>
+          <div class="flex gap-2"><button onclick="document.getElementById('rmModal').remove()" class="btn-ghost text-sm">Cancel</button>
+          <button onclick="saveReportMonth(${id}, document.getElementById('rm_month').value)" class="btn text-sm">Save</button></div>
+        </div></div>`;
+      document.body.appendChild(w);
+    }
+    async function saveReportMonth(id, period){
+      try{ await api('/expense/'+id+'/report-month',{method:'POST',body:{period:period||null}});
+        toast(period?('Moved to '+period):'Set to auto','success');
+        const m=document.getElementById('rmModal'); if(m) m.remove(); loadCleanupExpense();
+      }catch(e){ toast(e.message,'error'); }
     }
     async function cmdExpense(id, ref){
       if(!confirm('Send '+ref+' to the CMD on WhatsApp?')) return;
@@ -867,7 +892,7 @@
           </label>
           <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
             <input id="ed_opvhr" type="checkbox" ${e.outpass_via_hr?'checked':''}>
-            <span>Own outpass approved by HR <span class="text-slate-400 normal-case font-normal">(for outpass approvers — their own passes route to the HR fallback approver, not themselves)</span></span>
+            <span>Head — own outpass goes to the Heads’ approver <span class="text-slate-400 normal-case font-normal">(tick for department heads; their own passes route to the Heads’ outpass approver set under Outpass/Gatepass approvers, not to themselves)</span></span>
           </label>
           <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
             <input id="ed_selfraise" type="checkbox" ${e.can_self_raise?'checked':''}>
@@ -932,6 +957,10 @@
       document.getElementById('oa_fallback').innerHTML = opts(apprData.fallback_emp_id);
       document.getElementById('oa_leavecover').innerHTML = opts(apprData.leavecover_emp_id);
       document.getElementById('oa_heads').innerHTML = opts(apprData.heads_emp_id);
+      const hs = apprData.heads || [];
+      document.getElementById('oa_heads_list').innerHTML = hs.length
+        ? `<b>Heads whose own pass routes here (${hs.length}):</b> ` + hs.map(h=>`${esc(h.name)}${h.department?` <span class="text-slate-400">(${esc(h.department)})</span>`:''}`).join(' · ')
+        : `<span class="text-slate-400">No employees are marked as heads yet — tick the "Head" box on a head's record in the Employees tab.</span>`;
       const el = document.getElementById('ogApprTable');
       el.innerHTML = apprData.departments.length ? `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
           ${['Department','Department head','Leave cover','Routing'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
