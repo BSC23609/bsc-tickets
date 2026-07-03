@@ -311,6 +311,21 @@
       </div>
 
       <div class="card p-5 max-w-2xl mt-5">
+        <div class="eyebrow">Monthly CMD report</div>
+        <p class="text-xs text-slate-500 mt-1 mb-4">Consolidated Excel of all <b>approved</b> reimbursements for a cycle (conveyance + outstation + misc). Email the .xlsx to the CMD with a WhatsApp download link, or just download it here.</p>
+        <div class="flex items-end gap-3 flex-wrap">
+          <div><label class="lbl">Cycle</label><input id="rep_month" type="month" min="2026-06" class="inp" onchange="loadReportPreview()"></div>
+          <div id="rep_cycle" class="text-xs text-brand-700 font-semibold pb-2"></div>
+        </div>
+        <div id="rep_preview" class="text-sm text-slate-600 mt-3"></div>
+        <div class="flex justify-end gap-2 mt-3">
+          <button onclick="downloadReport()" class="btn-ghost text-sm">Download Excel</button>
+          <button onclick="clickBusy ? clickBusy(this,'Sending…',sendReport) : sendReport()" class="btn text-sm">Generate &amp; send to CMD</button>
+        </div>
+        <div id="rep_msg" class="text-xs text-slate-500 mt-2"></div>
+      </div>
+
+      <div class="card p-5 max-w-2xl mt-5">
         <div class="eyebrow">Month-end submit lock</div>
         <p class="text-xs text-slate-500 mt-1 mb-4">Normally a month can only be submitted from the 1st of the next month. Turn a form's lock off to allow submitting the current month right away (useful for testing).</p>
         <label class="flex items-center gap-3 py-2 cursor-pointer">
@@ -949,7 +964,31 @@
       await api('/admin/employees/'+id+'/expense-category',{method:'PUT',body:{category:cat}});
       toast('Set to '+(cat==='CAT1'?'Category 1':'Category 2'),'success'); renderEmployees();
     }
+    function repCycleOf(d){ d=new Date(d); let y=d.getFullYear(), m=d.getMonth(); if(d.getDate()>=26){ m++; if(m>11){m=0;y++;} } return `${y}-${String(m+1).padStart(2,'0')}`; }
+    function repCycleLabel(p){ if(p<'2026-07'){ const [y,m]=p.split('-').map(Number); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'}); } const [y,m]=p.split('-').map(Number); const start=p==='2026-07'?new Date(2026,6,1):new Date(y,m-2,26); const end=new Date(y,m-1,25); const f=d=>d.toLocaleDateString('en-IN',{day:'numeric',month:'short'}); return `${f(start)} – ${f(end)} ${end.getFullYear()}`; }
+    async function loadReportPreview(){
+      const p=document.getElementById('rep_month').value; if(!p) return;
+      document.getElementById('rep_cycle').textContent=(p<'2026-07'?'':'Covers ')+repCycleLabel(p);
+      document.getElementById('rep_preview').textContent='Loading…';
+      try{ const r=await api('/expense/report/'+p+'/summary');
+        const cmdLine = r.cmd_name ? `CMD: ${esc(r.cmd_name)}${r.cmd_email?' · '+esc(r.cmd_email):' · (no email on file)'}${r.cmd_phone?' · WhatsApp ✓':''}` : 'No CMD contact set (Approval chain above).';
+        document.getElementById('rep_preview').innerHTML = `<b>${r.count}</b> approved reimbursement(s), total <b>₹${(r.total||0).toLocaleString('en-IN')}</b>.<br><span class="text-xs text-slate-500">${cmdLine}</span>`;
+      }catch(e){ document.getElementById('rep_preview').textContent=e.message; }
+    }
+    function downloadReport(){ const p=document.getElementById('rep_month').value; if(!p) return; window.open('/api/expense/report/'+p+'/xlsx',''); }
+    async function sendReport(){
+      const p=document.getElementById('rep_month').value; if(!p) return;
+      if(!confirm('Generate and send the consolidated Excel for '+repCycleLabel(p)+' to the CMD?')) return;
+      document.getElementById('rep_msg').textContent='Sending…';
+      try{ const r=await api('/expense/report/'+p+'/send',{method:'POST'});
+        let m=`Done — ${r.count} claim(s), ₹${(r.total||0).toLocaleString('en-IN')}.`;
+        m += r.emailed ? ` Emailed${r.to?' to '+r.to:''}.` : (r.no_cmd?' No CMD set.':(r.no_email?' CMD has no email on file.':' Email not sent (mail not configured).'));
+        m += r.whatsapped ? ' WhatsApp link sent.' : '';
+        document.getElementById('rep_msg').textContent=m; toast('Report sent','success');
+      }catch(e){ document.getElementById('rep_msg').textContent=e.message; toast(e.message,'error'); }
+    }
     async function loadChain(){
+      const rm=document.getElementById('rep_month'); if(rm && !rm.value){ rm.value=repCycleOf(new Date()); loadReportPreview(); }
       const c = await api('/admin/expense-chain');
       const act = employees.filter(e=>e.active);
       const checks = (cid, sel) => act.map(e=>`<label class="flex items-center gap-1.5 text-xs"><input type="checkbox" value="${e.id}" ${sel.includes(e.id)?'checked':''}> ${esc(e.name)} <span class="text-slate-400">${esc(e.emp_no)}</span></label>`).join('');

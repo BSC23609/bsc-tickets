@@ -153,6 +153,17 @@ app.use('/api/admin', require('../routes/admin.routes'));
 app.use('/api/genset', require('../routes/genset.routes'));
 
 // Public, no-login download of an expense PDF (token from the portal / email).
+app.get('/rx/:token', async (req, res) => {
+  try {
+    const report = require('../lib/expense_report');
+    const period = report.verifyLink(req.params.token);
+    if (!period) return res.status(404).send('This report link has expired or is invalid.');
+    const buf = await report.buildReportBuffer(period);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${report.reportFileName(period)}"`);
+    res.send(buf);
+  } catch (e) { console.error('rx', e); res.status(500).send('Could not generate the report.'); }
+});
 app.get('/dlx/:token', async (req, res) => {
   try {
     const exp = require('../routes/expense.routes')._internal;

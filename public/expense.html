@@ -90,10 +90,11 @@
       </div>
 
       <div class="card p-5 mb-4">
-        <div class="sechead"><span class="t">Period</span></div>
+        <div class="sechead"><span class="t">Claim cycle</span></div>
         <div class="max-w-xs">
           <label class="fieldlabel">Month</label>
-          <input id="cv_month" type="month" class="field" onchange="loadConveyance()" />
+          <input id="cv_month" type="month" min="2026-07" class="field" onchange="loadConveyance()" />
+          <div id="cv_cycle" class="text-xs text-brand-700 font-semibold mt-1"></div>
         </div>
         <div id="cv_mgrline" class="text-xs text-slate-500 mt-2"></div>
       </div>
@@ -150,10 +151,11 @@
       </div>
 
       <div class="card p-5 mb-4">
-        <div class="sechead"><span class="t">Reporting month</span></div>
+        <div class="sechead"><span class="t">Claim cycle</span></div>
         <div class="max-w-xs">
           <label class="fieldlabel">Month</label>
-          <input id="ot_month" type="month" class="field" onchange="loadOutstation()" />
+          <input id="ot_month" type="month" min="2026-07" class="field" onchange="loadOutstation()" />
+          <div id="ot_cycle" class="text-xs text-brand-700 font-semibold mt-1"></div>
         </div>
       </div>
 
@@ -236,8 +238,8 @@
       meta = await api('/expense/meta');
       document.getElementById('cv_cat').textContent = meta.category_label;
       document.getElementById('cv_rates').textContent = `Bike ${fmtMoney(meta.rates.bike)}/km · Car ${fmtMoney(meta.rates.car)}/km · Log each day within ${meta.conveyance_log_hours||48}h`;
-      document.getElementById('cv_month').value = new Date().toISOString().slice(0,7);
-      document.getElementById('ot_month').value = new Date().toISOString().slice(0,7);
+      document.getElementById('cv_month').value = cycleOf(new Date());
+      document.getElementById('ot_month').value = cycleOf(new Date());
       if (meta.is_hr_approver) { document.getElementById('apprTab').classList.remove('hidden'); refreshApprCount(); }
       if (meta.is_final_approver) { document.getElementById('finalTab').classList.remove('hidden'); refreshFinalCount(); }
       showLauncher();
@@ -285,6 +287,8 @@
       const period=document.getElementById('cv_month').value;
       if(!/^\d{4}-\d{2}$/.test(period)){ toast('Pick a month first','error'); return; }
       cv.period=period;                       // set immediately so saving works even if the load hiccups
+      document.getElementById('cv_cycle').textContent='Covers '+cycleLabel(period);
+      constrainTripDate(period);
       let d;
       try{ d=await api('/expense/conveyance/'+period); }
       catch(e){ toast('Could not load conveyance — '+(e.message||'server error'),'error'); return; }
@@ -330,6 +334,15 @@
     }
     const TRIP_PILL={pending:['bg-amber-100 text-amber-700','⏳ Awaiting manager'],approved:['bg-emerald-100 text-emerald-700','✓ Approved'],rejected:['bg-red-100 text-red-700','✗ Rejected']};
     function fmtDateShort(s){ if(!s) return ''; const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d).toLocaleDateString('en-IN',{day:'2-digit',month:'short'}); }
+    // 25th–25th cycle helpers (period 'YYYY-MM' = cycle CLOSING that month; covers 26th prev → 25th).
+    function cycleOf(d){ d=new Date(d); let y=d.getFullYear(), m=d.getMonth(); if(d.getDate()>=26){ m++; if(m>11){m=0;y++;} } return `${y}-${String(m+1).padStart(2,'0')}`; }
+    const CUTOVER_PERIOD='2026-07';
+    function cycleRange(period){ const [y,m]=period.split('-').map(Number);
+      const start = period===CUTOVER_PERIOD ? new Date(2026,6,1) : new Date(y,m-2,26);
+      return { start, end:new Date(y,m-1,25) }; }
+    function cycleLabel(period){ const {start,end}=cycleRange(period); const f=d=>d.toLocaleDateString('en-IN',{day:'numeric',month:'short'}); return `${f(start)} – ${f(end)} ${end.getFullYear()}`; }
+    function isoDate(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function constrainTripDate(period){ const td=document.getElementById('t_date'); if(!td) return; const {start,end}=cycleRange(period); const today=new Date(); td.min=isoDate(start); td.max=isoDate(end<today?end:today); }
     function cvRenderTrips(){
       const box=document.getElementById('cv_trips');
       document.getElementById('cv_empty').classList.toggle('hidden', cv.trips.length>0);
@@ -612,6 +625,7 @@
 
     async function loadOutstation(){
       const period=document.getElementById('ot_month').value; if(!period) return;
+      const oc=document.getElementById('ot_cycle'); if(oc) oc.textContent='Covers '+cycleLabel(period);
       const lim=meta.limits[meta.category];
       document.getElementById('ot_limits').textContent=`Food ${fmtMoney(lim.food)} · Stay ${fmtMoney(lim.accom)}`;
       otDraft=await api('/expense/outstation/'+period);

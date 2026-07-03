@@ -11,6 +11,7 @@ const { getPolicy, catOf } = require('../lib/expense_policy');
 const { buildConveyancePDF } = require('../lib/expense_pdf');
 const wati = require('../lib/wati');
 const chain = require('../lib/chain');
+const report = require('../lib/expense_report');
 
 const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation Travel', misc: 'Miscellaneous' };
 const STAGE_LABEL = { hr: 'HR review', final: 'final approval' };
@@ -62,11 +63,20 @@ function requireHR(req, res, next) { if (!req.user.is_admin) return res.status(4
 
 const HR_EMAIL = process.env.EXPENSE_HR_EMAIL || 'hr@bharatsteels.in';
 const catLabel = (c) => (c === 'CAT1' ? 'Category 1' : 'Category 2');
-const monthLabel = (period) => { const [y, m] = period.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleString('en-IN', { month: 'long', year: 'numeric' }); };
+// ===== 25th–25th claim cycle. Period key 'YYYY-MM' = the cycle CLOSING in that month.
+// e.g. '2026-06' (June cycle) covers 26 May 2026 → 25 Jun 2026 inclusive. Submit opens the 26th.
+const CUTOVER_PERIOD = '2026-07';                 // new cycle system goes live 1 Jul 2026
+const CUTOVER_START = new Date(2026, 6, 1);       // 1 Jul 2026 (June-30 and earlier stay old-system)
+function cycleRange(period) { const [y, m] = period.split('-').map(Number);
+  const start = period === CUTOVER_PERIOD ? new Date(CUTOVER_START) : new Date(y, m - 2, 26);
+  return { start, end: new Date(y, m - 1, 25) }; }
+function cycleOf(d) { d = new Date(d); let y = d.getFullYear(), m = d.getMonth(); if (d.getDate() >= 26) { m++; if (m > 11) { m = 0; y++; } } return `${y}-${String(m + 1).padStart(2, '0')}`; }
+function inCycle(period, dateStr) { if (!dateStr) return false; const { start, end } = cycleRange(period); const d = new Date(String(dateStr).slice(0,10) + 'T00:00:00'); const s = new Date(start.getFullYear(), start.getMonth(), start.getDate()); const e = new Date(end.getFullYear(), end.getMonth(), end.getDate()); return d >= s && d <= e; }
+const monthLabel = (period) => { const { start, end } = cycleRange(period); const f = d => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); return `${f(start)} – ${f(end)} ${end.getFullYear()}`; };
 const fmtMoney = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 // Submit unlocks on the 1st of the month AFTER the claim's period.
-function canSubmit(period) { if (!period) return false; const [y, m] = period.split('-').map(Number); return new Date() >= new Date(y, m, 1); }
+function canSubmit(period) { if (!period) return false; const [y, m] = period.split('-').map(Number); return new Date() >= new Date(y, m - 1, 26); } // opens the 26th (day after the 25th close)
 // Admins can lift the month-end submit lock per form (handy for testing).
 async function submitAllowed(formType, period) {
   let g = {};
@@ -191,6 +201,7 @@ router.post('/conveyance/:period/trip', async (req, res) => {
   const b = req.body || {};
   const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
   if (!b.date) return res.status(400).json({ error: 'Pick the trip date.' });
+  if (!inCycle(period, b.date)) { const { start, end } = cycleRange(period); return res.status(400).json({ error: `Trip date must be within this cycle (${start.toLocaleDateString('en-IN')} – ${end.toLocaleDateString('en-IN')}).` }); }
   if (!(km > 0)) return res.status(400).json({ error: 'Enter the distance in km.' });
   const pol = await getPolicy();
   const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
@@ -228,6 +239,7 @@ router.put('/conveyance/trip/:id', async (req, res) => {
   const b = req.body || {};
   const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
   if (!b.date || !(km > 0)) return res.status(400).json({ error: 'Date and km are required.' });
+  if (!inCycle(t.period, b.date)) return res.status(400).json({ error: 'Trip date is outside this cycle.' });
   const mgr = await resolveManager(req.user.id);
   if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned.' });
   const pol = await getPolicy();
@@ -631,6 +643,56 @@ router.post('/misc/:id/submit', async (req, res) => {
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
   await enterChain(row.id);
   res.json({ ok: true });
+});
+
+// ===================== CONSOLIDATED CMD REPORT (approved-only) =====================
+router.get('/report/:period/summary', async (req, res) => {
+  if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });
+  const period = req.params.period; if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const d = await report.reportData(period);
+  const c = await chain.getChain();
+  const cmd = c.cmd_notify_id ? await empById(c.cmd_notify_id) : null;
+  res.json({ period, cycle: report.reportLabel(period), count: d.count, total: d.total,
+    cmd_name: cmd ? cmd.name : null, cmd_email: cmd ? (cmd.email || null) : null, cmd_phone: cmd ? Boolean(cmd.phone) : false });
+});
+
+router.get('/report/:period/xlsx', async (req, res) => {
+  if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });
+  const period = req.params.period; if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const buf = await report.buildReportBuffer(period);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${report.reportFileName(period)}"`);
+  res.send(buf);
+});
+
+router.post('/report/:period/send', async (req, res) => {
+  if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR/Admin only' });
+  const period = req.params.period; if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const d = await report.reportData(period);
+  if (!d.count) return res.status(400).json({ error: 'No approved reimbursements in this cycle yet.' });
+  const c = await chain.getChain();
+  const cmd = c.cmd_notify_id ? await empById(c.cmd_notify_id) : null;
+  const buf = await report.buildReportBuffer(period);
+  const fname = report.reportFileName(period);
+  const cycle = report.reportLabel(period);
+  const out = { count: d.count, total: d.total, emailed: false, whatsapped: false, to: cmd ? cmd.name : null };
+  // Email with the .xlsx attached (CMD; cc accounts).
+  if (cmd && cmd.email) {
+    out.emailed = await graph.sendMail({
+      to: cmd.email, cc: c.accounts_email || undefined,
+      subject: `Consolidated reimbursements — ${cycle} — ${fmtMoney(d.total)}`,
+      html: `<p>Consolidated <b>approved</b> reimbursements for the cycle <b>${cycle}</b>.</p>`
+          + `<p>${d.count} claim(s), total <b>${fmtMoney(d.total)}</b>. Full breakdown attached (Excel).</p>`,
+      attachments: [{ name: fname, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', contentBytes: buf.toString('base64') }],
+    });
+  }
+  // WhatsApp a download link (CMD + optional test number).
+  const link = report.signLink(period);
+  const payload = { cycle, count: d.count, total_label: fmtMoney(d.total), token: link };
+  if (cmd && cmd.phone) { background(wati.notify.expense.report(cmd, payload)); out.whatsapped = true; }
+  if (CMD_TEST_PHONE) { background(wati.notify.expense.report({ name: 'Test', phone: CMD_TEST_PHONE }, payload)); out.whatsapped = true; }
+  out.no_cmd = !cmd; out.no_email = cmd && !cmd.email;
+  res.json({ ok: true, ...out });
 });
 
 module.exports = router;
