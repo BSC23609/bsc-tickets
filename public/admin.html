@@ -315,7 +315,7 @@
 
       <div class="card p-5 max-w-2xl mt-5">
         <div class="eyebrow">Monthly CMD report</div>
-        <p class="text-xs text-slate-500 mt-1 mb-4">Consolidated Excel of all <b>approved</b> reimbursements for a cycle (conveyance + outstation + misc). Email the .xlsx to the CMD with a WhatsApp download link, or just download it here.</p>
+        <p class="text-xs text-slate-500 mt-1 mb-4">Consolidated Excel of all <b>approved reimbursements still pending payment</b> for a cycle (conveyance + outstation + misc). Once accounts marks a claim paid, it drops off. Email the .xlsx to the CMD with a WhatsApp download link, or download it here.</p>
         <div class="flex items-end gap-3 flex-wrap">
           <div><label class="lbl">Cycle</label><input id="rep_month" type="month" min="2026-06" class="inp" onchange="loadReportPreview()"></div>
           <div id="rep_cycle" class="text-xs text-brand-700 font-semibold pb-2"></div>
@@ -1009,7 +1009,7 @@
       document.getElementById('rep_preview').textContent='Loading…';
       try{ const r=await api('/expense/report/'+p+'/summary');
         const cmdLine = r.cmd_name ? `CMD: ${esc(r.cmd_name)}${r.cmd_email?' · '+esc(r.cmd_email):' · (no email on file)'}${r.cmd_phone?' · WhatsApp ✓':''}` : 'No CMD contact set (Approval chain above).';
-        document.getElementById('rep_preview').innerHTML = `<b>${r.count}</b> approved reimbursement(s), total <b>₹${(r.total||0).toLocaleString('en-IN')}</b>.<br><span class="text-xs text-slate-500">${cmdLine}</span>`;
+        document.getElementById('rep_preview').innerHTML = `<b>${r.count}</b> approved reimbursement(s) pending payment, total <b>₹${(r.total||0).toLocaleString('en-IN')}</b>.<br><span class="text-xs text-slate-500">${cmdLine}</span>`;
       }catch(e){ document.getElementById('rep_preview').textContent=e.message; }
     }
     function downloadReport(){ const p=document.getElementById('rep_month').value; if(!p) return; window.open('/api/expense/report/'+p+'/xlsx',''); }

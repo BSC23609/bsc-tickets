@@ -717,9 +717,9 @@ router.post('/report/:period/send', async (req, res) => {
   if (cmd && cmd.email) {
     out.emailed = await graph.sendMail({
       to: cmd.email, cc: c.accounts_email || undefined,
-      subject: `Consolidated reimbursements — ${cycle} — ${fmtMoney(d.total)}`,
-      html: `<p>Consolidated <b>approved</b> reimbursements for the cycle <b>${cycle}</b>.</p>`
-          + `<p>${d.count} claim(s), total <b>${fmtMoney(d.total)}</b>. Full breakdown attached (Excel).</p>`,
+      subject: `Reimbursements pending payment — ${cycle} — ${fmtMoney(d.total)}`,
+      html: `<p>Approved reimbursements <b>pending payment</b> for <b>${cycle}</b>.</p>`
+          + `<p>${d.count} claim(s), total <b>${fmtMoney(d.total)}</b>. Full breakdown attached (Excel). Items drop off once accounts marks them paid.</p>`,
       attachments: [{ name: fname, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', contentBytes: buf.toString('base64') }],
     });
   }
