@@ -45,10 +45,14 @@ async function resolveApprover(requester, { onLeave = false } = {}) {
 
   // Designated outpass approvers can't sign off their own passes — route theirs to HR (the fallback approver).
   if (requester.outpass_via_hr) {
+    // Heads' own passes go to the designated heads' approver (e.g. Shivam Shroff), else the general fallback.
+    const hd = (await q(`SELECT value FROM app_settings WHERE key='outpass_heads_emp_id'`)).rows[0];
+    const head = hd && hd.value && (await pickEmp(Number(hd.value), 'Approver'));
+    if (head) return head;
     const fb = (await q(`SELECT value FROM app_settings WHERE key='outpass_fallback_emp_id'`)).rows[0];
     const hr = fb && fb.value && (await pickEmp(Number(fb.value), 'HR'));
     if (hr) return hr;
-    // HR not configured (or is the requester) → fall through to the normal chain
+    // not configured (or is the requester) → fall through to the normal chain
   }
 
   if (onLeave) {

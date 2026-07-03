@@ -257,10 +257,12 @@
     <!-- OUTPASS APPROVERS -->
     <section id="tab-ogappr" class="hidden">
       <div class="card p-4 mb-4">
-        <div class="text-xs text-slate-500 mb-3">Outpass/Gatepass requests route automatically to the requester's <b>department head</b>. Set each department's head below. The <b>fallback approver</b> handles departments with no head set, and any case where the requester <i>is</i> the head. When a requester ticks <b>"manager on leave"</b>, the request goes to that department's <b>leave cover</b> (or the default leave cover if none is set).</div>
+        <div class="text-xs text-slate-500 mb-3">Outpass/Gatepass requests route automatically to the requester's <b>department head</b>. Set each department's head below. The <b>fallback approver</b> handles departments with no head set. Department <b>heads'</b> own passes route to the <b>heads' outpass approver</b> (e.g. Shivam Shroff). When a requester ticks <b>"manager on leave"</b>, the request goes to that department's <b>leave cover</b> (or the default leave cover if none is set).</div>
         <div class="flex flex-wrap gap-4 items-end">
           <div><label class="lbl">Fallback approver (e.g. HR)</label><select id="oa_fallback" class="inp min-w-[16rem]"></select></div>
           <button onclick="saveFallback()" class="btn text-sm shrink-0">Save fallback</button>
+          <div><label class="lbl">Heads' outpass approver (e.g. Shivam Shroff)</label><select id="oa_heads" class="inp min-w-[16rem]"></select></div>
+          <button onclick="saveHeads()" class="btn text-sm shrink-0">Save heads' approver</button>
           <div><label class="lbl">Default leave-cover (e.g. Bakthavachalam)</label><select id="oa_leavecover" class="inp min-w-[16rem]"></select></div>
           <button onclick="saveLeaveCover()" class="btn text-sm shrink-0">Save leave-cover</button>
         </div>
@@ -320,7 +322,7 @@
         <div id="rep_preview" class="text-sm text-slate-600 mt-3"></div>
         <div class="flex justify-end gap-2 mt-3">
           <button onclick="downloadReport()" class="btn-ghost text-sm">Download Excel</button>
-          <button onclick="clickBusy ? clickBusy(this,'Sending…',sendReport) : sendReport()" class="btn text-sm">Generate &amp; send to CMD</button>
+          <button onclick="sendReport()" class="btn text-sm">Generate &amp; send to CMD</button>
         </div>
         <div id="rep_msg" class="text-xs text-slate-500 mt-2"></div>
       </div>
@@ -929,6 +931,7 @@
         apprData.employees.map(e => `<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}${e.department?` · ${esc(e.department)}`:''}</option>`).join('');
       document.getElementById('oa_fallback').innerHTML = opts(apprData.fallback_emp_id);
       document.getElementById('oa_leavecover').innerHTML = opts(apprData.leavecover_emp_id);
+      document.getElementById('oa_heads').innerHTML = opts(apprData.heads_emp_id);
       const el = document.getElementById('ogApprTable');
       el.innerHTML = apprData.departments.length ? `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
           ${['Department','Department head','Leave cover','Routing'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
@@ -951,6 +954,11 @@
     async function saveFallback() {
       const emp_id = +document.getElementById('oa_fallback').value || null;
       try { await api('/admin/approvers/fallback', { method:'PUT', body:{ emp_id } }); toast('Fallback approver saved', 'success'); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+    async function saveHeads() {
+      const emp_id = +document.getElementById('oa_heads').value || null;
+      try { await api('/admin/approvers/heads', { method:'PUT', body:{ emp_id } }); toast("Heads' approver saved", 'success'); }
       catch (e) { toast(e.message, 'error'); }
     }
     async function saveLeaveCover() {

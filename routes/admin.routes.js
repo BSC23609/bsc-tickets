@@ -527,9 +527,11 @@ router.get('/approvers', async (req, res) => {
   });
   const fb = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_fallback_emp_id'`)).rows[0];
   const lc = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_leavecover_emp_id'`)).rows[0];
+  const hd = (await q(`SELECT value FROM app_settings WHERE key = 'outpass_heads_emp_id'`)).rows[0];
   res.json({ departments, employees,
     fallback_emp_id: fb && fb.value ? Number(fb.value) : null,
-    leavecover_emp_id: lc && lc.value ? Number(lc.value) : null });
+    leavecover_emp_id: lc && lc.value ? Number(lc.value) : null,
+    heads_emp_id: hd && hd.value ? Number(hd.value) : null });
 });
 
 router.put('/approvers/dept', async (req, res) => {
@@ -551,6 +553,12 @@ router.put('/approvers/fallback', async (req, res) => {
     `INSERT INTO app_settings(key, value) VALUES('outpass_fallback_emp_id', $1)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
     [emp_id ? String(emp_id) : null]);
+  res.json({ ok: true });
+});
+router.put('/approvers/heads', async (req, res) => {
+  const { emp_id } = req.body || {};
+  await q(`INSERT INTO app_settings(key, value) VALUES('outpass_heads_emp_id', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [emp_id ? String(emp_id) : null]);
   res.json({ ok: true });
 });
 router.put('/approvers/leavecover', async (req, res) => {

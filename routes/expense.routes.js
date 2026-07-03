@@ -640,6 +640,8 @@ router.post('/misc/:id/submit', async (req, res) => {
   if (!['draft', 'generated', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Locked' });
   const items = (row.payload && row.payload.items) || [];
   if (!items.length) return res.status(400).json({ error: 'Add at least one item.' });
+  const per = report.miscPeriod(row.payload);
+  if (per) await q(`UPDATE expense_submissions SET period=$2 WHERE id=$1`, [row.id, per]); // bucket misc into a cycle for the CMD report
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
   await enterChain(row.id);
   res.json({ ok: true });
