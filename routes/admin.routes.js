@@ -617,6 +617,9 @@ router.put('/expense-chain', async (req, res) => {
     accounts_email: (b.accounts_email || '').trim() || 'accounts@bharatsteels.in',
     accounts_notify_id: b.accounts_notify_id ? Number(b.accounts_notify_id) : null,
     cmd_notify_id: b.cmd_notify_id ? Number(b.cmd_notify_id) : null,
+    accounts_email_by_prefix: (() => { const o = b.accounts_email_by_prefix; const out = {};
+      if (o && typeof o === 'object') for (const k of Object.keys(o)) { const key = String(k).trim().toUpperCase(); const val = String(o[k] || '').trim(); if (key && val) out[key] = val; }
+      return out; })(),
   });
   res.json({ ok: true });
 });

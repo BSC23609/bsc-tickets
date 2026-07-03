@@ -310,6 +310,10 @@
           <div><label class="lbl">Accounts WhatsApp contact</label><select id="ch_notify" class="inp"></select></div>
           <div><label class="lbl">CMD WhatsApp contact (approved claim + verification)</label><select id="ch_cmd" class="inp"></select></div>
         </div>
+        <div class="mb-4"><label class="lbl">Entity accounts emails (by code prefix)</label>
+          <textarea id="ch_prefix_emails" rows="3" class="inp font-mono text-xs" placeholder="G2 = g2@bharatsteels.in"></textarea>
+          <div class="text-[11px] text-slate-400 mt-1">One per line: <code>PREFIX = email</code>. On approval, a claim's accounts email is chosen by the employee's code prefix (e.g. G2/119 &rarr; G2). Everyone else uses the default above.</div>
+        </div>
         <div class="flex justify-end"><button onclick="saveChain()" class="btn text-sm">Save chain</button></div>
       </div>
 
@@ -1036,6 +1040,7 @@
         act.map(e=>`<option value="${e.id}" ${c.accounts_notify_id===e.id?'selected':''}>${esc(e.name)} (${esc(e.emp_no)})</option>`).join('');
       document.getElementById('ch_cmd').innerHTML = '<option value="">— none —</option>' +
         act.map(e=>`<option value="${e.id}" ${c.cmd_notify_id===e.id?'selected':''}>${esc(e.name)} (${esc(e.emp_no)})</option>`).join('');
+      document.getElementById('ch_prefix_emails').value = Object.entries(c.accounts_email_by_prefix||{}).map(([k,v])=>`${k} = ${v}`).join('\n');
     }
     function checkedVals(id){ return Array.from(document.querySelectorAll('#'+id+' input:checked')).map(i=>+i.value); }
     async function saveChain(){
@@ -1045,6 +1050,7 @@
         accounts_email: document.getElementById('ch_email').value.trim(),
         accounts_notify_id: document.getElementById('ch_notify').value || null,
         cmd_notify_id: document.getElementById('ch_cmd').value || null,
+        accounts_email_by_prefix: (()=>{ const map={}; (document.getElementById('ch_prefix_emails').value||'').split(/\r?\n/).forEach(line=>{ const i=line.indexOf('='); if(i>0){ const k=line.slice(0,i).trim().toUpperCase(); const v=line.slice(i+1).trim(); if(k&&v) map[k]=v; } }); return map; })(),
       };
       if(!body.hr_approver_ids.length) return toast('Pick at least one HR approver','error');
       if(!body.final_approver_ids.length) return toast('Pick at least one final approver','error');

@@ -425,8 +425,9 @@ router.post('/:id/final-approve', async (req, res) => {
     const c = await chain.getChain();
     const full = await loadRow(row.id);
     const pdf = await uploadChainPdf(full, 'approved', full.final_by_name || req.user.name, fmtDateTime(new Date()));
-    if (c.accounts_email) await graph.sendMail({
-      to: c.accounts_email,
+    const acctEmail = chain.accountsEmailFor(c, full.emp_no);
+    if (acctEmail) await graph.sendMail({
+      to: acctEmail,
       subject: `Approved expense — ${full.emp_name} — ${FORM_LABEL[full.form_type]} ${full.period ? monthLabel(full.period) : ''} — ${fmtMoney(full.total_amount)}`,
       html: emailHtml(`${FORM_LABEL[full.form_type]} — approved for payment`, full, ''),
       attachments: [{ name: chainPdfName(full), contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
