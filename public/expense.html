@@ -238,6 +238,9 @@
       meta = await api('/expense/meta');
       document.getElementById('cv_cat').textContent = meta.category_label;
       document.getElementById('cv_rates').textContent = `Bike ${fmtMoney(meta.rates.bike)}/km · Car ${fmtMoney(meta.rates.car)}/km · Log each day within ${meta.conveyance_log_hours||48}h`;
+      const minC = meta.min_cycle || '2026-07';
+      document.getElementById('cv_month').min = minC;
+      document.getElementById('ot_month').min = minC;
       document.getElementById('cv_month').value = cycleOf(new Date());
       document.getElementById('ot_month').value = cycleOf(new Date());
       if (meta.is_hr_approver) { document.getElementById('apprTab').classList.remove('hidden'); refreshApprCount(); }
@@ -340,6 +343,7 @@
     function cycleOf(d){ d=new Date(d); let y=d.getFullYear(), m=d.getMonth(); if(d.getDate()>=26){ m++; if(m>11){m=0;y++;} } return `${y}-${String(m+1).padStart(2,'0')}`; }
     const CUTOVER_PERIOD='2026-07';
     function cycleRange(period){ const [y,m]=period.split('-').map(Number);
+      if(period < CUTOVER_PERIOD) return { start:new Date(y,m-1,1), end:new Date(y,m,0) }; // pre-cutover = calendar month
       const start = period===CUTOVER_PERIOD ? new Date(2026,6,1) : new Date(y,m-2,26);
       return { start, end:new Date(y,m-1,25) }; }
     function cycleLabel(period){ const {start,end}=cycleRange(period); const f=d=>d.toLocaleDateString('en-IN',{day:'numeric',month:'short'}); return `${f(start)} – ${f(end)} ${end.getFullYear()}`; }

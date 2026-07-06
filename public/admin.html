@@ -334,6 +334,11 @@
           <input type="checkbox" id="gate_out" class="w-4 h-4">
           <span class="text-sm">Travel Reimbursement (Outstation) — allow submitting any time</span>
         </label>
+        <div class="mt-4 pt-4 border-t border-line">
+          <label class="lbl">Earliest selectable cycle</label>
+          <input id="gate_min" type="month" class="inp max-w-[12rem]">
+          <div class="text-[11px] text-slate-400 mt-1">Employees can pick claim cycles from this month onward. Set it earlier (e.g. 2026-06) to unlock a previous cycle; set back to 2026-07 to close it. Pre-July cycles are treated as full calendar months.</div>
+        </div>
         <div class="flex justify-end mt-3"><button onclick="saveGate()" class="btn text-sm">Save lock settings</button></div>
       </div>
     </section>
@@ -1052,11 +1057,13 @@
       try{ const g = await api('/admin/expense-gate');
         document.getElementById('gate_conv').checked = !!g.conveyance_anytime;
         document.getElementById('gate_out').checked = !!g.outstation_anytime;
+        document.getElementById('gate_min').value = g.min_cycle || '2026-07';
       }catch(e){}
     }
     async function saveGate(){
+      const _min = document.getElementById('gate_min').value;
       const body = { conveyance_anytime: document.getElementById('gate_conv').checked,
-        outstation_anytime: document.getElementById('gate_out').checked };
+        outstation_anytime: document.getElementById('gate_out').checked, min_cycle: _min };
       try{ await api('/admin/expense-gate',{method:'PUT',body}); toast('Submit lock settings saved','success'); }
       catch(e){ toast(e.message,'error'); }
     }

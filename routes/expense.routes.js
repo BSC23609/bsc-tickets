@@ -69,6 +69,7 @@ const catLabel = (c) => (c === 'CAT1' ? 'Category 1' : 'Category 2');
 const CUTOVER_PERIOD = '2026-07';                 // new cycle system goes live 1 Jul 2026
 const CUTOVER_START = new Date(2026, 6, 1);       // 1 Jul 2026 (June-30 and earlier stay old-system)
 function cycleRange(period) { const [y, m] = period.split('-').map(Number);
+  if (period < CUTOVER_PERIOD) return { start: new Date(y, m - 1, 1), end: new Date(y, m, 0) }; // pre-cutover = calendar month
   const start = period === CUTOVER_PERIOD ? new Date(CUTOVER_START) : new Date(y, m - 2, 26);
   return { start, end: new Date(y, m - 1, 25) }; }
 function cycleOf(d) { d = new Date(d); let y = d.getFullYear(), m = d.getMonth(); if (d.getDate() >= 26) { m++; if (m > 11) { m = 0; y++; } } return `${y}-${String(m + 1).padStart(2, '0')}`; }
@@ -138,7 +139,9 @@ router.get('/meta', async (req, res) => {
   const cat = catOf(req.user);
   const mgr = await resolveManager(req.user.id);
   const c = await chain.getChain();
-  res.json({ rates: pol.rates, limits: pol.limits, category: cat, category_label: catLabel(cat),
+  let min_cycle = '2026-07';
+  try { const r = await q(`SELECT value FROM app_settings WHERE key='expense_gate'`); if (r.rows[0]) { const g = JSON.parse(r.rows[0].value); if (g.min_cycle) min_cycle = g.min_cycle; } } catch {}
+  res.json({ rates: pol.rates, limits: pol.limits, category: cat, category_label: catLabel(cat), min_cycle,
     reporting_manager: mgr ? mgr.name : null, conveyance_log_hours: pol.log_hours,
     is_hr_approver: req.user.is_admin || c.hr_approver_ids.includes(req.user.id),
     is_final_approver: req.user.is_admin || c.final_approver_ids.includes(req.user.id),

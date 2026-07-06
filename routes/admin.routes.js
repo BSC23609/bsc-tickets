@@ -632,12 +632,12 @@ router.put('/employees/:id/expense-category', async (req, res) => {
 
 // Month-end submit lock toggle (per form). anytime=true lifts the lock.
 router.get('/expense-gate', async (req, res) => {
-  let g = { conveyance_anytime: false, outstation_anytime: false };
+  let g = { conveyance_anytime: false, outstation_anytime: false, min_cycle: '2026-07' };
   try { const r = await q(`SELECT value FROM app_settings WHERE key='expense_gate'`); if (r.rows[0]) g = { ...g, ...JSON.parse(r.rows[0].value) }; } catch {}
   res.json(g);
 });
 router.put('/expense-gate', async (req, res) => {
-  const g = { conveyance_anytime: !!(req.body && req.body.conveyance_anytime), outstation_anytime: !!(req.body && req.body.outstation_anytime) };
+  const g = { conveyance_anytime: !!(req.body && req.body.conveyance_anytime), outstation_anytime: !!(req.body && req.body.outstation_anytime), min_cycle: (req.body && /^\d{4}-\d{2}$/.test(req.body.min_cycle)) ? req.body.min_cycle : '2026-07' };
   await q(`INSERT INTO app_settings(key,value) VALUES('expense_gate',$1)
     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [JSON.stringify(g)]);
   res.json({ ok: true, ...g });
