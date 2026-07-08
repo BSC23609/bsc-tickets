@@ -41,6 +41,7 @@ body{ color:var(--ink); background:#fff; }
   font-size:.9rem;color:var(--ink);transition:border-color .15s,box-shadow .15s; }
 .field:focus{ outline:none;border-color:var(--steel);box-shadow:0 0 0 3px rgba(27,123,192,.16); }
 .field:disabled{ background:var(--mist); color:var(--ink-mute); }
+input[type="date"].field{ min-width:8.75rem; padding-left:.55rem; padding-right:.35rem; }
 
 /* eyebrow + labels */
 .eyebrow{ font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.15em;color:var(--steel); }

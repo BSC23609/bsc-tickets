@@ -717,7 +717,7 @@
     function otRow(ti,ii,it,locked){
       return `<div class="rounded-lg border ${it.flag?'border-amber-300 bg-amber-50/60':'border-line bg-white'} p-2">
         <div class="flex flex-wrap gap-2 items-end">
-          <div class="w-28"><label class="fieldlabel">Date</label>
+          <div><label class="fieldlabel">Date</label>
             <input type="date" value="${it.date||''}" ${locked?'disabled':''} onchange="updItem(${ti},${ii},'date',this.value);refreshOut()" class="field !py-1.5 text-xs w-full"></div>
           <div class="flex-1 min-w-[9rem]"><label class="fieldlabel">Description</label>
             <input value="${esc(it.desc)}" ${locked?'disabled':''} oninput="updItem(${ti},${ii},'desc',this.value)" placeholder="Description / vendor" class="field !py-1.5 text-xs w-full"></div>
