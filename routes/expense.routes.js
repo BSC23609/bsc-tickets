@@ -240,7 +240,8 @@ router.post('/conveyance/:period/trip', async (req, res) => {
 router.put('/conveyance/trip/:id', async (req, res) => {
   const t = (await q('SELECT * FROM conveyance_trips WHERE id=$1', [req.params.id])).rows[0];
   if (!t || t.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (t.status !== 'rejected') return res.status(409).json({ error: 'Only rejected trips can be edited.' });
+  if (t.claim_ref) return res.status(409).json({ error: 'This trip is already part of a submitted claim and is locked.' });
+  if (!['rejected', 'approved'].includes(t.status)) return res.status(409).json({ error: 'Only rejected or approved trips can be edited.' });
   const b = req.body || {};
   const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
   if (!b.date || !(km > 0)) return res.status(400).json({ error: 'Date and km are required.' });
@@ -259,11 +260,11 @@ router.put('/conveyance/trip/:id', async (req, res) => {
   res.json({ ok: true, trip, notified: Boolean(mgr.phone) });
 });
 
-// Withdraw a trip (pending or rejected; approved trips can't be removed).
+// Withdraw a trip. Allowed until it's part of a submitted claim (claim_ref set) — even if manager-approved.
 router.delete('/conveyance/trip/:id', async (req, res) => {
   const t = (await q('SELECT * FROM conveyance_trips WHERE id=$1', [req.params.id])).rows[0];
   if (!t || t.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (t.status === 'approved') return res.status(409).json({ error: 'Approved trips cannot be withdrawn.' });
+  if (t.claim_ref) return res.status(409).json({ error: 'This trip is already part of a submitted claim and is locked.' });
   await q('DELETE FROM conveyance_trips WHERE id=$1', [t.id]);
   res.json({ ok: true });
 });

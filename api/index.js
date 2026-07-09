@@ -192,16 +192,29 @@ app.all('/api/cron/auto-close', async (req, res) => {
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
+  // Auto-close scrapped: tickets are NEVER force-closed. Instead we nudge the requester to
+  // confirm-close or reopen resolved tickets they haven't acted on (re-nudge at most every 48h).
+  const wati = require('../lib/wati');
   const { rows } = await q(
-    `UPDATE tickets SET status='closed', closed_at=now(), closed_auto=TRUE
-     WHERE status='resolved' AND resolved_at < now() - interval '48 hours'
-     RETURNING id`);
-  for (const r of rows) {
-    await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'auto_closed','Auto-closed after 48h no response')`, [r.id]);
+    `SELECT t.*, r.name AS requester_name, r.phone AS requester_phone,
+       (SELECT e.name FROM ticket_events ev JOIN employees e ON e.id=ev.by_emp_id
+        WHERE ev.ticket_id=t.id AND ev.event='resolved' ORDER BY ev.id DESC LIMIT 1) AS resolver_name
+     FROM tickets t JOIN employees r ON r.id=t.requester_id
+     WHERE t.status='resolved' AND t.resolved_at < now() - interval '48 hours'
+       AND (t.last_reminder_at IS NULL OR t.last_reminder_at < now() - interval '48 hours')`);
+  let nudged = 0;
+  for (const t of rows) {
+    try {
+      if (t.requester_phone && t.confirm_token) {
+        await wati.notify.resolved({ id: t.requester_id, name: t.requester_name, phone: t.requester_phone },
+          t, t.resolver_name || 'the team', t.resolution_note);
+        nudged++;
+      }
+      await q(`UPDATE tickets SET last_reminder_at=now() WHERE id=$1`, [t.id]);
+    } catch (e) { console.error('resolve-nudge', t.id, e); }
   }
-  // Safety-net rebuild of the OneDrive Excel log from the DB (covers any missed sync).
   try { await require('../lib/excel').syncLogToOneDrive(); } catch (e) { console.error('cron log sync', e); }
-  res.json({ ok: true, auto_closed: rows.length });
+  res.json({ ok: true, nudged });
 });
 
 // ---- Ticket resolve: one-tap Confirm-close / Reopen from the requester's WhatsApp ----
@@ -336,9 +349,14 @@ app.all('/api/cron/escalate', async (req, res) => {
     .reduce((m, r) => (m[r.key] = Number(r.value) || null, m), {});
   const REPEAT = S.remind_repeat_mins || 120;
 
+  // Respond immediately; do the WhatsApp-heavy work in the background so a slow or failing
+  // send can never time out or fail the cron job (which is what surfaced as GitHub errors).
+  res.json({ ok: true, scanned: tickets.length, queued: true });
+  require('../lib/bg').background((async () => {
   const now = Date.now();
-  let sent = 0, fired = 0;
+  let fired = 0;
   for (const t of tickets) {
+    try {
     // On external/vendor hold: stay quiet until the working-hours ETA lapses, then resume reminders.
     if (t.external_hold && t.external_set_at) {
       const held = businessMinutesBetween(t.external_set_at, now, holidaySet);
@@ -366,7 +384,7 @@ app.all('/api/cron/escalate', async (req, res) => {
     const tObj = { id: t.id, ref_no: t.ref_no, requester_name: t.requester_name,
       category_name: t.category_name, subject: t.subject };
     const named = [];
-    for (const h of recipients) { if (h.phone) { await wati.notify.reminder(h, tObj, label); sent++; } if (h.name) named.push(h.name); }
+    for (const h of recipients) { if (h.phone) { try { await wati.notify.reminder(h, tObj, label); } catch (e) { console.error('reminder send', t.id, e); } } if (h.name) named.push(h.name); }
 
     await q(`UPDATE tickets SET last_reminder_at=now(), escalation_level=$2,
              escalated_l2_at=CASE WHEN escalated_l2_at IS NULL THEN now() ELSE escalated_l2_at END,
@@ -374,9 +392,9 @@ app.all('/api/cron/escalate', async (req, res) => {
              WHERE id=$1`, [t.id, newLevel]);
     await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'reminder',$2)`,
       [t.id, `${label} · notified ${named.join(', ')}`]);
+    } catch (e) { console.error('escalate ticket', t.id, e); }
   }
-
-  res.json({ ok: true, scanned: tickets.length, fired, sent });
+  })());
 });
 
 // ---- Daily report PDF (token-guarded so the WhatsApp link opens without login) ----

@@ -1,12 +1,11 @@
 name: Ticket escalation reminders
 
-# Pings the escalation engine every 15 minutes. The endpoint itself only sends
-# during working hours (Mon–Sat 09:30–18:00 IST, minus holidays), so running
-# round-the-clock is harmless — off-hours runs simply no-op.
+# Pings the escalation engine every 15 minutes. The endpoint returns immediately and
+# sends reminders in the background, so this job is fast and only fails on a real 4xx/5xx.
 on:
   schedule:
     - cron: '*/15 * * * *'
-  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+  workflow_dispatch: {}
 
 jobs:
   ping:
@@ -14,6 +13,8 @@ jobs:
     steps:
       - name: Hit /api/cron/escalate
         run: |
-          curl -fsS -X POST "https://tickets.bharatsteels.in/api/cron/escalate" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            -w "\nHTTP %{http_code}\n"
+          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
+            "https://tickets.bharatsteels.in/api/cron/escalate" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"; echo "Response:"; cat /tmp/resp.txt; echo
+          if [ "$code" -ge 400 ]; then echo "::error::escalate returned $code"; exit 1; fi
