@@ -172,6 +172,14 @@ const TRIP_COLS = `id, employee_id, to_char(trip_date,'YYYY-MM-DD') AS trip_date
 router.get('/conveyance/:period', async (req, res) => {
   const period = req.params.period;
   if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  // Self-heal: if this employee no longer needs manager approval, clear any leftover
+  // "awaiting manager" trips (e.g. logged before the setting was turned off).
+  if (req.user.conveyance_needs_manager === false) {
+    await q(`UPDATE conveyance_trips SET status='approved', reviewed_at=now(),
+             approver_emp_id=NULL, approver_name=NULL, action_token=NULL
+             WHERE employee_id=$1 AND period=$2 AND status='pending' AND claim_ref IS NULL`,
+      [req.user.id, period]);
+  }
   // Working draft (created lazily at submit-time). May not exist yet — that's fine.
   const row = (await q(`SELECT * FROM expense_submissions WHERE employee_id=$1 AND form_type='conveyance' AND period=$2 AND status IN ('draft','returned') ORDER BY id DESC LIMIT 1`, [req.user.id, period])).rows[0] || null;
   // Prior claims for this month (submitted / paid). The month stays open alongside these.
