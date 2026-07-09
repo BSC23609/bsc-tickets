@@ -246,10 +246,19 @@ router.put('/conveyance/trip/:id', async (req, res) => {
   const km = parseFloat(b.km); const veh = b.vehicle === 'car' ? 'car' : 'bike';
   if (!b.date || !(km > 0)) return res.status(400).json({ error: 'Date and km are required.' });
   if (!inCycle(t.period, b.date)) return res.status(400).json({ error: 'Trip date is outside this cycle.' });
-  const mgr = await resolveManager(req.user.id);
-  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned.' });
   const pol = await getPolicy();
   const rate = pol.rates[veh]; const amount = +(km * rate).toFixed(2);
+  const needsMgr = req.user.conveyance_needs_manager !== false;
+  if (!needsMgr) {
+    // Employee doesn't need manager approval — keep the edited trip approved (don't send back to a manager).
+    const trip = (await q(`UPDATE conveyance_trips SET trip_date=$2,from_loc=$3,to_loc=$4,purpose=$5,vehicle=$6,
+      km=$7,rate=$8,amount=$9,status='approved',approver_emp_id=NULL,approver_name=NULL,reviewed_at=now(),
+      reject_reason=NULL,action_token=NULL,updated_at=now() WHERE id=$1 RETURNING ${TRIP_COLS}`,
+      [t.id, b.date, (b.from || '').trim(), (b.to || '').trim(), (b.purpose || '').trim(), veh, km, rate, amount])).rows[0];
+    return res.json({ ok: true, trip, auto: true });
+  }
+  const mgr = await resolveManager(req.user.id);
+  if (!mgr) return res.status(400).json({ error: 'No reporting manager assigned.' });
   const token = crypto.randomBytes(20).toString('hex');
   const trip = (await q(`UPDATE conveyance_trips SET trip_date=$2,from_loc=$3,to_loc=$4,purpose=$5,vehicle=$6,
     km=$7,rate=$8,amount=$9,status='pending',approver_emp_id=$10,approver_name=$11,reviewed_at=NULL,

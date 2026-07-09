@@ -132,6 +132,29 @@
       </div>
     </section>
 
+    <!-- Edit-trip modal -->
+    <div id="cv_edit_modal" class="fixed inset-0 bg-black/40 z-50 hidden items-center justify-center p-4">
+      <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+        <div class="p-4 border-b border-line flex items-center justify-between">
+          <h3 class="font-bold text-ink">Edit trip</h3>
+          <button onclick="cvEditClose()" class="text-slate-400 hover:text-ink text-xl leading-none">&times;</button>
+        </div>
+        <div class="p-4 grid grid-cols-2 gap-3">
+          <div><label class="fieldlabel">Date</label><input id="e_date" type="date" class="field"></div>
+          <div><label class="fieldlabel">Vehicle</label><select id="e_vehicle" class="field" onchange="cvEditPreview()"><option value="bike">Bike</option><option value="car">Car</option></select></div>
+          <div><label class="fieldlabel">From</label><input id="e_from" class="field" placeholder="From"></div>
+          <div><label class="fieldlabel">To</label><input id="e_to" class="field" placeholder="To"></div>
+          <div class="col-span-2"><label class="fieldlabel">Purpose</label><input id="e_purpose" class="field" placeholder="Purpose"></div>
+          <div><label class="fieldlabel">KM</label><input id="e_km" type="number" min="0" step="any" class="field text-right" oninput="cvEditPreview()"></div>
+          <div class="flex items-end pb-1"><div class="text-sm text-slate-500">Amount: <span id="e_amt" class="mono font-semibold text-ink">₹0</span></div></div>
+        </div>
+        <div class="p-4 border-t border-line flex justify-end gap-2">
+          <button onclick="cvEditClose()" class="btn-ghost text-sm">Cancel</button>
+          <button onclick="clickBusy(this,'Saving…',cvEditSave)" class="btn text-sm">Save changes</button>
+        </div>
+      </div>
+    </div>
+
     <!-- OUTSTATION -->
     <section id="tab-out" class="hidden">
       <div class="infobar mb-4">
@@ -316,7 +339,7 @@
       else if(pendingTrips>0){ lockBox.classList.remove('hidden');
         lockBox.textContent=`${pendingTrips} new trip${pendingTrips===1?'':'s'} awaiting manager approval. The Submit button opens once they're approved.`; }
       else if(!cv.can_submit && openTrips.length>0){ lockBox.classList.remove('hidden'); const [y,m]=period.split('-').map(Number);
-        const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
+        const next=new Date(y,m-1,26).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding trips through the month. The Submit button opens on ${next}.`; }
       else lockBox.classList.add('hidden');
       cvRenderClaims();
@@ -400,16 +423,27 @@
     function cvEditTrip(id){
       const t=cv.trips.find(x=>x.id===id); if(!t) return;
       cv.editingId=id;
-      document.getElementById('t_date').value=t.trip_date||'';
-      document.getElementById('t_from').value=t.from_loc||'';
-      document.getElementById('t_to').value=t.to_loc||'';
-      document.getElementById('t_purpose').value=t.purpose||'';
-      document.getElementById('t_vehicle').value=t.vehicle||'bike';
-      document.getElementById('t_km').value=t.km||'';
-      document.getElementById('t_add').textContent='Update & resend';
-      document.getElementById('t_cancel').classList.remove('hidden');
-      cvPreview();
-      document.getElementById('cv_addcard').scrollIntoView({behavior:'smooth',block:'center'});
+      const g=(x)=>document.getElementById(x);
+      g('e_date').value=t.trip_date||''; g('e_from').value=t.from_loc||''; g('e_to').value=t.to_loc||'';
+      g('e_purpose').value=t.purpose||''; g('e_vehicle').value=t.vehicle||'bike'; g('e_km').value=t.km||'';
+      try{ const {start,end}=cycleRange(cv.period); const today=new Date();
+        g('e_date').min=isoDate(start); g('e_date').max=isoDate(end<today?end:today); }catch(_){}
+      cvEditPreview();
+      const m=g('cv_edit_modal'); m.classList.remove('hidden'); m.classList.add('flex');
+    }
+    function cvEditClose(){ cv.editingId=null; const m=document.getElementById('cv_edit_modal'); m.classList.add('hidden'); m.classList.remove('flex'); }
+    function cvEditRate(){ const v=document.getElementById('e_vehicle').value; return meta.rates[v==='car'?'car':'bike']||0; }
+    function cvEditPreview(){ const km=parseFloat(document.getElementById('e_km').value)||0; document.getElementById('e_amt').textContent=fmtMoney(km>0?km*cvEditRate():0); }
+    async function cvEditSave(){
+      const v={ date:document.getElementById('e_date').value, from:document.getElementById('e_from').value.trim(),
+        to:document.getElementById('e_to').value.trim(), purpose:document.getElementById('e_purpose').value.trim(),
+        vehicle:document.getElementById('e_vehicle').value, km:document.getElementById('e_km').value };
+      if(!v.date) return toast('Pick the trip date','error');
+      if(!(parseFloat(v.km)>0)) return toast('Enter the distance in km','error');
+      try{ const r=await api('/expense/conveyance/trip/'+cv.editingId,{method:'PUT',body:v});
+        toast(r.auto?'Trip updated':'Trip updated & re-sent for approval','success');
+        cvEditClose(); await loadConveyance();
+      }catch(e){ toast(e.message,'error'); }
     }
     async function cvWithdrawTrip(id){
       if(!confirm('Withdraw this trip?')) return;
@@ -664,7 +698,7 @@
       sb.classList.toggle('hidden', !otDraft.can_submit);
       if(otDraft.status==='returned'){ lockBox.classList.remove('hidden'); lockBox.innerHTML=`<span class="text-red-600 font-semibold">Returned for changes:</span> ${esc(otDraft.return_reason||'')} — fix and resubmit.`; }
       else if(!otDraft.can_submit){ lockBox.classList.remove('hidden');
-        const [y,m]=period.split('-').map(Number); const next=new Date(y,m,1).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
+        const [y,m]=period.split('-').map(Number); const next=new Date(y,m-1,26).toLocaleDateString('en-IN',{day:'numeric',month:'long'});
         lockBox.textContent=`Keep adding through the month. The Submit button opens on ${next}.`; }
       else { lockBox.classList.add('hidden'); }
       refreshOut(false);
