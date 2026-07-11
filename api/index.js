@@ -294,6 +294,30 @@ app.get('/sso/go', require('../lib/auth').requireAuth, (req, res) => {
   res.redirect(`${base}?token=${encodeURIComponent(token)}`);
 });
 
+// ---- Cron: daily conveyance-trip nudge to reporting managers ----
+// Runs once each weekday morning (GitHub Actions). Protected by CRON_SECRET. Any manager
+// still sitting on pending trips gets a WhatsApp with the live one-tap approve links again
+// (or a single digest if CV_NUDGE_MODE=digest). Responds immediately; sends in background.
+app.all('/api/cron/trip-nudge', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+
+  const { rows } = await q(`SELECT COUNT(*)::int AS n FROM conveyance_trips t
+    JOIN employees m ON m.id = t.approver_emp_id
+    WHERE t.status='pending' AND t.claim_ref IS NULL AND m.active = TRUE`);
+  const pending = rows[0] ? rows[0].n : 0;
+  res.json({ ok: true, pending, queued: pending > 0 });
+
+  if (!pending) return;
+  require('../lib/bg').background((async () => {
+    try {
+      const out = await require('../routes/expense.routes').nudgeManagers();
+      console.log('[trip-nudge]', JSON.stringify(out));
+    } catch (e) { console.error('[trip-nudge] failed:', e.message); }
+  })());
+});
+
 // ---- Cron: working-hours reminder / escalation engine ----
 // Runs every ~15 min (GitHub Actions). Protected by CRON_SECRET. Only sends
 // during Mon–Sat 09:30–18:00 IST (minus holidays); timers count working minutes.

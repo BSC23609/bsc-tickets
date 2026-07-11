@@ -1,0 +1,21 @@
+name: Conveyance trip approval nudge
+
+# Reminds reporting managers about conveyance trips still awaiting their approval.
+# 04:30 UTC = 10:00 AM IST, Mon–Sat. The endpoint returns immediately and sends in the
+# background, so this job is fast and only fails on a real 4xx/5xx.
+on:
+  schedule:
+    - cron: '30 4 * * 1-6'
+  workflow_dispatch: {}
+
+jobs:
+  nudge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /api/cron/trip-nudge
+        run: |
+          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
+            "https://tickets.bharatsteels.in/api/cron/trip-nudge" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
+          echo "HTTP $code"; echo "Response:"; cat /tmp/resp.txt; echo
+          if [ "$code" -ge 400 ]; then echo "::error::trip-nudge returned $code"; exit 1; fi

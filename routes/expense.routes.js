@@ -146,6 +146,7 @@ router.get('/meta', async (req, res) => {
     is_hr_approver: req.user.is_admin || c.hr_approver_ids.includes(req.user.id),
     is_final_approver: req.user.is_admin || c.final_approver_ids.includes(req.user.id),
     is_accounts: req.user.is_admin || !!(c.accounts_notify_id && req.user.id === c.accounts_notify_id),
+    is_trip_manager: await isTripManager(req.user),
     me: { emp_no: req.user.emp_no, name: req.user.name, designation: req.user.job_title || '' }, hr_email: HR_EMAIL });
 });
 
@@ -354,6 +355,164 @@ async function applyTripReject(t, reason) {
     if (t.emp_phone) await wati.notify.conveyance.rejected({ name: t.emp_name, phone: t.emp_phone },
       { date_label: tripDateLabel(t.trip_date_s), route: tripRoute(t), approver_name: t.approver_name || 'your manager', reason: reason || '' });
   })());
+}
+
+// ================= Manager trip queue (in-app approval) =================
+// Managers approve/reject their team's conveyance trips inside the portal, so approvals no
+// longer depend on the one-tap WhatsApp link being received and tapped. Admins can act on
+// any trip (override), and every action records who really did it.
+function requireAdminUser(req, res, next) { if (!req.user.is_admin) return res.status(403).json({ error: 'Admin only' }); next(); }
+
+const PENDING_TRIP_COLS = `t.id, t.period, to_char(t.trip_date,'YYYY-MM-DD') AS trip_date,
+  t.from_loc, t.to_loc, t.purpose, t.vehicle, t.km, t.rate, t.amount, t.status,
+  t.logged_at, t.approver_emp_id, t.approver_name, (t.action_token IS NOT NULL) AS has_link,
+  e.id AS emp_id, e.name AS emp_name, e.emp_no AS emp_no`;
+
+const decorateTrip = (t) => ({ ...t, route: tripRoute(t), date_label: tripDateLabel(t.trip_date),
+  period_label: t.period ? monthLabel(t.period) : '', amount_label: fmtMoney(t.amount) });
+
+// Show the queue to anyone who is an active person's reporting manager, or who already has
+// trips parked on them (covers managers unset after trips were logged).
+async function isTripManager(u) {
+  if (u.is_admin) return true;
+  const r = await q(`SELECT 1 FROM employees WHERE reporting_manager_emp_id=$1 AND active=TRUE LIMIT 1`, [u.id]);
+  if (r.rows.length) return true;
+  const p = await q(`SELECT 1 FROM conveyance_trips WHERE approver_emp_id=$1 AND status='pending' LIMIT 1`, [u.id]);
+  return p.rows.length > 0;
+}
+
+async function loadTripForAction(id) {
+  return (await q(`SELECT t.*, to_char(t.trip_date,'YYYY-MM-DD') AS trip_date_s,
+    e.name AS emp_name, e.phone AS emp_phone
+    FROM conveyance_trips t JOIN employees e ON e.id = t.employee_id WHERE t.id=$1`, [id])).rows[0] || null;
+}
+const canActOnTrip = (u, t) => u.is_admin || t.approver_emp_id === u.id;
+// Admin acting for someone else is stamped as such, so the PDF/history shows the truth.
+const actorLabel = (u, t) => (t.approver_emp_id === u.id)
+  ? (t.approver_name || u.name)
+  : `${u.name} (admin for ${t.approver_name || 'manager'})`;
+
+async function actOnTrip(user, id, decision, reason) {
+  const t = await loadTripForAction(id);
+  if (!t) return { code: 404, error: 'Trip not found.' };
+  if (!canActOnTrip(user, t)) return { code: 403, error: 'This trip is not yours to approve.' };
+  if (t.claim_ref) return { code: 409, error: 'This trip is already in a submitted claim.' };
+  if (t.status !== 'pending') return { code: 409, error: `This trip is already ${t.status}.` };
+  const label = actorLabel(user, t);
+  await q(`UPDATE conveyance_trips SET approver_name=$2 WHERE id=$1`, [t.id, label]);
+  const withActor = { ...t, approver_name: label };
+  if (decision === 'approve') await applyTripApprove(withActor);
+  else await applyTripReject(withActor, reason);
+  return { ok: true };
+}
+
+// Trips waiting on ME (the logged-in manager).
+router.get('/trip-approvals', async (req, res) => {
+  const { rows } = await q(`SELECT ${PENDING_TRIP_COLS} FROM conveyance_trips t
+    JOIN employees e ON e.id = t.employee_id
+    WHERE t.status='pending' AND t.claim_ref IS NULL AND t.approver_emp_id=$1
+    ORDER BY e.name, t.trip_date`, [req.user.id]);
+  res.json(rows.map(decorateTrip));
+});
+
+// Admin: every pending trip in the org, with the manager it's stuck on.
+router.get('/admin/pending-trips', requireAdminUser, async (req, res) => {
+  const { rows } = await q(`SELECT ${PENDING_TRIP_COLS}, m.name AS mgr_name, m.phone AS mgr_phone
+    FROM conveyance_trips t
+    JOIN employees e ON e.id = t.employee_id
+    LEFT JOIN employees m ON m.id = t.approver_emp_id
+    WHERE t.status='pending' AND t.claim_ref IS NULL
+    ORDER BY e.name, t.trip_date`);
+  res.json(rows.map(decorateTrip));
+});
+
+router.post('/trip/:id/approve', async (req, res) => {
+  const r = await actOnTrip(req.user, req.params.id, 'approve');
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  res.json({ ok: true });
+});
+
+router.post('/trip/:id/reject', async (req, res) => {
+  const reason = String((req.body && req.body.reason) || '').trim();
+  if (!reason) return res.status(400).json({ error: 'Give a reason so the employee can fix it.' });
+  const r = await actOnTrip(req.user, req.params.id, 'reject', reason);
+  if (r.error) return res.status(r.code).json({ error: r.error });
+  res.json({ ok: true });
+});
+
+// Approve many at once (the whole month in one click). Skips anything not actionable.
+router.post('/trips/bulk-approve', async (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+  if (!ids.length) return res.status(400).json({ error: 'Select at least one trip.' });
+  let approved = 0, skipped = 0;
+  for (const id of ids) {
+    const r = await actOnTrip(req.user, id, 'approve');
+    if (r.ok) approved++; else skipped++;
+  }
+  res.json({ ok: true, approved, skipped });
+});
+
+// Re-send the WhatsApp approve links / digest on demand. Managers can nudge themselves;
+// admins can nudge everyone (or one manager) — the same engine the daily cron uses.
+router.post('/trips/nudge', async (req, res) => {
+  const target = (req.body && req.body.manager_id) ? Number(req.body.manager_id) : null;
+  if (!req.user.is_admin && target && target !== req.user.id) return res.status(403).json({ error: 'Admin only' });
+  const managerId = req.user.is_admin ? target : req.user.id;
+  const out = await nudgeManagers({ managerId });
+  res.json({ ok: true, ...out });
+});
+
+// Daily WhatsApp nudge to every manager sitting on pending trips.
+//   mode 'resend'  (default) — re-sends the existing, Meta-approved conveyance_request template
+//                              for each pending trip, so the manager gets live one-tap links again.
+//   mode 'digest'            — one summary message per manager (needs the conveyance_pending
+//                              template approved in WATI first). Set CV_NUDGE_MODE=digest to switch.
+async function nudgeManagers({ managerId = null, mode = null } = {}) {
+  const M = String(mode || process.env.CV_NUDGE_MODE || 'resend').toLowerCase();
+  const CAP = Number(process.env.CV_NUDGE_MAX_TRIPS || 6);   // don't blast 30 messages at one manager
+  const { rows } = await q(`SELECT t.id, to_char(t.trip_date,'YYYY-MM-DD') AS trip_date,
+      t.from_loc, t.to_loc, t.purpose, t.amount, t.action_token, t.approver_emp_id,
+      m.name AS mgr_name, m.phone AS mgr_phone, e.name AS emp_name
+    FROM conveyance_trips t
+    JOIN employees e ON e.id = t.employee_id
+    JOIN employees m ON m.id = t.approver_emp_id
+    WHERE t.status='pending' AND t.claim_ref IS NULL
+      AND m.active = TRUE AND m.phone IS NOT NULL AND m.phone <> ''
+      AND ($1::int IS NULL OR t.approver_emp_id = $1)
+    ORDER BY t.approver_emp_id, t.trip_date`, [managerId]);
+
+  const byMgr = new Map();
+  for (const r of rows) {
+    if (!byMgr.has(r.approver_emp_id)) byMgr.set(r.approver_emp_id, []);
+    byMgr.get(r.approver_emp_id).push(r);
+  }
+
+  let sent = 0, failed = 0;
+  for (const [mid, trips] of byMgr) {
+    const mgr = { id: mid, name: trips[0].mgr_name, phone: trips[0].mgr_phone };
+    const total = trips.reduce((s, t) => s + Number(t.amount || 0), 0);
+    if (M === 'digest') {
+      // One summary message. Per-manager, so a single failure can't abort the run.
+      try {
+        await wati.notify.conveyance.pending(mgr, {
+          count: String(trips.length), total_label: fmtMoney(total),
+          oldest: tripDateLabel(trips[0].trip_date),
+          people: [...new Set(trips.map(t => t.emp_name))].join(', '),
+        });
+        sent++;
+      } catch (e) { failed++; console.error('[trip-nudge] digest failed for', mgr.name, e.message); }
+    } else {
+      for (const t of trips.slice(0, CAP)) {
+        try {
+          await wati.notify.conveyance.request(mgr, {
+            requester: t.emp_name, date_label: tripDateLabel(t.trip_date), route: tripRoute(t),
+            amount_label: fmtMoney(t.amount), action_token: t.action_token });
+          sent++;
+        } catch (e) { failed++; console.error('[trip-nudge] trip', t.id, 'failed:', e.message); }
+      }
+    }
+  }
+  return { managers: byMgr.size, trips: rows.length, sent, failed, mode: M };
 }
 
 
@@ -755,4 +914,5 @@ router.post('/report/:period/send', async (req, res) => {
 });
 
 module.exports = router;
-module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, loadTripByToken, applyTripApprove, applyTripReject };
+module.exports.nudgeManagers = nudgeManagers;
+module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, loadTripByToken, applyTripApprove, applyTripReject, nudgeManagers };
