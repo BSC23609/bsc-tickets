@@ -1,8 +1,7 @@
 name: Conveyance trip approval nudge
 
 # Reminds reporting managers about conveyance trips still awaiting their approval.
-# 04:30 UTC = 10:00 AM IST, Mon–Sat. The endpoint returns immediately and sends in the
-# background, so this job is fast and only fails on a real 4xx/5xx.
+# 04:30 UTC = 10:00 AM IST, Mon-Sat. Same retry / 5xx tolerance as the escalation job.
 on:
   schedule:
     - cron: '30 4 * * 1-6'
@@ -14,8 +13,26 @@ jobs:
     steps:
       - name: Hit /api/cron/trip-nudge
         run: |
-          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
-            "https://tickets.bharatsteels.in/api/cron/trip-nudge" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-          echo "HTTP $code"; echo "Response:"; cat /tmp/resp.txt; echo
-          if [ "$code" -ge 400 ]; then echo "::error::trip-nudge returned $code"; exit 1; fi
+          hit() {
+            curl -sS --max-time 70 -o /tmp/resp.txt -w "%{http_code}" -X POST \
+              "https://tickets.bharatsteels.in/api/cron/trip-nudge" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || echo "000"
+          }
+          code=$(hit)
+          echo "HTTP $code"; cat /tmp/resp.txt; echo
+
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::first attempt returned $code - retrying in 20s"
+            sleep 20
+            code=$(hit)
+            echo "retry HTTP $code"; cat /tmp/resp.txt; echo
+          fi
+
+          if [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+            echo "::error::trip-nudge returned $code - check CRON_SECRET / route"; exit 1
+          fi
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::trip-nudge still $code after retry - safe to skip, it runs again tomorrow"
+            exit 0
+          fi
+          echo "OK"

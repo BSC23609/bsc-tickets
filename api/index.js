@@ -327,10 +327,21 @@ app.all('/api/cron/escalate', async (req, res) => {
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
   const wati = require('../lib/wati');
-  const { businessMinutesBetween, isWorkingNow, elapsedLabel } = require('../lib/util');
+  const { businessMinutesBetween, isWorkingNow, isWorkingClock, elapsedLabel } = require('../lib/util');
+
+  // Clock check FIRST — no DB. Most runs (nights, Sundays) exit here in milliseconds. Hitting
+  // Neon before this woke a suspended compute just to say "nothing to do", and the cold start
+  // could exceed maxDuration and return 504 to the GitHub job.
+  if (!isWorkingClock()) return res.json({ ok: true, skipped: 'outside working hours', sent: 0 });
 
   const holidaySet = new Set((await q(`SELECT to_char(d,'YYYY-MM-DD') AS d FROM holidays`)).rows.map(r => r.d));
-  if (!isWorkingNow(holidaySet)) return res.json({ ok: true, skipped: 'outside working hours', sent: 0 });
+  if (!isWorkingNow(holidaySet)) return res.json({ ok: true, skipped: 'holiday', sent: 0 });
+
+  // Time budget: waitUntil() work still counts against the function's maxDuration, so we stop
+  // sending before we hit it and let the next 15-min run pick up the rest (all sends are
+  // idempotent — last_reminder_at guards them).
+  const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
+  const outOfTime = () => Date.now() > DEADLINE;
 
   const { rows: tickets } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.priority, t.status, t.escalation_level,
@@ -370,6 +381,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   const now = Date.now();
   let fired = 0;
   for (const t of tickets) {
+    if (outOfTime()) { console.warn('[escalate] budget spent — remaining tickets deferred to next run'); break; }
     try {
     // On external/vendor hold: stay quiet until the working-hours ETA lapses, then resume reminders.
     if (t.external_hold && t.external_set_at) {
@@ -410,6 +422,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   }
   // Resolved-ticket confirm/reopen nudges (re-sent ~hourly until the requester acts).
   for (const t of nudgeTix) {
+    if (outOfTime()) { console.warn('[escalate] budget spent — remaining nudges deferred to next run'); break; }
     try {
       if (t.requester_phone && t.confirm_token) {
         await wati.notify.resolved({ id: t.requester_id, name: t.requester_name, phone: t.requester_phone },

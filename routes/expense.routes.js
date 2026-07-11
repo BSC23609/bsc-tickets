@@ -470,6 +470,9 @@ router.post('/trips/nudge', async (req, res) => {
 async function nudgeManagers({ managerId = null, mode = null } = {}) {
   const M = String(mode || process.env.CV_NUDGE_MODE || 'resend').toLowerCase();
   const CAP = Number(process.env.CV_NUDGE_MAX_TRIPS || 6);   // don't blast 30 messages at one manager
+  // Same time budget as the escalation cron: never let a slow WATI run overrun the function.
+  const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
+  const outOfTime = () => Date.now() > DEADLINE;
   const { rows } = await q(`SELECT t.id, to_char(t.trip_date,'YYYY-MM-DD') AS trip_date,
       t.from_loc, t.to_loc, t.purpose, t.amount, t.action_token, t.approver_emp_id,
       m.name AS mgr_name, m.phone AS mgr_phone, e.name AS emp_name
@@ -487,8 +490,9 @@ async function nudgeManagers({ managerId = null, mode = null } = {}) {
     byMgr.get(r.approver_emp_id).push(r);
   }
 
-  let sent = 0, failed = 0;
+  let sent = 0, failed = 0, deferred = 0;
   for (const [mid, trips] of byMgr) {
+    if (outOfTime()) { deferred++; continue; }
     const mgr = { id: mid, name: trips[0].mgr_name, phone: trips[0].mgr_phone };
     const total = trips.reduce((s, t) => s + Number(t.amount || 0), 0);
     if (M === 'digest') {
@@ -503,6 +507,7 @@ async function nudgeManagers({ managerId = null, mode = null } = {}) {
       } catch (e) { failed++; console.error('[trip-nudge] digest failed for', mgr.name, e.message); }
     } else {
       for (const t of trips.slice(0, CAP)) {
+        if (outOfTime()) { deferred++; break; }
         try {
           await wati.notify.conveyance.request(mgr, {
             requester: t.emp_name, date_label: tripDateLabel(t.trip_date), route: tripRoute(t),
@@ -512,7 +517,7 @@ async function nudgeManagers({ managerId = null, mode = null } = {}) {
       }
     }
   }
-  return { managers: byMgr.size, trips: rows.length, sent, failed, mode: M };
+  return { managers: byMgr.size, trips: rows.length, sent, failed, deferred, mode: M };
 }
 
 

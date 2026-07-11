@@ -1,7 +1,11 @@
 name: Ticket escalation reminders
 
-# Pings the escalation engine every 15 minutes. The endpoint returns immediately and
-# sends reminders in the background, so this job is fast and only fails on a real 4xx/5xx.
+# Pings the escalation engine every 15 minutes. The endpoint now checks the clock BEFORE
+# touching the database, so out-of-hours runs return instantly without waking a suspended Neon.
+#
+# Retry + 5xx tolerance: the work is idempotent (last_reminder_at guards every send) and the job
+# runs again in 15 minutes, so a transient gateway hiccup or cold-start timeout is a warning, not
+# a failure. Real problems — bad CRON_SECRET (401), broken route (404) — still fail loudly.
 on:
   schedule:
     - cron: '*/15 * * * *'
@@ -13,8 +17,26 @@ jobs:
     steps:
       - name: Hit /api/cron/escalate
         run: |
-          code=$(curl -sS -o /tmp/resp.txt -w "%{http_code}" -X POST \
-            "https://tickets.bharatsteels.in/api/cron/escalate" \
-            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}")
-          echo "HTTP $code"; echo "Response:"; cat /tmp/resp.txt; echo
-          if [ "$code" -ge 400 ]; then echo "::error::escalate returned $code"; exit 1; fi
+          hit() {
+            curl -sS --max-time 70 -o /tmp/resp.txt -w "%{http_code}" -X POST \
+              "https://tickets.bharatsteels.in/api/cron/escalate" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || echo "000"
+          }
+          code=$(hit)
+          echo "HTTP $code"; cat /tmp/resp.txt; echo
+
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::first attempt returned $code - retrying in 20s"
+            sleep 20
+            code=$(hit)
+            echo "retry HTTP $code"; cat /tmp/resp.txt; echo
+          fi
+
+          if [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+            echo "::error::escalate returned $code - check CRON_SECRET / route"; exit 1
+          fi
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::escalate still $code after retry - sends are idempotent, next run in 15 min catches up"
+            exit 0
+          fi
+          echo "OK"
