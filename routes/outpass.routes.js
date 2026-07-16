@@ -9,7 +9,7 @@ const wati = require('../lib/wati');
 const graph = require('../lib/graph');
 const oexcel = require('../lib/outpass_excel');
 const { background } = require('../lib/bg');
-const { nextOutpassRefNo } = require('../lib/util');
+const { nextOutpassRefNo, istClockToMs, haversineMeters } = require('../lib/util');
 const { buildOutpassPDF } = require('../lib/outpass_pdf');
 
 const router = express.Router();
@@ -162,8 +162,12 @@ router.get('/:id', async (req, res) => {
 // ---- shared approve/reject core (used by the app routes AND the WhatsApp one-tap links) ----
 async function applyApprove(o, actorId, actorName) {
   const token = crypto.randomBytes(16).toString('hex');
+  // For a gatepass, resolve the declared in_time into a real instant so the overdue watcher
+  // has something to compare against. Outpasses (no return) leave this null.
+  const expBack = (o.type === 'gatepass') ? istClockToMs(o.req_date, o.in_time) : null;
   await q(`UPDATE outpass_requests SET status='approved', actioned_by_id=$2, actioned_by_name=$3,
-           actioned_at=now(), pdf_token=$4 WHERE id=$1`, [o.id, actorId, actorName, token]);
+           actioned_at=now(), pdf_token=$4, expected_back_at=$5 WHERE id=$1`,
+          [o.id, actorId, actorName, token, expBack ? new Date(expBack) : null]);
   background((async () => {
     const full = (await q(
       `SELECT o.*, r.emp_no AS req_code, r.name AS req_name, r.job_title AS designation, r.phone AS req_phone
@@ -216,5 +220,161 @@ router.post('/:id/reject', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================================
+//  RETURN TRACKING · LIVE BOARD · OVERSTAY MONITORING
+// ============================================================================
+
+// Geofence config lives in app_settings so admin can move/resize it without a deploy.
+async function gateConfig() {
+  const rows = (await q(`SELECT key, value FROM app_settings WHERE key IN
+    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id')`)).rows;
+  const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    lat: m.gate_lat != null ? Number(m.gate_lat) : (process.env.GATE_LAT ? Number(process.env.GATE_LAT) : null),
+    lng: m.gate_lng != null ? Number(m.gate_lng) : (process.env.GATE_LNG ? Number(process.env.GATE_LNG) : null),
+    radius: Number(m.gate_radius_m || process.env.GATE_RADIUS_M || 150),
+    overdueMin: Number(m.outpass_overdue_min || process.env.OUTPASS_OVERDUE_MIN || 5),
+    hrEmpId: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : (process.env.OUTPASS_HR_EMP_ID ? Number(process.env.OUTPASS_HR_EMP_ID) : null),
+  };
+}
+
+// A pass is "out" if it's an approved gatepass with an expected return and no return recorded.
+const OPEN_WHERE = `o.status='approved' AND o.type='gatepass'
+  AND o.expected_back_at IS NOT NULL AND o.returned_at IS NULL`;
+
+function decorateOpen(o) {
+  const now = Date.now();
+  const exp = o.expected_back_at ? +new Date(o.expected_back_at) : null;
+  const overdueMin = exp ? Math.floor((now - exp) / 60000) : 0;
+  return {
+    id: o.id, ref_no: o.ref_no, requester: o.req_name, emp_no: o.req_code,
+    department: o.department || '', purpose: o.purpose || '', out_time: o.out_time,
+    expected_in: o.in_time, approver: o.actioned_by_name || o.approver_label || '',
+    expected_back_at: o.expected_back_at, overdue_min: Math.max(0, overdueMin),
+    overdue: overdueMin > 0,
+  };
+}
+
+const openBoardSql = `SELECT o.*, r.name AS req_name, r.emp_no AS req_code, r.department
+  FROM outpass_requests o JOIN employees r ON r.id=o.requester_id
+  WHERE ${OPEN_WHERE} ORDER BY o.expected_back_at ASC`;
+
+// Who may see the monitoring board / mark returns on others' passes: admins, HR, and anyone
+// who approves passes (dept heads, designated approvers).
+async function isOutpassMonitor(u) {
+  if (u.is_admin) return true;
+  const cfg = await gateConfig();
+  if (cfg.hrEmpId && u.id === cfg.hrEmpId) return true;
+  const a = await q(`SELECT 1 FROM outpass_requests WHERE approver_id=$1 LIMIT 1`, [u.id]);
+  if (a.rows.length) return true;
+  const d = await q(`SELECT 1 FROM dept_approvers WHERE head_emp_id=$1 AND active=TRUE LIMIT 1`, [u.id]);
+  return d.rows.length > 0;
+}
+
+// --- expose monitor flag + gate config to the frontend ---
+router.get('/monitor-meta', async (req, res) => {
+  const cfg = await gateConfig();
+  res.json({
+    is_monitor: await isOutpassMonitor(req.user), is_admin: !!req.user.is_admin,
+    gate: { lat: cfg.lat, lng: cfg.lng, radius: cfg.radius, configured: cfg.lat != null && cfg.lng != null },
+    overdue_min: cfg.overdueMin,
+  });
+});
+
+// --- live "Currently Out" board (monitors only) ---
+router.get('/currently-out', async (req, res) => {
+  if (!(await isOutpassMonitor(req.user))) return res.status(403).json({ error: 'Not allowed' });
+  const rows = (await q(openBoardSql)).rows.map(decorateOpen);
+  res.json({ out: rows, overdue: rows.filter((r) => r.overdue).length, total: rows.length });
+});
+
+// --- the current user's OWN open gatepass(es) — powers the /gate self-return page ---
+router.get('/my-open', async (req, res) => {
+  const rows = (await q(`${openBoardSql.replace('ORDER BY', 'AND o.requester_id=$1 ORDER BY')}`, [req.user.id])).rows.map(decorateOpen);
+  res.json(rows);
+});
+
+// --- employee self-return with GPS (called from /gate) ---
+router.post('/:id/return-gps', async (req, res) => {
+  const { lat, lng, accuracy } = req.body || {};
+  const o = (await q(`SELECT * FROM outpass_requests WHERE id=$1`, [req.params.id])).rows[0];
+  if (!o) return res.status(404).json({ error: 'Pass not found' });
+  if (o.requester_id !== req.user.id) return res.status(403).json({ error: 'This is not your gatepass' });
+  if (o.returned_at) return res.status(409).json({ error: 'Return already recorded' });
+  if (o.status !== 'approved' || o.type !== 'gatepass') return res.status(409).json({ error: 'Not an open gatepass' });
+  if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Location required. Please allow location access.' });
+
+  const cfg = await gateConfig();
+  if (cfg.lat == null || cfg.lng == null) return res.status(503).json({ error: 'Gate location is not configured yet. Please ask admin.' });
+  const dist = Math.round(haversineMeters(lat, lng, cfg.lat, cfg.lng));
+  // Radius is padded by the reading's own accuracy so a fuzzy-but-honest fix near the gate isn't
+  // wrongly rejected — but we never pad by more than 100m of slop.
+  const allow = cfg.radius + Math.min(Number(accuracy) || 0, 100);
+  if (dist > allow) {
+    return res.status(422).json({ error: `You appear to be ${dist} m from the gate. Please scan again at the gate.`, distance_m: dist });
+  }
+  await q(`UPDATE outpass_requests SET returned_at=now(), returned_via='gps', return_verified=TRUE,
+           returned_by_id=$2, return_lat=$3, return_lng=$4, return_accuracy_m=$5, return_distance_m=$6 WHERE id=$1`,
+          [o.id, req.user.id, lat, lng, Number(accuracy) || null, dist]);
+  res.json({ ok: true, distance_m: dist });
+});
+
+// --- monitor override: mark a return manually (covers "return never logged") ---
+router.post('/:id/return-manual', async (req, res) => {
+  if (!(await isOutpassMonitor(req.user))) return res.status(403).json({ error: 'Not allowed' });
+  const o = (await q(`SELECT * FROM outpass_requests WHERE id=$1`, [req.params.id])).rows[0];
+  if (!o) return res.status(404).json({ error: 'Pass not found' });
+  if (o.returned_at) return res.status(409).json({ error: 'Return already recorded' });
+  if (o.status !== 'approved' || o.type !== 'gatepass') return res.status(409).json({ error: 'Not an open gatepass' });
+  const via = req.user.is_admin ? 'admin' : 'approver';
+  await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE, returned_by_id=$3 WHERE id=$1`,
+          [o.id, via, req.user.id]);
+  res.json({ ok: true });
+});
+
+// --- overstay report: per-person stats over a month (monitors only) ---
+router.get('/overstay-report', async (req, res) => {
+  if (!(await isOutpassMonitor(req.user))) return res.status(403).json({ error: 'Not allowed' });
+  const ym = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month
+    : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }).slice(0, 7);
+  // overstay minutes = actual return − expected return (only when returned & we know both);
+  // "not returned" = still open OR closed with no return recorded.
+  const rows = (await q(
+    `SELECT r.name AS requester, r.emp_no, r.department,
+       COUNT(*)::int AS gatepasses,
+       COUNT(*) FILTER (WHERE o.returned_at IS NOT NULL AND o.returned_at > o.expected_back_at)::int AS late_returns,
+       COUNT(*) FILTER (WHERE o.returned_at IS NULL)::int AS not_recorded,
+       COALESCE(SUM(GREATEST(0, EXTRACT(EPOCH FROM (o.returned_at - o.expected_back_at))/60))
+                FILTER (WHERE o.returned_at IS NOT NULL),0)::int AS overstay_min,
+       COALESCE(MAX(GREATEST(0, EXTRACT(EPOCH FROM (o.returned_at - o.expected_back_at))/60))
+                FILTER (WHERE o.returned_at IS NOT NULL),0)::int AS worst_min
+     FROM outpass_requests o JOIN employees r ON r.id=o.requester_id
+     WHERE o.type='gatepass' AND o.status='approved' AND o.expected_back_at IS NOT NULL
+       AND to_char(o.expected_back_at AT TIME ZONE 'Asia/Kolkata','YYYY-MM') = $1
+     GROUP BY r.name, r.emp_no, r.department
+     HAVING COUNT(*) FILTER (WHERE o.returned_at IS NULL OR o.returned_at > o.expected_back_at) > 0
+     ORDER BY not_recorded DESC, overstay_min DESC`, [ym])).rows;
+  res.json({ month: ym, rows });
+});
+
+
+// --- overdue watcher, driven by the cron. Returns rows to alert on; caller sends the WATI. ---
+async function findOverdue(overdueMin) {
+  return (await q(
+    `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at,
+            r.name AS req_name, r.department,
+            ap.name AS approver_name, ap.phone AS approver_phone
+     FROM outpass_requests o
+     JOIN employees r ON r.id=o.requester_id
+     LEFT JOIN employees ap ON ap.id=o.approver_id
+     WHERE ${OPEN_WHERE}
+       AND o.expected_back_at < (now() - ($1 || ' minutes')::interval)
+       AND o.overdue_alert_at IS NULL
+     ORDER BY o.expected_back_at ASC`, [String(overdueMin)])).rows;
+}
+async function markOverdueAlerted(id) {
+  await q(`UPDATE outpass_requests SET overdue_alert_at=now() WHERE id=$1`, [id]);
+}
+
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markOverdueAlerted, decorateOpen };

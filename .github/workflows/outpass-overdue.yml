@@ -1,0 +1,40 @@
+name: Outpass overdue watcher
+
+# Checks every 5 minutes for approved gatepasses that are past their expected return with no
+# return recorded, and WhatsApps the approver + HR (once per pass). The endpoint clock-gates
+# itself (broad watch window, no DB) so out-of-window runs return instantly without waking Neon.
+# Same retry / 5xx tolerance as the other crons — the work is idempotent.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /api/cron/outpass-overdue
+        run: |
+          hit() {
+            curl -sS --max-time 70 -o /tmp/resp.txt -w "%{http_code}" -X POST \
+              "https://tickets.bharatsteels.in/api/cron/outpass-overdue" \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || echo "000"
+          }
+          code=$(hit)
+          echo "HTTP $code"; cat /tmp/resp.txt; echo
+
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::first attempt returned $code - retrying in 20s"
+            sleep 20
+            code=$(hit)
+            echo "retry HTTP $code"; cat /tmp/resp.txt; echo
+          fi
+
+          if [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+            echo "::error::outpass-overdue returned $code - check CRON_SECRET / route"; exit 1
+          fi
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::still $code after retry - alerts are idempotent, next run catches up"
+            exit 0
+          fi
+          echo "OK"

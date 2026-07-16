@@ -23,6 +23,9 @@ app.get('/og/:id', (req, res) =>
 app.get('/e/:id', (req, res) =>
   res.redirect('/?claim=' + encodeURIComponent(req.params.id)));
 
+// Gate self-return: the QR poster points here. Static page handles auth + GPS.
+app.get('/gate', (req, res) => res.redirect('/gate.html'));
+
 // One-tap approve/reject straight from the WhatsApp buttons (token = the request's
 // action_token). No login: the unguessable token is the authorisation. Single-use
 // (a second tap shows the current status) and dead once the pass date has passed.
@@ -457,6 +460,47 @@ app.get('/api/report/daily.pdf', async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="daily-report-${date}.pdf"`);
     res.send(pdf);
   } catch (e) { console.error('report pdf', e); res.status(500).send('report error'); }
+});
+
+// ---- Cron: overdue-gatepass watcher ----
+// Runs every ~5 min. Clock-gated (broad watch window, no DB) so night/Sunday runs skip before
+// waking Neon. For each gatepass past its expected return + threshold with no return yet, it
+// WhatsApps the approver + HR once (overdue_alert_at dedupes). Idempotent — safe to re-run.
+app.all('/api/cron/outpass-overdue', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+
+  const { isOutpassWatchClock } = require('../lib/util');
+  const startMin = Number(process.env.OUTPASS_WATCH_START_MIN || 8 * 60);
+  const endMin = Number(process.env.OUTPASS_WATCH_END_MIN || 20 * 60);
+  if (!isOutpassWatchClock(startMin, endMin)) return res.json({ ok: true, skipped: 'outside watch window' });
+
+  const op = require('../routes/outpass.routes')._internal;
+  const cfg = await op.gateConfig();
+  const overdue = await op.findOverdue(cfg.overdueMin);
+  res.json({ ok: true, overdue: overdue.length });   // respond now; send in background
+  if (!overdue.length) return;
+
+  require('../lib/bg').background((async () => {
+    const wati = require('../lib/wati');
+    const { fmtDateTime } = { fmtDateTime: (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) };
+    // Resolve HR once.
+    let hr = null;
+    if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
+    const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
+    for (const o of overdue) {
+      if (Date.now() > DEADLINE) { console.warn('[outpass-overdue] budget spent, rest deferred'); break; }
+      const mins = Math.max(cfg.overdueMin, Math.floor((Date.now() - +new Date(o.expected_back_at)) / 60000));
+      const payload = { employee: o.req_name, ref: o.ref_no, out_time: o.out_time,
+        expected: o.in_time, overdue_min: mins, purpose: o.purpose };
+      try {
+        if (o.approver_phone) await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload);
+        if (hr && hr.phone) await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
+        await op.markOverdueAlerted(o.id);   // mark only after a send attempt, so a crash re-tries
+      } catch (e) { console.error('[outpass-overdue] alert failed for', o.ref_no, e.message); }
+    }
+  })());
 });
 
 // ---- Cron: 6:30pm IST daily report — overall recipients + per-person subscribers ----

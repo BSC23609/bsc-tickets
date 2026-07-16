@@ -46,6 +46,7 @@
       <button data-tab="loc" data-active="false" class="tabBtn tab">Locations</button>
       <button data-tab="ogappr" data-active="false" class="tabBtn tab">Outpass approvers</button>
       <button data-tab="trips" data-active="false" class="tabBtn tab">Conveyance trips</button>
+      <button data-tab="gate" data-active="false" class="tabBtn tab">Gate monitor</button>
       <button data-tab="exp" data-active="false" class="tabBtn tab">Expense policy</button>
     </div>
 
@@ -264,6 +265,49 @@
     </section>
 
     <!-- EXPENSE POLICY -->
+    <!-- GATE MONITOR (outpass return tracking) -->
+    <section id="tab-gate" class="hidden">
+      <div class="card p-5 mb-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <div class="eyebrow">Currently out</div>
+            <p class="text-xs text-slate-500 mt-1">Approved gatepasses with no return recorded yet. Rows turn red once past the expected return time. Mark a return manually if someone came back but didn't scan.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span id="gateAuto" class="text-[11px] text-slate-400"></span>
+            <button onclick="loadCurrentlyOut()" class="btn-ghost text-sm">Refresh</button>
+          </div>
+        </div>
+        <div id="outBoard" class="mt-4 overflow-x-auto"></div>
+      </div>
+
+      <div class="card p-5 mb-5">
+        <div class="eyebrow">Overstay report</div>
+        <div class="flex items-center gap-2 mt-2 mb-3">
+          <input type="month" id="osMonth" class="inp !py-1 !text-sm" onchange="loadOverstay()">
+          <button onclick="loadOverstay()" class="btn-ghost text-sm">Load</button>
+        </div>
+        <div id="osTable" class="overflow-x-auto"></div>
+      </div>
+
+      <div class="card p-5">
+        <div class="eyebrow">Gate location &amp; rules</div>
+        <p class="text-xs text-slate-500 mt-1 mb-3">The self-return QR only accepts a scan within the radius below. Stand at the gate and tap <b>Capture my location</b> from a phone to set the centre.</p>
+        <div class="grid sm:grid-cols-2 gap-3 max-w-2xl">
+          <div><label class="lbl">Gate latitude</label><input id="gsLat" class="inp" placeholder="e.g. 13.1143"></div>
+          <div><label class="lbl">Gate longitude</label><input id="gsLng" class="inp" placeholder="e.g. 80.1548"></div>
+          <div><label class="lbl">Radius (metres)</label><input id="gsRadius" type="number" class="inp" placeholder="150"></div>
+          <div><label class="lbl">Overdue after (minutes)</label><input id="gsOverdue" type="number" class="inp" placeholder="5"></div>
+          <div class="sm:col-span-2"><label class="lbl">HR (also receives overdue alerts)</label><select id="gsHr" class="inp"></select></div>
+        </div>
+        <div class="flex gap-2 mt-4">
+          <button onclick="captureGate()" class="btn-ghost text-sm">📍 Capture my location</button>
+          <button onclick="saveGate()" class="btn text-sm">Save gate settings</button>
+        </div>
+        <div id="gsStatus" class="text-xs mt-2"></div>
+      </div>
+    </section>
+
     <!-- CONVEYANCE TRIPS (admin override) -->
     <section id="tab-trips" class="hidden">
       <div class="card p-5">
@@ -384,6 +428,88 @@
       setCleanupRange(3);
     }
 
+    // ===================== GATE MONITOR (outpass return tracking) =====================
+    let gateTimer = null;
+    function openGateTab() {
+      if (!document.getElementById('osMonth').value)
+        document.getElementById('osMonth').value = new Date().toISOString().slice(0,7);
+      loadGateSettings(); loadCurrentlyOut(); loadOverstay();
+      clearInterval(gateTimer);
+      gateTimer = setInterval(() => { if (!document.getElementById('tab-gate').classList.contains('hidden')) loadCurrentlyOut(); }, 60000);
+    }
+    const mins = (n) => { n = Math.max(0, n|0); const h = Math.floor(n/60), m = n%60; return h ? h+'h '+m+'m' : m+'m'; };
+    async function loadCurrentlyOut() {
+      const el = document.getElementById('outBoard');
+      let d; try { d = await api('/outpass/currently-out'); } catch (e) { el.innerHTML = '<div class="text-sm text-red-600">'+e.message+'</div>'; return; }
+      document.getElementById('gateAuto').textContent = `${d.total} out · ${d.overdue} overdue · auto-refresh 60s`;
+      if (!d.out.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-8 text-center">Nobody is currently out on a gatepass. ✅</div>'; return; }
+      el.innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-line">
+        <th class="py-2">Employee</th><th>Out</th><th>Expected back</th><th>Status</th><th>Approver</th><th></th></tr></thead><tbody>` +
+        d.out.map(o => `<tr class="border-b border-line/50 ${o.overdue?'bg-red-50':''}">
+          <td class="py-2"><div class="font-semibold text-ink">${o.requester}</div><div class="text-[11px] text-slate-400">${o.emp_no||''} · ${o.purpose||''}</div></td>
+          <td>${o.out_time||'—'}</td>
+          <td>${o.expected_in||'—'}</td>
+          <td>${o.overdue ? '<span class="text-red-600 font-semibold">Overdue '+mins(o.overdue_min)+'</span>' : '<span class="text-emerald-600">On time</span>'}</td>
+          <td class="text-slate-500">${o.approver||'—'}</td>
+          <td class="text-right"><button onclick="markReturned(${o.id},'${(o.requester||'').replace(/'/g,"\\'")}')" class="pill bg-blue-100 text-blue-700 hover:bg-blue-200">Mark returned</button></td>
+        </tr>`).join('') + '</tbody></table>';
+    }
+    async function markReturned(id, name) {
+      if (!confirm('Mark '+name+' as returned now? Use this only if they physically came back but didn\'t scan.')) return;
+      try { await api('/outpass/'+id+'/return-manual', { method:'POST' }); toast('Return recorded', 'success'); loadCurrentlyOut(); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+    async function loadOverstay() {
+      const el = document.getElementById('osTable');
+      const month = document.getElementById('osMonth').value || new Date().toISOString().slice(0,7);
+      let d; try { d = await api('/outpass/overstay-report?month='+month); } catch (e) { el.innerHTML = '<div class="text-sm text-red-600">'+e.message+'</div>'; return; }
+      if (!d.rows.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">No overstays or unrecorded returns this month. ✅</div>'; return; }
+      el.innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-line">
+        <th class="py-2">Employee</th><th class="text-right">Gatepasses</th><th class="text-right">Late</th><th class="text-right">Not recorded</th><th class="text-right">Total overstay</th><th class="text-right">Worst</th></tr></thead><tbody>` +
+        d.rows.map(r => `<tr class="border-b border-line/50">
+          <td class="py-2"><div class="font-semibold text-ink">${r.requester}</div><div class="text-[11px] text-slate-400">${r.emp_no||''} · ${r.department||''}</div></td>
+          <td class="text-right mono">${r.gatepasses}</td>
+          <td class="text-right mono ${r.late_returns?'text-amber-600 font-semibold':''}">${r.late_returns}</td>
+          <td class="text-right mono ${r.not_recorded?'text-red-600 font-semibold':''}">${r.not_recorded}</td>
+          <td class="text-right mono">${mins(r.overstay_min)}</td>
+          <td class="text-right mono">${mins(r.worst_min)}</td>
+        </tr>`).join('') + '</tbody></table>';
+    }
+    async function loadGateSettings() {
+      let d; try { d = await api('/admin/gate-settings'); } catch (e) { return; }
+      document.getElementById('gsLat').value = d.lat ?? '';
+      document.getElementById('gsLng').value = d.lng ?? '';
+      document.getElementById('gsRadius').value = d.radius_m ?? 150;
+      document.getElementById('gsOverdue').value = d.overdue_min ?? 5;
+      const sel = document.getElementById('gsHr');
+      sel.innerHTML = '<option value="">— none —</option>' + d.employees.map(e => `<option value="${e.id}" ${e.id===d.hr_emp_id?'selected':''}>${e.name} (${e.emp_no||''})</option>`).join('');
+      const st = document.getElementById('gsStatus');
+      st.textContent = (d.lat!=null && d.lng!=null) ? 'Gate location is set.' : '⚠ Gate location not set — self-return QR will reject all scans until configured.';
+      st.className = 'text-xs mt-2 ' + ((d.lat!=null && d.lng!=null) ? 'text-emerald-600' : 'text-amber-600');
+    }
+    function captureGate() {
+      const st = document.getElementById('gsStatus');
+      st.textContent = 'Getting your location…'; st.className = 'text-xs mt-2 text-slate-500';
+      if (!navigator.geolocation) { st.textContent = 'Location not supported on this device.'; st.className='text-xs mt-2 text-red-600'; return; }
+      navigator.geolocation.getCurrentPosition(
+        (p) => { document.getElementById('gsLat').value = p.coords.latitude.toFixed(6);
+                 document.getElementById('gsLng').value = p.coords.longitude.toFixed(6);
+                 st.textContent = `Captured (±${Math.round(p.coords.accuracy)} m). Review and Save.`; st.className='text-xs mt-2 text-emerald-600'; },
+        (e) => { st.textContent = 'Could not get location: ' + e.message; st.className='text-xs mt-2 text-red-600'; },
+        { enableHighAccuracy: true, timeout: 12000 });
+    }
+    async function saveGate() {
+      const body = {
+        lat: parseFloat(document.getElementById('gsLat').value) || null,
+        lng: parseFloat(document.getElementById('gsLng').value) || null,
+        radius_m: parseInt(document.getElementById('gsRadius').value) || 150,
+        overdue_min: parseInt(document.getElementById('gsOverdue').value) || 5,
+        hr_emp_id: document.getElementById('gsHr').value || null,
+      };
+      try { await api('/admin/gate-settings', { method:'PUT', body }); toast('Gate settings saved', 'success'); loadGateSettings(); }
+      catch (e) { toast(e.message, 'error'); }
+    }
+
     // ===================== CONVEYANCE TRIPS (admin override) =====================
     let atRows = [];
     const atMoney = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -468,8 +594,9 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['dash','emp','cat','loc','ogappr','trips','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      ['dash','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'trips') loadAdminTrips();
+      if (tab === 'gate') openGateTab();
       if (tab === 'emp') renderEmployees();
       if (tab === 'cat') renderCategories();
       if (tab === 'loc') renderLocations();

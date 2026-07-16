@@ -389,3 +389,19 @@ ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS report_period_override 
 -- Accounts "mark as paid" step (drives the misc report bucket).
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_by_name TEXT;
+
+-- ===================== OUTPASS/GATEPASS: return tracking & overstay monitoring =====================
+-- Gatepasses declare an expected return (in_time) but nothing recorded the ACTUAL return, so
+-- overstays and never-logged returns were both invisible. These columns close that gap.
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_at       TIMESTAMPTZ;                 -- actual return (server clock)
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_via      TEXT;                        -- 'gps' | 'admin' | 'approver'
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_by_id    INT REFERENCES employees(id);-- who marked it (admin/approver override)
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_verified   BOOLEAN DEFAULT FALSE;       -- TRUE only if inside the geofence
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_lat        DOUBLE PRECISION;            -- GPS audit
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_lng        DOUBLE PRECISION;
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_accuracy_m DOUBLE PRECISION;
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_distance_m DOUBLE PRECISION;            -- metres from gate at scan
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS overdue_alert_at  TIMESTAMPTZ;                 -- when the overdue WhatsApp fired (dedupe)
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS expected_back_at  TIMESTAMPTZ;                 -- in_time resolved to a timestamp, set on approve
+
+CREATE INDEX IF NOT EXISTS idx_outpass_open ON outpass_requests(returned_at) WHERE returned_at IS NULL;

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Gate Return · BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico">
+  <style>
+    body { background:#0f1c26; color:#fff; min-height:100vh; margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .wrap { max-width:440px; margin:0 auto; padding:22px 18px 40px; }
+    .brand { text-align:center; padding:14px 0 6px; }
+    .brand img { height:38px; }
+    .card { background:#16283580; border:1px solid #ffffff1a; border-radius:18px; padding:20px; margin-top:16px; }
+    h1 { font-size:20px; margin:14px 0 2px; text-align:center; }
+    .sub { text-align:center; color:#9fb2c0; font-size:13px; margin-bottom:6px; }
+    .pass { background:#fff; color:#112532; border-radius:14px; padding:16px; margin:14px 0; }
+    .pass .ref { font-size:12px; color:#5b6b78; font-weight:600; letter-spacing:.04em; }
+    .pass .name { font-size:18px; font-weight:700; margin-top:2px; }
+    .row { display:flex; justify-content:space-between; font-size:13px; margin-top:8px; color:#3a4a56; }
+    .row b { color:#112532; }
+    .due-late { color:#c62828; font-weight:700; }
+    .due-ok { color:#1b7bc0; font-weight:700; }
+    button { width:100%; border:0; border-radius:14px; padding:16px; font-size:16px; font-weight:700; cursor:pointer; }
+    .go { background:#1b7bc0; color:#fff; }
+    .go:disabled { opacity:.6; }
+    .msg { border-radius:12px; padding:14px; margin-top:14px; font-size:14px; text-align:center; }
+    .ok { background:#0f5132; color:#d1f7e0; }
+    .err { background:#5c1a1a; color:#ffd9d9; }
+    .hint { color:#8ca0af; font-size:12px; text-align:center; margin-top:14px; line-height:1.5; }
+    .spin { display:inline-block; width:16px; height:16px; border:2px solid #ffffff70; border-top-color:#fff; border-radius:50%; animation:s .7s linear infinite; vertical-align:-3px; margin-right:6px; }
+    @keyframes s { to { transform:rotate(360deg); } }
+    a.link { color:#7fc0f0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brand"><img src="/img/bsc-logo.png" alt="BSC" onerror="this.style.display='none'"></div>
+    <h1>Mark your return</h1>
+    <div class="sub">Scan works only at the gate</div>
+
+    <div id="app" class="card">
+      <div id="loading"><span class="spin"></span> Checking your gatepass…</div>
+    </div>
+
+    <div class="hint" id="hint"></div>
+  </div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+async function api(path, opts={}) {
+  const res = await fetch('/api/outpass'+path, {
+    method: opts.method||'GET', credentials:'same-origin',
+    headers: opts.body ? {'Content-Type':'application/json'} : {},
+    body: opts.body ? JSON.stringify(opts.body) : undefined });
+  if (res.status === 401) { location.href = '/?next=' + encodeURIComponent('/gate.html'); throw new Error('auth'); }
+  const data = await res.json().catch(()=> ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'});
+
+let current = null;
+async function load() {
+  try {
+    const list = await api('/my-open');
+    if (!list.length) {
+      $('app').innerHTML = '<div class="msg ok">You have no open gatepass to return. ✅</div>';
+      $('hint').textContent = 'If you just got approved, wait a moment and refresh.';
+      return;
+    }
+    current = list[0];
+    const late = current.overdue;
+    $('app').innerHTML = `
+      <div class="pass">
+        <div class="ref">${current.ref_no}</div>
+        <div class="name">${current.requester}</div>
+        <div class="row"><span>Out time</span><b>${current.out_time||'—'}</b></div>
+        <div class="row"><span>Expected back</span><b>${current.expected_in||'—'}</b></div>
+        <div class="row"><span>Status</span><span class="${late?'due-late':'due-ok'}">${late?('Overdue by '+current.overdue_min+' min'):'On time'}</span></div>
+      </div>
+      <button class="go" id="btn" onclick="markReturn()">I'm back at the gate</button>`;
+    $('hint').innerHTML = 'Tapping the button records your return time using your phone\'s location. You must be physically at the gate.';
+  } catch (e) {
+    if (e.message === 'auth') return;
+    $('app').innerHTML = '<div class="msg err">'+e.message+'</div>';
+  }
+}
+
+function getPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('Location is not supported on this device.'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve(p.coords),
+      (err) => reject(new Error(err.code === 1
+        ? 'Location permission denied. Please allow location and try again.'
+        : 'Could not get your location. Move to open sky at the gate and retry.')),
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+  });
+}
+
+async function markReturn() {
+  const btn = $('btn');
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Getting your location…';
+  try {
+    const c = await getPosition();
+    btn.innerHTML = '<span class="spin"></span> Recording return…';
+    const r = await api('/'+current.id+'/return-gps', { method:'POST',
+      body: { lat: c.latitude, lng: c.longitude, accuracy: c.accuracy } });
+    $('app').innerHTML = '<div class="msg ok"><b>Return recorded ✅</b><br>'
+      + fmtTime(new Date().toISOString()) + (r.distance_m!=null? ' · '+r.distance_m+' m from gate':'') + '</div>';
+    $('hint').textContent = 'Thank you. You can close this page.';
+  } catch (e) {
+    if (e.message === 'auth') return;
+    btn.disabled = false; btn.innerHTML = "I'm back at the gate";
+    const extra = document.createElement('div');
+    extra.className = 'msg err'; extra.textContent = e.message;
+    $('app').appendChild(extra);
+    if (/from the gate/.test(e.message)) {
+      $('hint').innerHTML = 'Still stuck? Ask security or admin to mark your return from the monitoring screen.';
+    }
+  }
+}
+load();
+</script>
+</body>
+</html>

@@ -573,6 +573,34 @@ router.put('/approvers/leavecover', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Gate geofence + overdue settings (for outpass return tracking) ----
+router.get('/gate-settings', async (req, res) => {
+  const rows = (await q(`SELECT key, value FROM app_settings WHERE key IN
+    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id')`)).rows;
+  const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const employees = (await q(`SELECT id, name, emp_no FROM employees WHERE active=TRUE ORDER BY name`)).rows;
+  res.json({
+    lat: m.gate_lat != null ? Number(m.gate_lat) : null,
+    lng: m.gate_lng != null ? Number(m.gate_lng) : null,
+    radius_m: m.gate_radius_m != null ? Number(m.gate_radius_m) : 150,
+    overdue_min: m.outpass_overdue_min != null ? Number(m.outpass_overdue_min) : 5,
+    hr_emp_id: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : null,
+    employees,
+  });
+});
+router.put('/gate-settings', async (req, res) => {
+  const b = req.body || {};
+  const set = async (k, v) => q(
+    `INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`,
+    [k, v == null || v === '' ? null : String(v)]);
+  if ('lat' in b) await set('gate_lat', b.lat);
+  if ('lng' in b) await set('gate_lng', b.lng);
+  if ('radius_m' in b) await set('gate_radius_m', b.radius_m);
+  if ('overdue_min' in b) await set('outpass_overdue_min', b.overdue_min);
+  if ('hr_emp_id' in b) await set('outpass_hr_emp_id', b.hr_emp_id);
+  res.json({ ok: true });
+});
+
 // On-demand download of the Outpass/Gatepass register.
 router.get('/outpass-export.xlsx', async (req, res) => {
   try {
