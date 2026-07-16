@@ -93,11 +93,19 @@
 
           <div>
             <label class="fieldlabel">Out-time</label>
-            <input id="og_out" type="time" class="field" />
+            <div class="flex gap-2" id="og_out_pick">
+              <select class="field tp-h"></select>
+              <select class="field tp-m"></select>
+              <select class="field tp-ap"></select>
+            </div>
           </div>
           <div id="inWrap">
             <label class="fieldlabel">In-time <span class="text-slate-400 normal-case font-normal">(gatepass)</span></label>
-            <input id="og_in" type="time" class="field" />
+            <div class="flex gap-2" id="og_in_pick">
+              <select class="field tp-h"></select>
+              <select class="field tp-m"></select>
+              <select class="field tp-ap"></select>
+            </div>
           </div>
 
           <div class="sm:col-span-2">
@@ -142,7 +150,32 @@
       return `${String(hh).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ap}`;
     }
 
+    // 12-hour picker: hour 1–12 · minute 00–55 (5-min steps) · AM/PM. Renders identically on
+    // every PC (native <input type=time> follows the OS locale, which showed 24h). Reads out as
+    // "HH:MM AM/PM" — the exact format the backend already stores, so nothing downstream changes.
+    function buildPicker(wrapId) {
+      const w = document.getElementById(wrapId);
+      const hSel = w.querySelector('.tp-h'), mSel = w.querySelector('.tp-m'), apSel = w.querySelector('.tp-ap');
+      hSel.innerHTML = '<option value="">Hr</option>' +
+        Array.from({length: 12}, (_, i) => `<option value="${String(i+1).padStart(2,'0')}">${i+1}</option>`).join('');
+      mSel.innerHTML = '<option value="">Min</option>' +
+        Array.from({length: 12}, (_, i) => { const m = String(i*5).padStart(2,'0'); return `<option value="${m}">${m}</option>`; }).join('');
+      apSel.innerHTML = '<option value="">AM/PM</option><option value="AM">AM</option><option value="PM">PM</option>';
+    }
+    // "" until all three parts are chosen; else "HH:MM AM/PM".
+    function readPicker(wrapId) {
+      const w = document.getElementById(wrapId);
+      const h = w.querySelector('.tp-h').value, m = w.querySelector('.tp-m').value, ap = w.querySelector('.tp-ap').value;
+      return (h && m && ap) ? `${h}:${m} ${ap}` : '';
+    }
+    function resetPicker(wrapId) {
+      const w = document.getElementById(wrapId);
+      w.querySelectorAll('select').forEach(s => s.value = '');
+    }
+
     async function init() {
+      buildPicker('og_out_pick');
+      buildPicker('og_in_pick');
       me = await api('/me');
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
       const meta = await api('/outpass/meta');
@@ -181,8 +214,8 @@
       const onLeave = document.getElementById('og_onleave').checked;
       const approver = onLeave ? leaveApprover : autoApprover;
       const purpose = document.getElementById('og_purpose').value.trim();
-      const out_time = to12h(document.getElementById('og_out').value);
-      const in_time = to12h(document.getElementById('og_in').value);
+      const out_time = readPicker('og_out_pick');
+      const in_time = readPicker('og_in_pick');
       if (!approver) return toast('No approver is set for your department — contact admin', 'error');
       if (!purpose) return toast('Enter the purpose', 'error');
       if (!out_time) return toast('Enter the out-time', 'error');
@@ -197,6 +230,8 @@
           purpose, out_time, in_time, manager_on_leave: onLeave } });
         toast(`Request ${r.ref_no} sent for approval`, 'success');
         document.getElementById('og_purpose').value = '';
+        resetPicker('og_out_pick');
+        resetPicker('og_in_pick');
         document.getElementById('og_onduty').checked = false;
         document.getElementById('og_onleave').checked = false;
         onLeaveToggle();
