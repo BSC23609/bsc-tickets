@@ -51,15 +51,35 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
 async function api(path, opts={}) {
-  const res = await fetch('/api/outpass'+path, {
-    method: opts.method||'GET', credentials:'same-origin',
-    headers: opts.body ? {'Content-Type':'application/json'} : {},
-    body: opts.body ? JSON.stringify(opts.body) : undefined });
-  if (res.status === 401) { location.href = '/?next=' + encodeURIComponent('/gate.html'); throw new Error('auth'); }
-  const data = await res.json().catch(()=> ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
-  return data;
+  const method = opts.method || 'GET';
+  const isGet = method === 'GET';
+  const maxAttempts = isGet ? 4 : 2;   // reads + the (idempotent) return-stamp survive a sleeping DB
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 32000);
+    try {
+      const res = await fetch('/api/outpass'+path, {
+        method, credentials:'same-origin', signal: ac.signal,
+        headers: opts.body ? {'Content-Type':'application/json'} : {},
+        body: opts.body ? JSON.stringify(opts.body) : undefined });
+      clearTimeout(timer);
+      if (res.status === 401) { location.href = '/?next=' + encodeURIComponent('/gate.html'); throw new Error('auth'); }
+      const data = await res.json().catch(()=> ({}));
+      if (res.status >= 500 && attempt < maxAttempts) { lastErr = new Error(data.error || 'server'); await _sleep(attempt*700); continue; }
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.message === 'auth') throw e;
+      lastErr = (e.name === 'AbortError' || /abort/i.test(e.message||'')) ? new Error('waking') : e;
+      if (attempt < maxAttempts) { await _sleep(attempt*700); continue; }
+      throw lastErr;
+    }
+  }
+  throw lastErr || new Error('Request failed');
 }
 const fmtTime = (iso) => new Date(iso).toLocaleTimeString('en-IN',{timeZone:'Asia/Kolkata',hour:'2-digit',minute:'2-digit'});
 
@@ -86,7 +106,10 @@ async function load() {
     $('hint').innerHTML = 'Tapping the button records your return time using your phone\'s location. You must be physically at the gate.';
   } catch (e) {
     if (e.message === 'auth') return;
-    $('app').innerHTML = '<div class="msg err">'+e.message+'</div>';
+    const waking = e.message === 'waking';
+    $('app').innerHTML = '<div class="msg err">'
+      + (waking ? 'The system is waking up — this can take a few seconds.' : e.message)
+      + '</div><button class="go" style="margin-top:12px" onclick="load()">Retry</button>';
   }
 }
 
