@@ -297,8 +297,10 @@
         <div class="flex gap-2 mt-4">
           <button onclick="captureGate()" class="btn-ghost text-sm">📍 Capture my location</button>
           <button onclick="saveGate()" class="btn text-sm">Save gate settings</button>
+          <button onclick="showDbInfo()" class="btn-ghost text-sm">🔍 DB diagnostics</button>
         </div>
         <div id="gsStatus" class="text-xs mt-2"></div>
+        <pre id="dbInfo" class="hidden text-[11px] bg-slate-900 text-emerald-300 rounded-lg p-3 mt-3 overflow-x-auto whitespace-pre-wrap"></pre>
       </div>
     </section>
 
@@ -405,7 +407,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js?v=81"></script>
+  <script src="/js/common.js?v=82"></script>
   <script>
     let employees = [], charts = {};
 
@@ -500,6 +502,27 @@
         (e) => { st.textContent = 'Could not get location: ' + e.message; st.className='text-xs mt-2 text-red-600'; },
         { enableHighAccuracy: true, timeout: 12000 });
     }
+    async function showDbInfo() {
+      const el = document.getElementById('dbInfo');
+      el.classList.remove('hidden');
+      el.textContent = 'Loading…';
+      try {
+        const d = await api('/admin/db-info');
+        el.textContent =
+          'App is connected to:\n' +
+          '  host (from DATABASE_URL): ' + (d.env_host || '?') + '\n' +
+          '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
+          '  user: ' + (d.usr || d.env_user || '?') + '\n' +
+          '  server IP: ' + (d.server_ip || 'n/a') + '\n' +
+          '  app_settings rows: ' + (d.app_settings_count != null ? d.app_settings_count : '?') + '\n\n' +
+          'Gate / outpass keys the APP sees right now:\n' +
+          ((d.gate_keys && d.gate_keys.length)
+            ? d.gate_keys.map(r => '  ' + r.key + ' = ' + r.value).join('\n')
+            : '  (none)') +
+          (d.error ? ('\n\nERROR: ' + d.error) : '');
+      } catch (e) { el.textContent = 'Failed: ' + e.message; }
+    }
+
     async function saveGate() {
       const body = {
         lat: parseFloat(document.getElementById('gsLat').value) || null,

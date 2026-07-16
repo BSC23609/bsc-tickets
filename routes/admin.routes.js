@@ -643,7 +643,25 @@ async function readGateSettings(withEmployees) {
   return out;
 }
 
-// On-demand download of the Outpass/Gatepass register.
+// ---- Diagnostics: which database is the app ACTUALLY connected to right now ----
+// Read-only. Lets us compare the app's live DB against the one you're querying in the console —
+// if they differ, writes "succeed" into a DB you're not looking at.
+router.get('/db-info', async (req, res) => {
+  const raw = process.env.DATABASE_URL || '';
+  let host = null, dbname = null, user = null;
+  try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
+  const out = { env_host: host, env_dbname: dbname, env_user: user };
+  try {
+    const r = (await q(`SELECT current_database() AS db, current_user AS usr,
+      inet_server_addr()::text AS server_ip, current_setting('server_version') AS pg_version, now() AS now`)).rows[0];
+    Object.assign(out, r);
+    out.app_settings_count = (await q(`SELECT COUNT(*)::int AS n FROM app_settings`)).rows[0].n;
+    out.gate_keys = (await q(`SELECT key, value FROM app_settings WHERE key LIKE 'gate_%' OR key LIKE 'outpass_%' ORDER BY key`)).rows;
+  } catch (e) { out.error = e.message; }
+  res.json(out);
+});
+
+
 router.get('/outpass-export.xlsx', async (req, res) => {
   try {
     const buf = await require('../lib/outpass_excel').buildOutpassWorkbook();
