@@ -624,7 +624,12 @@ router.put('/gate-settings', async (req, res) => {
   // actually stored — not just "the write was sent". This removes any ambiguity about persistence.
   const saved = await readGateSettings(false);
   const ok = ('lat' in b) ? (saved.lat != null && saved.lng != null) : true;
-  res.json({ ok, saved });
+  // Also report WHICH database this write actually landed in, so it can be compared against the
+  // database read elsewhere. If two requests report different hosts, the app is talking to >1 DB.
+  let dbHost = null, dbName = null;
+  try { const u = new URL(process.env.DATABASE_URL || ''); dbHost = u.host; } catch {}
+  try { dbName = (await q(`SELECT current_database() AS d`)).rows[0].d; } catch {}
+  res.json({ ok, saved, db: { host: dbHost, name: dbName } });
 });
 
 // Shared reader. withEmployees=true also returns the HR dropdown list.

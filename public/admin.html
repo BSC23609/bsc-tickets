@@ -407,7 +407,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js?v=82"></script>
+  <script src="/js/common.js?v=83"></script>
   <script>
     let employees = [], charts = {};
 
@@ -541,7 +541,8 @@
           document.getElementById('gsLng').value = s.lng;
           document.getElementById('gsRadius').value = s.radius_m;
           document.getElementById('gsOverdue').value = s.overdue_min;
-          st.textContent = `✓ Saved & confirmed in database: ${s.lat}, ${s.lng} (radius ${s.radius_m} m).`;
+          const dbtag = r.db ? ` [wrote to ${r.db.host || '?'} / ${r.db.name || '?'}]` : '';
+          st.textContent = `✓ Saved & confirmed: ${s.lat}, ${s.lng} (radius ${s.radius_m} m).${dbtag}`;
           st.className = 'text-xs mt-2 text-emerald-600';
           toast('Gate location saved & confirmed', 'success');
         } else {
