@@ -1,23 +1,46 @@
 // Shared helpers used by every page.
 function bscToken() { try { return localStorage.getItem('bsc_token'); } catch { return null; } }
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
   const headers = { 'Content-Type': 'application/json' };
   const tok = bscToken();
   if (tok) headers['Authorization'] = 'Bearer ' + tok;
-  const res = await fetch('/api' + path, {
-    method: opts.method || 'GET',
-    headers,
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    credentials: 'same-origin',
-  });
-  let data = null; try { data = await res.json(); } catch {}
-  // Persist any token the server hands back (login + every /me refresh) so the session
-  // survives the app being closed, even if the PWA drops the cookie.
-  if (data && data.token) { try { localStorage.setItem('bsc_token', data.token); } catch {} }
-  if (path === '/logout') { try { localStorage.removeItem('bsc_token'); } catch {} }
-  if (res.status === 401) { try { localStorage.removeItem('bsc_token'); } catch {} location.href = '/'; throw new Error('Not signed in'); }
-  if (!res.ok) throw new Error((data && data.error) || 'Request failed');
-  return data;
+  // Reads are idempotent, so retry them through a Neon cold start (free-tier suspends when idle;
+  // the first hit after a nap can hang or 5xx). Writes are NOT auto-retried — one attempt only,
+  // so we never risk a double-write. Each attempt has a hard client timeout so a hung request
+  // fails fast and lets the retry warm the DB instead of leaving the UI stuck/blank.
+  const isGet = method === 'GET';
+  const maxAttempts = isGet ? 3 : 1;
+  let lastErr;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), isGet ? 20000 : 30000);
+    try {
+      const res = await fetch('/api' + path, {
+        method, headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: 'same-origin',
+        signal: ac.signal,
+      });
+      clearTimeout(timer);
+      let data = null; try { data = await res.json(); } catch {}
+      if (data && data.token) { try { localStorage.setItem('bsc_token', data.token); } catch {} }
+      if (path === '/logout') { try { localStorage.removeItem('bsc_token'); } catch {} }
+      if (res.status === 401) { try { localStorage.removeItem('bsc_token'); } catch {} location.href = '/'; throw new Error('Not signed in'); }
+      // Transient server error on a read → wait a beat (Neon waking) and try again.
+      if (isGet && res.status >= 500 && attempt < maxAttempts) { lastErr = new Error((data && data.error) || ('HTTP ' + res.status)); await _sleep(attempt * 500); continue; }
+      if (!res.ok) throw new Error((data && data.error) || 'Request failed');
+      return data;
+    } catch (e) {
+      clearTimeout(timer);
+      if (e && e.message === 'Not signed in') throw e;   // 401 redirect already handled
+      lastErr = e;
+      if (isGet && attempt < maxAttempts) { await _sleep(attempt * 500); continue; }  // network error / abort → retry reads
+      throw lastErr;
+    }
+  }
+  throw lastErr || new Error('Request failed');
 }
 
 function toast(msg, type = 'info') {

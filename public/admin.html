@@ -476,16 +476,24 @@
         </tr>`).join('') + '</tbody></table>';
     }
     async function loadGateSettings() {
-      let d; try { d = await api('/admin/gate-settings'); } catch (e) { return; }
+      const st = document.getElementById('gsStatus');
+      let d;
+      try { d = await api('/admin/gate-settings'); }
+      catch (e) {
+        // Don't blank the fields on a failed read — that made it look like the setting was lost.
+        st.textContent = '⚠ Could not load gate settings (server may be waking up). Tap Refresh to retry — your saved location is not lost.';
+        st.className = 'text-xs mt-2 text-amber-600';
+        return;
+      }
       document.getElementById('gsLat').value = d.lat ?? '';
       document.getElementById('gsLng').value = d.lng ?? '';
       document.getElementById('gsRadius').value = d.radius_m ?? 150;
       document.getElementById('gsOverdue').value = d.overdue_min ?? 5;
       const sel = document.getElementById('gsHr');
       sel.innerHTML = '<option value="">— none —</option>' + d.employees.map(e => `<option value="${e.id}" ${e.id===d.hr_emp_id?'selected':''}>${e.name} (${e.emp_no||''})</option>`).join('');
-      const st = document.getElementById('gsStatus');
-      st.textContent = (d.lat!=null && d.lng!=null) ? 'Gate location is set.' : '⚠ Gate location not set — self-return QR will reject all scans until configured.';
-      st.className = 'text-xs mt-2 ' + ((d.lat!=null && d.lng!=null) ? 'text-emerald-600' : 'text-amber-600');
+      const st2 = document.getElementById('gsStatus');
+      st2.textContent = (d.lat!=null && d.lng!=null) ? '✓ Gate location is set.' : '⚠ Gate location not set — self-return QR will reject all scans until configured.';
+      st2.className = 'text-xs mt-2 ' + ((d.lat!=null && d.lng!=null) ? 'text-emerald-600' : 'text-amber-600');
     }
     function captureGate() {
       const st = document.getElementById('gsStatus');
@@ -506,8 +514,14 @@
         overdue_min: parseInt(document.getElementById('gsOverdue').value) || 5,
         hr_emp_id: document.getElementById('gsHr').value || null,
       };
-      try { await api('/admin/gate-settings', { method:'PUT', body }); toast('Gate settings saved', 'success'); loadGateSettings(); }
-      catch (e) { toast(e.message, 'error'); }
+      try {
+        await api('/admin/gate-settings', { method:'PUT', body });
+        // Read it straight back so "saved" means "confirmed in the database", not just "request sent".
+        const check = await api('/admin/gate-settings');
+        if (check.lat != null && check.lng != null) toast('Gate location saved & confirmed', 'success');
+        else toast('Saved but not confirmed — please tap Save again', 'error');
+        loadGateSettings();
+      } catch (e) { toast(e.message, 'error'); }
     }
 
     // ===================== CONVEYANCE TRIPS (admin override) =====================
