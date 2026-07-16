@@ -8,14 +8,9 @@ const app = express();
 app.use(express.json({ limit: '1mb' })); // photos go straight to OneDrive, not through here
 app.use(express.urlencoded({ extended: false })); // reject-reason form post from the WhatsApp link
 
-// Ensure the database schema is up to date (adds any new columns from this release) before
-// handling requests. Cached after the first success, so it's a no-op wait on later requests.
-// Best-effort: if it can't run, we log and continue rather than taking the app down.
-const { autoMigrate } = require('../lib/autoMigrate');
-app.use(async (req, res, next) => {
-  try { await autoMigrate(); } catch (e) { /* logged inside; continue */ }
-  next();
-});
+// Keep the schema current on deploy (adds any new columns) — but do it in the BACKGROUND on cold
+// start, never in the request path, so it can't add latency or hang a request. Idempotent.
+require('../lib/autoMigrate').autoMigrate().catch(() => {});
 
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, wati: wati.configured(), graph: require('../lib/graph').configured() }));
