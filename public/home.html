@@ -56,6 +56,16 @@
         <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
       </a>
 
+      <!-- Record gate return (in-app; same GPS geofence as the QR) -->
+      <a href="/gate.html" class="card lift in in-2 p-6 block group">
+        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#0F9D58,#0A6B3C)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <h2 class="font-display font-bold text-lg text-ink">I'm back — record return</h2>
+        <p class="text-sm text-slate-500 mt-1">Returning from an outpass? Tap here at the gate to log your return by GPS.</p>
+        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Record return →</div>
+      </a>
+
       <!-- Outpass / Gate Pass (live) -->
       <a href="/outpass.html" class="card lift in in-2 p-6 block group">
         <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
@@ -118,7 +128,7 @@
     </div>
   </main>
 
-  <script src="/js/common.js?v=87"></script>
+  <script src="/js/common.js?v=88"></script>
   <script>
     async function init() {
       const me = await api('/me');
