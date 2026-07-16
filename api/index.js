@@ -8,8 +8,31 @@ const app = express();
 app.use(express.json({ limit: '1mb' })); // photos go straight to OneDrive, not through here
 app.use(express.urlencoded({ extended: false })); // reject-reason form post from the WhatsApp link
 
+// Ensure the database schema is up to date (adds any new columns from this release) before
+// handling requests. Cached after the first success, so it's a no-op wait on later requests.
+// Best-effort: if it can't run, we log and continue rather than taking the app down.
+const { autoMigrate } = require('../lib/autoMigrate');
+app.use(async (req, res, next) => {
+  try { await autoMigrate(); } catch (e) { /* logged inside; continue */ }
+  next();
+});
+
 app.get('/api/health', (req, res) =>
   res.json({ ok: true, wati: wati.configured(), graph: require('../lib/graph').configured() }));
+
+// Keep-alive: runs a trivial query so Neon's compute does NOT auto-suspend during working hours.
+// A plain HTTP ping is not enough — Neon suspends on DB inactivity, so we must actually touch the DB.
+// No secret needed (it only does SELECT 1). Answers GET and HEAD so UptimeRobot-style monitors work too.
+app.all('/api/keepalive', async (req, res) => {
+  const t0 = Date.now();
+  try {
+    await q('SELECT 1');
+    res.json({ ok: true, db: true, waking_ms: Date.now() - t0 });
+  } catch (e) {
+    // Return 200 regardless so a monitor doesn't page anyone — the query itself is what wakes Neon.
+    res.json({ ok: true, db: false, error: e.message });
+  }
+});
 
 // Deep link target for WhatsApp buttons: /t/<id> -> login (or app) carrying the ticket.
 app.get('/t/:id', (req, res) =>

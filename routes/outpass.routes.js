@@ -305,8 +305,13 @@ router.get('/currently-out', async (req, res) => {
 
 // --- the current user's OWN open gatepass(es) — powers the /gate self-return page ---
 router.get('/my-open', async (req, res) => {
-  const rows = (await q(`${openBoardSql.replace('ORDER BY', 'AND o.requester_id=$1 ORDER BY')}`, [req.user.id])).rows.map(decorateOpen);
-  res.json(rows);
+  try {
+    const rows = (await q(`${openBoardSql.replace('ORDER BY', 'AND o.requester_id=$1 ORDER BY')}`, [req.user.id])).rows.map(decorateOpen);
+    res.json(rows);
+  } catch (e) {
+    console.error('[my-open] failed:', e.message);
+    res.status(500).json({ error: 'Could not load your gatepass: ' + e.message });
+  }
 });
 
 // --- employee self-return with GPS (called from /gate) ---
