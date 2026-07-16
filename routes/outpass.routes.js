@@ -159,19 +159,28 @@ router.get('/', async (req, res) => {
 });
 
 // ---- detail (requester, the assigned approver, or admin) ----
-router.get('/:id', async (req, res) => {
-  const o = (await q(
-    `SELECT o.*, r.emp_no AS req_code, r.name AS requester_name, r.job_title AS designation,
-            ap.name AS approver_name
-     FROM outpass_requests o
-     JOIN employees r ON r.id = o.requester_id
-     LEFT JOIN employees ap ON ap.id = o.approver_id
-     WHERE o.id=$1`, [req.params.id])).rows[0];
-  if (!o) return res.status(404).json({ error: 'Not found' });
-  const isApprover = o.approver_id === req.user.id;
-  const isRequester = o.requester_id === req.user.id;
-  if (!isApprover && !isRequester && !req.user.is_admin) return res.status(403).json({ error: 'Not allowed' });
-  res.json({ ...decorate(o), perms: { isApprover, isRequester, canAction: isApprover && o.status === 'pending' } });
+router.get('/:id', async (req, res, next) => {
+  // Only handle numeric ids here. Non-numeric paths (my-open, currently-out, monitor-meta,
+  // overstay-report) are defined further below — fall through so they aren't shadowed by this
+  // param route. Without this, GET /my-open matched here as id="my-open" and hung on an int cast.
+  if (!/^\d+$/.test(req.params.id)) return next();
+  try {
+    const o = (await q(
+      `SELECT o.*, r.emp_no AS req_code, r.name AS requester_name, r.job_title AS designation,
+              ap.name AS approver_name
+       FROM outpass_requests o
+       JOIN employees r ON r.id = o.requester_id
+       LEFT JOIN employees ap ON ap.id = o.approver_id
+       WHERE o.id=$1`, [req.params.id])).rows[0];
+    if (!o) return res.status(404).json({ error: 'Not found' });
+    const isApprover = o.approver_id === req.user.id;
+    const isRequester = o.requester_id === req.user.id;
+    if (!isApprover && !isRequester && !req.user.is_admin) return res.status(403).json({ error: 'Not allowed' });
+    res.json({ ...decorate(o), perms: { isApprover, isRequester, canAction: isApprover && o.status === 'pending' } });
+  } catch (e) {
+    console.error('[outpass detail] failed:', e.message);
+    res.status(500).json({ error: 'Could not load pass: ' + e.message });
+  }
 });
 
 // ---- shared approve/reject core (used by the app routes AND the WhatsApp one-tap links) ----
