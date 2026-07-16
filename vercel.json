@@ -1,6 +1,16 @@
 {
   "version": 2,
   "functions": { "api/index.js": { "maxDuration": 60, "includeFiles": "{lib/fonts/**,public/img/**}" } },
+  "headers": [
+    {
+      "source": "/js/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+    },
+    {
+      "source": "/(.*)\\.html",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
   ],

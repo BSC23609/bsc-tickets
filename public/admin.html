@@ -405,7 +405,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js"></script>
+  <script src="/js/common.js?v=81"></script>
   <script>
     let employees = [], charts = {};
 
@@ -508,14 +508,29 @@
         overdue_min: parseInt(document.getElementById('gsOverdue').value) || 5,
         hr_emp_id: document.getElementById('gsHr').value || null,
       };
+      const st = document.getElementById('gsStatus');
       try {
-        await api('/admin/gate-settings', { method:'PUT', body });
-        // Read it straight back so "saved" means "confirmed in the database", not just "request sent".
-        const check = await api('/admin/gate-settings');
-        if (check.lat != null && check.lng != null) toast('Gate location saved & confirmed', 'success');
-        else toast('Saved but not confirmed — please tap Save again', 'error');
-        loadGateSettings();
-      } catch (e) { toast(e.message, 'error'); }
+        // The endpoint writes then reads back from the DB, returning the stored values.
+        const r = await api('/admin/gate-settings', { method:'PUT', body });
+        const s = r.saved || {};
+        if (r.ok && s.lat != null && s.lng != null) {
+          document.getElementById('gsLat').value = s.lat;
+          document.getElementById('gsLng').value = s.lng;
+          document.getElementById('gsRadius').value = s.radius_m;
+          document.getElementById('gsOverdue').value = s.overdue_min;
+          st.textContent = `✓ Saved & confirmed in database: ${s.lat}, ${s.lng} (radius ${s.radius_m} m).`;
+          st.className = 'text-xs mt-2 text-emerald-600';
+          toast('Gate location saved & confirmed', 'success');
+        } else {
+          st.textContent = '⚠ Server accepted the request but coordinates are NOT in the database afterwards. Screenshot this and send to IT.';
+          st.className = 'text-xs mt-2 text-red-600';
+          toast('Save could not be confirmed', 'error');
+        }
+      } catch (e) {
+        st.textContent = '⚠ Save failed: ' + e.message;
+        st.className = 'text-xs mt-2 text-red-600';
+        toast(e.message, 'error');
+      }
     }
 
     // ===================== CONVEYANCE TRIPS (admin override) =====================

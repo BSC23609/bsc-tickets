@@ -603,31 +603,45 @@ router.put('/approvers/leavecover', async (req, res) => {
 
 // ---- Gate geofence + overdue settings (for outpass return tracking) ----
 router.get('/gate-settings', async (req, res) => {
+  res.json(await readGateSettings(true));
+});
+router.put('/gate-settings', async (req, res) => {
+  const b = req.body || {};
+  const keys = ['lat', 'lng', 'radius_m', 'overdue_min', 'hr_emp_id'];
+  const present = keys.filter((k) => k in b);
+  if (!present.length) return res.status(400).json({ error: 'No settings received — the form sent an empty request. Hard-refresh (Ctrl+Shift+R) and try again.' });
+  const set = async (k, v) => q(
+    `INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`,
+    [k, v == null || v === '' ? null : String(v)]);
+  const map = { lat: 'gate_lat', lng: 'gate_lng', radius_m: 'gate_radius_m', overdue_min: 'outpass_overdue_min', hr_emp_id: 'outpass_hr_emp_id' };
+  try {
+    for (const k of present) await set(map[k], b[k]);
+  } catch (e) {
+    console.error('[gate-settings save] failed:', e.code, e.message);
+    return res.status(500).json({ error: 'Database refused the save: ' + (e.detail || e.message) });
+  }
+  // Read straight back from the DB in the SAME request, so the response reflects what is
+  // actually stored — not just "the write was sent". This removes any ambiguity about persistence.
+  const saved = await readGateSettings(false);
+  const ok = ('lat' in b) ? (saved.lat != null && saved.lng != null) : true;
+  res.json({ ok, saved });
+});
+
+// Shared reader. withEmployees=true also returns the HR dropdown list.
+async function readGateSettings(withEmployees) {
   const rows = (await q(`SELECT key, value FROM app_settings WHERE key IN
     ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id')`)).rows;
   const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-  const employees = (await q(`SELECT id, name, emp_no FROM employees WHERE active=TRUE ORDER BY name`)).rows;
-  res.json({
+  const out = {
     lat: m.gate_lat != null ? Number(m.gate_lat) : null,
     lng: m.gate_lng != null ? Number(m.gate_lng) : null,
     radius_m: m.gate_radius_m != null ? Number(m.gate_radius_m) : 150,
     overdue_min: m.outpass_overdue_min != null ? Number(m.outpass_overdue_min) : 5,
     hr_emp_id: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : null,
-    employees,
-  });
-});
-router.put('/gate-settings', async (req, res) => {
-  const b = req.body || {};
-  const set = async (k, v) => q(
-    `INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`,
-    [k, v == null || v === '' ? null : String(v)]);
-  if ('lat' in b) await set('gate_lat', b.lat);
-  if ('lng' in b) await set('gate_lng', b.lng);
-  if ('radius_m' in b) await set('gate_radius_m', b.radius_m);
-  if ('overdue_min' in b) await set('outpass_overdue_min', b.overdue_min);
-  if ('hr_emp_id' in b) await set('outpass_hr_emp_id', b.hr_emp_id);
-  res.json({ ok: true });
-});
+  };
+  if (withEmployees) out.employees = (await q(`SELECT id, name, emp_no FROM employees WHERE active=TRUE ORDER BY name`)).rows;
+  return out;
+}
 
 // On-demand download of the Outpass/Gatepass register.
 router.get('/outpass-export.xlsx', async (req, res) => {
