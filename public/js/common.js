@@ -15,7 +15,8 @@ async function api(path, opts = {}) {
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), isGet ? 20000 : 30000);
+    // Generous on reads: a cold Neon compute can take 20s+ to wake on the first hit.
+    const timer = setTimeout(() => ac.abort(), isGet ? 32000 : 35000);
     try {
       const res = await fetch('/api' + path, {
         method, headers,
@@ -35,8 +36,10 @@ async function api(path, opts = {}) {
     } catch (e) {
       clearTimeout(timer);
       if (e && e.message === 'Not signed in') throw e;   // 401 redirect already handled
-      lastErr = e;
-      if (isGet && attempt < maxAttempts) { await _sleep(attempt * 500); continue; }  // network error / abort → retry reads
+      // An AbortError means our own timeout fired — almost always a sleeping database waking up.
+      const aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
+      lastErr = aborted ? new Error('The database is waking up — please tap Refresh in a moment.') : e;
+      if (isGet && attempt < maxAttempts) { await _sleep(attempt * 700); continue; }  // retry reads
       throw lastErr;
     }
   }

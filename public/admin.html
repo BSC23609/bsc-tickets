@@ -407,7 +407,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js?v=83"></script>
+  <script src="/js/common.js?v=84"></script>
   <script>
     let employees = [], charts = {};
 
@@ -519,6 +519,14 @@
           ((d.gate_keys && d.gate_keys.length)
             ? d.gate_keys.map(r => '  ' + r.key + ' = ' + r.value).join('\n')
             : '  (none)') +
+          '\n\n=========== LIVE WRITE PROBE ===========\n' +
+          'The app just wrote this marker to app_settings:\n' +
+          '  __diag_probe = ' + (d.probe_written || '?') + '\n' +
+          'App read it back on a fresh connection: ' + (d.probe_persisted_in_app_db ? 'YES ✓' : 'NO ✗') + '\n\n' +
+          '>> Now run this in your Neon SQL console:\n' +
+          "     SELECT value FROM app_settings WHERE key='__diag_probe';\n" +
+          '   • If it shows the SAME value above  → app & console share ONE database.\n' +
+          '   • If it shows nothing / a different value → app writes to a DIFFERENT database.' +
           (d.error ? ('\n\nERROR: ' + d.error) : '');
       } catch (e) { el.textContent = 'Failed: ' + e.message; }
     }

@@ -662,6 +662,16 @@ router.get('/db-info', async (req, res) => {
     Object.assign(out, r);
     out.app_settings_count = (await q(`SELECT COUNT(*)::int AS n FROM app_settings`)).rows[0].n;
     out.gate_keys = (await q(`SELECT key, value FROM app_settings WHERE key LIKE 'gate_%' OR key LIKE 'outpass_%' ORDER BY key`)).rows;
+    // LIVE WRITE PROBE: write a unique marker, then read it back on a fresh pool checkout.
+    // If your SQL console can then SEE this exact value, the app and console share one DB and
+    // writes persist. If the console can't see it, the app is writing to a different database.
+    const probe = 'probe-' + new Date().toISOString() + '-' + Math.random().toString(36).slice(2, 8);
+    await q(`INSERT INTO app_settings(key,value) VALUES('__diag_probe',$1)
+             ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [probe]);
+    const readback = (await q(`SELECT value FROM app_settings WHERE key='__diag_probe'`)).rows[0];
+    out.probe_written = probe;
+    out.probe_readback = readback ? readback.value : null;
+    out.probe_persisted_in_app_db = !!(readback && readback.value === probe);
   } catch (e) { out.error = e.message; }
   res.json(out);
 });
