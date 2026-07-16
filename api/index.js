@@ -511,7 +511,8 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
       if (Date.now() > DEADLINE) { console.warn('[outpass-overdue] budget spent, rest deferred'); break; }
       const mins = Math.max(cfg.overdueMin, Math.floor((Date.now() - +new Date(o.expected_back_at)) / 60000));
       const payload = { employee: o.req_name, ref: o.ref_no, out_time: o.out_time,
-        expected: o.in_time, overdue_min: mins, purpose: o.purpose };
+        expected: o.in_time, overdue_min: mins, purpose: o.purpose,
+        duty: o.on_duty ? 'On duty (official)' : 'Personal' };
       try {
         if (o.approver_phone) await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload);
         if (hr && hr.phone) await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);

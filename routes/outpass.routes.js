@@ -275,7 +275,7 @@ function decorateOpen(o) {
     department: o.department || '', purpose: o.purpose || '', out_time: o.out_time,
     expected_in: o.in_time, approver: o.actioned_by_name || o.approver_label || '',
     expected_back_at: o.expected_back_at, overdue_min: Math.max(0, overdueMin),
-    overdue: overdueMin > 0,
+    overdue: overdueMin > 0, on_duty: !!o.on_duty,
   };
 }
 
@@ -390,7 +390,7 @@ router.get('/overstay-report', async (req, res) => {
 // --- overdue watcher, driven by the cron. Returns rows to alert on; caller sends the WATI. ---
 async function findOverdue(overdueMin) {
   return (await q(
-    `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at,
+    `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
             r.name AS req_name, r.department,
             ap.name AS approver_name, ap.phone AS approver_phone
      FROM outpass_requests o
