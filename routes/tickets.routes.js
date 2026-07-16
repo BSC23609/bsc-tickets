@@ -102,6 +102,7 @@ router.post('/', async (req, res) => {
 
   const ref = await nextRefNo();
   const client = await pool.connect();
+  let t = null, committed = false;
   try {
     await client.query('BEGIN');
     const ins = await client.query(
@@ -114,7 +115,7 @@ router.post('/', async (req, res) => {
        isSelf, isSelf ? requestedById : null, requestedByLabel,
        (isSelf || autoAssign) ? new Date() : null, isSelf ? req.user.id : null]
     );
-    const t = ins.rows[0];
+    t = ins.rows[0];
     await client.query(
       `INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'raised',$2,$3)`,
       [t.id, req.user.id, subject]);
@@ -122,30 +123,37 @@ router.post('/', async (req, res) => {
       await client.query(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'assigned',$2,'Self-assigned')`,
         [t.id, req.user.id]);
     await client.query('COMMIT');
-    res.json({ ok: true, id: t.id, ref_no: ref });
-
-    background((async () => {
-      const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
-      if (isSelf) {
-        // Notify category L2 (oversight), the delegator (CMD/CEO), and the raiser — deduped.
-        const seen = new Set();
-        for (const id of [route.l2, requestedById, req.user.id]) {
-          if (!id || seen.has(id)) continue; seen.add(id);
-          const p = await empById(id);
-          if (p && p.phone) await wati.notify.raised(p, enriched);
-        }
-      } else {
-        // Goes straight to L1.
-        const rec = await empById(route.l1);
-        if (rec) await wati.notify.raised(rec, enriched);
-      }
-      await excel.syncLogToOneDrive();
-    })());
+    committed = true;
   } catch (e) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) { /* connection may be broken */ }
     console.error('create ticket', e);
-    res.status(500).json({ error: 'Could not create ticket' });
-  } finally { client.release(); }
+  } finally {
+    // CRITICAL: if we didn't cleanly commit, DESTROY the connection (release with an error)
+    // instead of returning it to the pool. A connection left mid-transaction would otherwise
+    // be reused by another request, whose writes would then silently roll back with it.
+    client.release(committed ? undefined : new Error('discard: transaction not committed'));
+  }
+
+  if (!committed || !t) return res.status(500).json({ error: 'Could not create ticket' });
+  res.json({ ok: true, id: t.id, ref_no: ref });
+
+  background((async () => {
+    const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
+    if (isSelf) {
+      // Notify category L2 (oversight), the delegator (CMD/CEO), and the raiser — deduped.
+      const seen = new Set();
+      for (const id of [route.l2, requestedById, req.user.id]) {
+        if (!id || seen.has(id)) continue; seen.add(id);
+        const p = await empById(id);
+        if (p && p.phone) await wati.notify.raised(p, enriched);
+      }
+    } else {
+      // Goes straight to L1.
+      const rec = await empById(route.l1);
+      if (rec) await wati.notify.raised(rec, enriched);
+    }
+    await excel.syncLogToOneDrive();
+  })());
 });
 
 // ---- list (mine | assigned | all-for-admin) ----
