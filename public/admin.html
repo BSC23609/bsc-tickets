@@ -407,7 +407,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js?v=85"></script>
+  <script src="/js/common.js?v=86"></script>
   <script>
     let employees = [], charts = {};
 
@@ -509,24 +509,22 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED86, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
-          '  host (from DATABASE_URL): ' + (d.env_host || '?') + '\n' +
+          '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
-          '  user: ' + (d.usr || d.env_user || '?') + '\n' +
           '  server IP: ' + (d.server_ip || 'n/a') + '\n' +
           '  app_settings rows: ' + (d.app_settings_count != null ? d.app_settings_count : '?') + '\n\n' +
           'Gate / outpass keys the APP sees right now:\n' +
           ((d.gate_keys && d.gate_keys.length)
             ? d.gate_keys.map(r => '  ' + r.key + ' = ' + r.value).join('\n')
             : '  (none)') +
-          '\n\n=========== LIVE WRITE PROBE ===========\n' +
-          'The app just wrote this marker to app_settings:\n' +
-          '  __diag_probe = ' + (d.probe_written || '?') + '\n' +
-          'App read it back on a fresh connection: ' + (d.probe_persisted_in_app_db ? 'YES ✓' : 'NO ✗') + '\n\n' +
-          '>> Now run this in your Neon SQL console:\n' +
-          "     SELECT value FROM app_settings WHERE key='__diag_probe';\n" +
-          '   • If it shows the SAME value above  → app & console share ONE database.\n' +
-          '   • If it shows nothing / a different value → app writes to a DIFFERENT database.' +
+          '\n\n===== CROSS-REQUEST PERSISTENCE TEST =====\n' +
+          'Marker left by the PREVIOUS click: ' + (d.previous_probe_found ? ('FOUND ✓  ' + d.previous_probe) : 'NOT FOUND ✗') + '\n' +
+          'New marker written for the NEXT click: ' + (d.new_probe || '?') + '\n\n' +
+          '>> Tap this button a SECOND time.\n' +
+          '   • If "Marker left by the PREVIOUS click" then shows FOUND ✓ → writes persist. Fixed.\n' +
+          '   • If it still says NOT FOUND ✗ → writes are still rolling back.' +
           (d.error ? ('\n\nERROR: ' + d.error) : '');
       } catch (e) { el.textContent = 'Failed: ' + e.message; }
     }

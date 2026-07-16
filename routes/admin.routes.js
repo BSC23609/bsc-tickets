@@ -655,23 +655,23 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED86', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
-      inet_server_addr()::text AS server_ip, current_setting('server_version') AS pg_version, now() AS now`)).rows[0];
+      inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
     Object.assign(out, r);
     out.app_settings_count = (await q(`SELECT COUNT(*)::int AS n FROM app_settings`)).rows[0].n;
     out.gate_keys = (await q(`SELECT key, value FROM app_settings WHERE key LIKE 'gate_%' OR key LIKE 'outpass_%' ORDER BY key`)).rows;
-    // LIVE WRITE PROBE: write a unique marker, then read it back on a fresh pool checkout.
-    // If your SQL console can then SEE this exact value, the app and console share one DB and
-    // writes persist. If the console can't see it, the app is writing to a different database.
+    // CROSS-REQUEST PERSISTENCE TEST (the correct one):
+    // 1) Read whatever the PREVIOUS db-info call wrote. If it's here, writes survive across requests.
+    // 2) Then write a NEW marker for the next call to find.
+    const prev = (await q(`SELECT value FROM app_settings WHERE key='__diag_probe'`)).rows[0];
+    out.previous_probe = prev ? prev.value : null;
+    out.previous_probe_found = !!prev;
     const probe = 'probe-' + new Date().toISOString() + '-' + Math.random().toString(36).slice(2, 8);
     await q(`INSERT INTO app_settings(key,value) VALUES('__diag_probe',$1)
              ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [probe]);
-    const readback = (await q(`SELECT value FROM app_settings WHERE key='__diag_probe'`)).rows[0];
-    out.probe_written = probe;
-    out.probe_readback = readback ? readback.value : null;
-    out.probe_persisted_in_app_db = !!(readback && readback.value === probe);
+    out.new_probe = probe;
   } catch (e) { out.error = e.message; }
   res.json(out);
 });
