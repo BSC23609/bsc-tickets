@@ -296,7 +296,7 @@
         </div>
         <div class="flex gap-2 mt-4">
           <button onclick="captureGate()" class="btn-ghost text-sm">📍 Capture my location</button>
-          <button onclick="saveGate()" class="btn text-sm">Save gate settings</button>
+          <button onclick="saveGateLocation()" class="btn text-sm">Save gate settings</button>
           <button onclick="showDbInfo()" class="btn-ghost text-sm">🔍 DB diagnostics</button>
         </div>
         <div id="gsStatus" class="text-xs mt-2"></div>
@@ -407,7 +407,7 @@
     </section>
   </main>
 
-  <script src="/js/common.js?v=86"></script>
+  <script src="/js/common.js?v=87"></script>
   <script>
     let employees = [], charts = {};
 
@@ -509,7 +509,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED86, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED87, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -529,7 +529,7 @@
       } catch (e) { el.textContent = 'Failed: ' + e.message; }
     }
 
-    async function saveGate() {
+    async function saveGateLocation() {
       const body = {
         lat: parseFloat(document.getElementById('gsLat').value) || null,
         lng: parseFloat(document.getElementById('gsLng').value) || null,

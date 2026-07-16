@@ -655,7 +655,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED86', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED87', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
