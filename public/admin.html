@@ -190,18 +190,12 @@
 
     <!-- EMPLOYEES -->
     <section id="tab-emp" class="hidden">
-      <div class="card p-4 mb-4">
-        <h3 class="font-bold text-sm mb-3">Add Employee</h3>
-        <div class="grid sm:grid-cols-3 gap-3">
-          <input id="e_no" class="inp" placeholder="Employee No *" />
-          <input id="e_name" class="inp" placeholder="Full name *" />
-          <input id="e_email" class="inp" placeholder="Email" />
-          <input id="e_phone" class="inp" placeholder="Mobile (e.g. 9444085016)" />
-          <input id="e_dept" class="inp" placeholder="Department" />
-          <input id="e_title" class="inp" placeholder="Designation" />
-          <label class="flex items-center gap-2 text-sm"><input id="e_admin" type="checkbox" /> Admin access</label>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <div class="eyebrow">Directory</div>
+          <p class="text-xs text-slate-500 mt-1">Add a new joiner with their full profile, or edit anyone below.</p>
         </div>
-        <button onclick="addEmp()" class="mt-3 btn text-sm">Add (default password Bsc@123)</button>
+        <button onclick="addEmp()" class="btn text-sm">+ Add employee</button>
       </div>
       <div class="card p-4"><div id="empTable" class="overflow-x-auto"></div></div>
     </section>
@@ -611,7 +605,7 @@
       ['dash','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'trips') loadAdminTrips();
       if (tab === 'gate') openGateTab();
-      if (tab === 'emp') renderEmployees();
+      if (tab === 'emp') { renderEmployees(); api('/admin/departments').then(d => departments = d).catch(()=>{}); }
       if (tab === 'cat') renderCategories();
       if (tab === 'loc') renderLocations();
       if (tab === 'ogappr') renderApprovers();
@@ -912,15 +906,15 @@
             <button onclick="toggleActive(${e.id},${!e.active})" class="text-xs ${e.active?'text-red-600':'text-emerald-600'} hover:underline">${e.active?'Deactivate':'Activate'}</button>
           </td></tr>`).join('')}</tbody></table>`;
     }
+    // Add + Edit share one popup form (empModal). Add opens it blank; Edit pre-fills it.
+    let departments = [];
     async function addEmp() {
-      const body = { emp_no:val('e_no'), name:val('e_name'), email:val('e_email'),
-        phone:val('e_phone'), department:val('e_dept'), job_title:val('e_title'),
-        is_admin:document.getElementById('e_admin').checked };
-      if (!body.emp_no || !body.name) return toast('Employee number and name required','error');
-      try { await api('/admin/employees',{method:'POST',body}); toast('Employee added','success');
-        ['e_no','e_name','e_email','e_phone','e_dept','e_title'].forEach(id=>document.getElementById(id).value='');
-        document.getElementById('e_admin').checked=false; renderEmployees(); }
-      catch(e){ toast(e.message,'error'); }
+      try { if (!departments.length) departments = await api('/admin/departments'); } catch (e) {}
+      empModal('add', {});
+    }
+    function editEmp(id) {
+      const e = employees.find(x => x.id === id); if (!e) return;
+      empModal('edit', e);
     }
     async function sendWelcome(id, name, mustReset, hasPhone){
       if(!hasPhone){ toast('No WhatsApp number on file for '+name,'error'); return; }
@@ -1104,74 +1098,86 @@
     // Safe single-quoted JS string for use inside double-quoted on* attributes.
     const jsArg = s => "'" + String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'") + "'";
 
-    function editEmp(id){
-      const e = employees.find(x=>x.id===id); if(!e) return;
+    // Shared Add/Edit popup. mode='add' → blank + create; mode='edit' → pre-filled + update.
+    function empModal(mode, e){
+      const isEdit = mode === 'edit';
+      const others = employees.filter(x => x.id !== e.id);
+      const optList = (selId) => others.map(x=>`<option value="${x.id}" ${selId===x.id?'selected':''}>${esc(x.name)} (${esc(x.emp_no)})</option>`).join('');
+      // Department dropdown from the known set, plus the current value if it's somehow not listed,
+      // plus an "add new" escape hatch so HR isn't blocked when a genuinely new dept appears.
+      const deptSet = Array.from(new Set([...(departments||[]), e.department].filter(Boolean)));
+      const deptOpts = '<option value="">— select —</option>'
+        + deptSet.map(d=>`<option value="${esc(d)}" ${e.department===d?'selected':''}>${esc(d)}</option>`).join('')
+        + '<option value="__new__">+ Add new department…</option>';
+      const chk = (v) => v ? 'checked' : '';
+      const app = e.app_access || {};
       const w = document.createElement('div');
       w.id = 'empEditModal';
       w.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4';
       w.onclick = ev => { if(ev.target===w) w.remove(); };
-      w.innerHTML = `<div class="bg-white rounded-xl shadow-2xl w-full max-w-lg">
-        <div class="p-4 border-b border-slate-200 flex items-center justify-between">
-          <h3 class="font-bold">Edit employee</h3>
+      w.innerHTML = `<div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+        <div class="p-4 border-b border-slate-200 flex items-center justify-between sticky top-0 bg-white">
+          <h3 class="font-bold">${isEdit ? 'Edit employee' : 'Add employee'}</h3>
           <button onclick="document.getElementById('empEditModal').remove()" class="text-slate-400 text-2xl leading-none">&times;</button>
         </div>
         <div class="p-4 grid sm:grid-cols-2 gap-3">
-          <div><label class="lbl">Employee code</label><input id="ed_no" class="inp" value="${esc(e.emp_no)}"></div>
-          <div><label class="lbl">Full name</label><input id="ed_name" class="inp" value="${esc(e.name)}"></div>
+          <div><label class="lbl">Employee code *</label><input id="ed_no" class="inp" value="${esc(e.emp_no)}"></div>
+          <div><label class="lbl">Full name *</label><input id="ed_name" class="inp" value="${esc(e.name)}"></div>
           <div><label class="lbl">Designation</label><input id="ed_title" class="inp" value="${esc(e.job_title)}"></div>
-          <div><label class="lbl">Department</label><input id="ed_dept" class="inp" value="${esc(e.department)}"></div>
-          <div><label class="lbl">Mobile</label><input id="ed_phone" class="inp" value="${esc(e.phone)}"></div>
+          <div><label class="lbl">Department</label>
+            <select id="ed_dept" class="inp" onchange="if(this.value==='__new__'){const v=prompt('New department name');this.value='';if(v){const o=document.createElement('option');o.value=v;o.textContent=v;o.selected=true;this.insertBefore(o,this.options[this.options.length-1]);}}">${deptOpts}</select></div>
+          <div><label class="lbl">Mobile</label><input id="ed_phone" class="inp" value="${esc(e.phone)}" placeholder="9444085016"></div>
           <div><label class="lbl">Email</label><input id="ed_email" class="inp" value="${esc(e.email)}"></div>
           <div><label class="lbl">Expense category</label><select id="ed_cat" class="inp">
             <option value="CAT2" ${e.expense_category!=='CAT1'?'selected':''}>Cat 2 (≤ ₹50k)</option>
             <option value="CAT1" ${e.expense_category==='CAT1'?'selected':''}>Cat 1 (&gt; ₹50k)</option></select></div>
           <div><label class="lbl">Reporting manager <span class="text-slate-400 normal-case font-normal">(conveyance approver)</span></label>
-            <select id="ed_rm" class="inp"><option value="">— none —</option>
-            ${employees.filter(x=>x.id!==e.id).map(x=>`<option value="${x.id}" ${e.reporting_manager_emp_id===x.id?'selected':''}>${esc(x.name)} (${esc(x.emp_no)})</option>`).join('')}</select></div>
+            <select id="ed_rm" class="inp"><option value="">— none —</option>${optList(e.reporting_manager_emp_id)}</select></div>
+          <div><label class="lbl">Outpass approver <span class="text-slate-400 normal-case font-normal">(primary)</span></label>
+            <select id="ed_opappr" class="inp"><option value="">— use department routing —</option>${optList(e.outpass_approver_id)}</select></div>
+          <div><label class="lbl">Backup approver <span class="text-slate-400 normal-case font-normal">(when primary absent)</span></label>
+            <select id="ed_opbackup" class="inp"><option value="">— none —</option>${optList(e.outpass_backup_approver_id)}</select></div>
           <div class="flex items-end gap-5 pb-1">
-            <label class="flex items-center gap-2 text-sm"><input id="ed_admin" type="checkbox" ${e.is_admin?'checked':''}> Admin access</label>
-            <label class="flex items-center gap-2 text-sm"><input id="ed_active" type="checkbox" ${e.active?'checked':''}> Active</label>
+            <label class="flex items-center gap-2 text-sm"><input id="ed_admin" type="checkbox" ${chk(e.is_admin)}> Admin access</label>
+            <label class="flex items-center gap-2 text-sm"><input id="ed_active" type="checkbox" ${isEdit?chk(e.active):'checked'}> Active</label>
           </div>
           <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
-            <input id="ed_convmgr" type="checkbox" ${e.conveyance_needs_manager!==false?'checked':''}>
+            <input id="ed_convmgr" type="checkbox" ${isEdit ? (e.conveyance_needs_manager!==false?'checked':'') : 'checked'}>
             <span>Local Conveyance needs reporting-manager approval <span class="text-slate-400 normal-case font-normal">(uncheck to let this person's trips count without manager sign-off)</span></span>
           </label>
           <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
-            <input id="ed_opvhr" type="checkbox" ${e.outpass_via_hr?'checked':''}>
-            <span>Head — own outpass goes to the Heads’ approver <span class="text-slate-400 normal-case font-normal">(tick for department heads; their own passes route to the Heads’ outpass approver set under Outpass/Gatepass approvers, not to themselves)</span></span>
+            <input id="ed_opvhr" type="checkbox" ${chk(e.outpass_via_hr)}>
+            <span>Head — own outpass goes to the Heads' approver <span class="text-slate-400 normal-case font-normal">(tick for department heads; their own passes route to the Heads' outpass approver, not to themselves)</span></span>
           </label>
           <label class="sm:col-span-2 flex items-center gap-2 text-sm bg-mist/60 border border-line rounded-lg px-3 py-2">
-            <input id="ed_selfraise" type="checkbox" ${e.can_self_raise?'checked':''}>
+            <input id="ed_selfraise" type="checkbox" ${chk(e.can_self_raise)}>
             <span>Can raise self-tickets <span class="text-slate-400 normal-case font-normal">(shows the "Raise this for myself" option — for people who log their own tasks)</span></span>
           </label>
           <div class="sm:col-span-2 bg-mist/60 border border-line rounded-lg px-3 py-2">
             <div class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">App access <span class="text-slate-400 normal-case font-normal">(restricted apps — hidden unless granted; admins always see all)</span></div>
-            <label class="flex items-center gap-2 text-sm py-0.5">
-              <input id="ed_app_qms" type="checkbox" ${(e.app_access&&e.app_access.qms)?'checked':''}>
-              <span>Quality (QMS)</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm py-0.5">
-              <input id="ed_app_dispatch" type="checkbox" ${(e.app_access&&e.app_access.dispatch)?'checked':''}>
-              <span>Dispatch / Weighbridge</span>
-            </label>
-            <label class="flex items-center gap-2 text-sm py-0.5">
-              <input id="ed_app_genset" type="checkbox" ${(e.app_access&&e.app_access.genset)?'checked':''}>
-              <span>Genset Log</span>
-            </label>
+            <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_qms" type="checkbox" ${chk(app.qms)}> <span>Quality (QMS)</span></label>
+            <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_dispatch" type="checkbox" ${chk(app.dispatch)}> <span>Dispatch / Weighbridge</span></label>
+            <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_genset" type="checkbox" ${chk(app.genset)}> <span>Genset Log</span></label>
           </div>
         </div>
-        <div class="p-4 border-t border-slate-200 flex justify-end gap-2">
-          <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
-          <button onclick="saveEmp(${e.id})" class="btn text-sm">Save changes</button>
+        <div class="p-4 border-t border-slate-200 flex justify-between items-center gap-2 sticky bottom-0 bg-white">
+          <span class="text-[11px] text-slate-400">${isEdit ? '' : 'Default password: Bsc@123 (they set their own on first login)'}</span>
+          <div class="flex gap-2">
+            <button onclick="document.getElementById('empEditModal').remove()" class="btn-ghost text-sm">Cancel</button>
+            <button onclick="saveEmp(${isEdit ? e.id : 'null'})" class="btn text-sm">${isEdit ? 'Save changes' : 'Add employee'}</button>
+          </div>
         </div></div>`;
       document.body.appendChild(w);
     }
+
     async function saveEmp(id){
       const body = {
         emp_no: val('ed_no'), name: val('ed_name'), job_title: val('ed_title'),
-        department: val('ed_dept'), phone: val('ed_phone'), email: val('ed_email'),
+        department: document.getElementById('ed_dept').value || null, phone: val('ed_phone'), email: val('ed_email'),
         expense_category: document.getElementById('ed_cat').value,
         reporting_manager_emp_id: document.getElementById('ed_rm').value || null,
+        outpass_approver_id: document.getElementById('ed_opappr').value || null,
+        outpass_backup_approver_id: document.getElementById('ed_opbackup').value || null,
         is_admin: document.getElementById('ed_admin').checked,
         active: document.getElementById('ed_active').checked,
         conveyance_needs_manager: document.getElementById('ed_convmgr').checked,
@@ -1184,14 +1190,14 @@
         },
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
+      if(body.department==='__new__') return toast('Please finish adding the new department name','error');
       try{
-        await api(`/admin/employees/${id}`,{method:'PUT',body});
-        toast('Employee updated','success');
+        if (id == null) { await api('/admin/employees',{method:'POST',body}); toast('Employee added','success'); }
+        else { await api(`/admin/employees/${id}`,{method:'PUT',body}); toast('Employee updated','success'); }
         const m = document.getElementById('empEditModal'); if(m) m.remove();
         renderEmployees();
       }catch(e){ toast(e.message,'error'); }
-    }
-    const gv = id => { const e = document.getElementById(id); return e ? e.value : ''; };
+    }    const gv = id => { const e = document.getElementById(id); return e ? e.value : ''; };
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     init().catch(e=>{ console.error(e); toast(e.message,'error'); });
     // ---------- OUTPASS APPROVERS (department head + fallback) ----------

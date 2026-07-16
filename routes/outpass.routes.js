@@ -43,6 +43,21 @@ async function resolveApprover(requester, { onLeave = false } = {}) {
     return e && e.id !== requester.id ? { emp_id: e.id, name: e.name, phone: e.phone, label } : null;
   };
 
+  // Per-employee approver takes precedence over department routing. When the requester says
+  // their approver is absent (the existing on-leave toggle), route to their BACKUP approver;
+  // otherwise their PRIMARY. If the chosen one isn't set/active, we fall through to the rest of
+  // the chain below so nothing is ever left unroutable.
+  if (onLeave) {
+    const backup = await pickEmp(requester.outpass_backup_approver_id, 'Backup approver');
+    if (backup) return backup;
+    // backup absent too → try primary before falling to dept/leave-cover chain
+    const primary = await pickEmp(requester.outpass_approver_id, 'Approver');
+    if (primary) return primary;
+  } else {
+    const primary = await pickEmp(requester.outpass_approver_id, 'Approver');
+    if (primary) return primary;
+  }
+
   // Designated outpass approvers can't sign off their own passes — route theirs to HR (the fallback approver).
   if (requester.outpass_via_hr) {
     // Heads' own passes go to the designated heads' approver (e.g. Shivam Shroff), else the general fallback.

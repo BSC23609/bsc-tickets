@@ -10,23 +10,48 @@ const router = express.Router();
 router.use(auth.requireAuth, auth.requireAdmin);
 
 // ===================== EMPLOYEES =====================
+// Distinct department names in use (plus any mapped in routing), for the Add/Edit dropdowns.
+router.get('/departments', async (req, res) => {
+  const rows = (await q(
+    `SELECT d FROM (
+       SELECT DISTINCT NULLIF(TRIM(department),'') AS d FROM employees
+       UNION SELECT department FROM dept_approvers
+     ) x WHERE d IS NOT NULL ORDER BY d`)).rows.map((r) => r.d);
+  res.json(rows);
+});
+
 router.get('/employees', async (req, res) => {
   const { rows } = await q(
-    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category,reporting_manager_emp_id,conveyance_needs_manager,outpass_via_hr,can_self_raise,app_access
+    `SELECT id,emp_no,name,email,phone,department,job_title,app_role,is_admin,active,must_reset,expense_category,reporting_manager_emp_id,conveyance_needs_manager,outpass_via_hr,can_self_raise,app_access,outpass_approver_id,outpass_backup_approver_id
      FROM employees ORDER BY emp_no`);
   res.json(rows);
 });
 
 router.post('/employees', async (req, res) => {
-  const { emp_no, name, email, phone, department, job_title, is_admin } = req.body || {};
+  const { emp_no, name, email, phone, department, job_title, is_admin,
+          expense_category, reporting_manager_emp_id, conveyance_needs_manager,
+          outpass_via_hr, can_self_raise, app_access,
+          outpass_approver_id, outpass_backup_approver_id } = req.body || {};
   if (!emp_no || !name) return res.status(400).json({ error: 'Employee number and name required' });
   const hash = await auth.hashPw(process.env.DEFAULT_PASSWORD || 'Bsc@123');
+  const cat = ['CAT1', 'CAT2'].includes(expense_category) ? expense_category : 'CAT2';
+  const rm = reporting_manager_emp_id ? Number(reporting_manager_emp_id) : null;
+  const opAppr = outpass_approver_id ? Number(outpass_approver_id) : null;
+  const opBackup = outpass_backup_approver_id ? Number(outpass_backup_approver_id) : null;
+  const convMgr = (conveyance_needs_manager === undefined || conveyance_needs_manager === null) ? true : !!conveyance_needs_manager;
+  const opvHr = !!outpass_via_hr;
+  const selfRaise = !!can_self_raise;
+  const appAcc = (app_access && typeof app_access === 'object')
+    ? JSON.stringify(require('../lib/apps').RESTRICTED.reduce((o, k) => { o[k] = app_access[k] === true; return o; }, {}))
+    : '{}';
   try {
     const { rows } = await q(
-      `INSERT INTO employees(emp_no,name,email,phone,department,job_title,is_admin,password_hash,must_reset)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,TRUE) RETURNING id`,
+      `INSERT INTO employees(emp_no,name,email,phone,department,job_title,is_admin,password_hash,must_reset,
+         expense_category,reporting_manager_emp_id,conveyance_needs_manager,outpass_via_hr,can_self_raise,
+         app_access,outpass_approver_id,outpass_backup_approver_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,TRUE,$9,$10,$11,$12,$13,$14::jsonb,$15,$16) RETURNING id`,
       [String(emp_no).trim(), name, email || null, normPhone(phone), department || null,
-       job_title || null, !!is_admin, hash]);
+       job_title || null, !!is_admin, hash, cat, rm, convMgr, opvHr, selfRaise, appAcc, opAppr, opBackup]);
     // Fire a one-time WhatsApp welcome (install + module intro + first-time login).
     // Non-blocking: adding the employee never fails if WhatsApp/template isn't ready.
     const wphone = normPhone(phone);
@@ -50,9 +75,11 @@ router.post('/employees/:id/welcome', async (req, res) => {
 });
 
 router.put('/employees/:id', async (req, res) => {
-  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category, reporting_manager_emp_id, conveyance_needs_manager, outpass_via_hr, can_self_raise, app_access } = req.body || {};
+  const { emp_no, name, email, phone, department, job_title, is_admin, active, expense_category, reporting_manager_emp_id, conveyance_needs_manager, outpass_via_hr, can_self_raise, app_access, outpass_approver_id, outpass_backup_approver_id } = req.body || {};
   const cat = ['CAT1', 'CAT2'].includes(expense_category) ? expense_category : null;
   const rm = reporting_manager_emp_id ? Number(reporting_manager_emp_id) : null;
+  const opAppr = outpass_approver_id ? Number(outpass_approver_id) : null;
+  const opBackup = outpass_backup_approver_id ? Number(outpass_backup_approver_id) : null;
   const convMgr = (conveyance_needs_manager === undefined || conveyance_needs_manager === null) ? null : !!conveyance_needs_manager;
   const opvHr = (outpass_via_hr === undefined || outpass_via_hr === null) ? null : !!outpass_via_hr;
   const selfRaise = (can_self_raise === undefined || can_self_raise === null) ? null : !!can_self_raise;
@@ -68,10 +95,11 @@ router.put('/employees/:id', async (req, res) => {
          active=COALESCE($9,active), expense_category=COALESCE($10,expense_category),
          reporting_manager_emp_id=$11, conveyance_needs_manager=COALESCE($12,conveyance_needs_manager),
          outpass_via_hr=COALESCE($13,outpass_via_hr), can_self_raise=COALESCE($14,can_self_raise),
-         app_access=COALESCE($15::jsonb,app_access)
+         app_access=COALESCE($15::jsonb,app_access),
+         outpass_approver_id=$16, outpass_backup_approver_id=$17
        WHERE id=$1`,
       [req.params.id, emp_no ? String(emp_no).trim() : null, name, email || null, normPhone(phone),
-       department || null, job_title || null, is_admin, active, cat, rm, convMgr, opvHr, selfRaise, appAcc]);
+       department || null, job_title || null, is_admin, active, cat, rm, convMgr, opvHr, selfRaise, appAcc, opAppr, opBackup]);
     res.json({ ok: true });
   } catch (e) {
     if (e.code === '23505') return res.status(409).json({ error: 'That employee code is already in use' });

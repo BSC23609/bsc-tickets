@@ -405,3 +405,10 @@ ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS overdue_alert_at  TIMESTAM
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS expected_back_at  TIMESTAMPTZ;                 -- in_time resolved to a timestamp, set on approve
 
 CREATE INDEX IF NOT EXISTS idx_outpass_open ON outpass_requests(returned_at) WHERE returned_at IS NULL;
+
+-- ===================== OUTPASS: per-employee approver (primary + backup) =====================
+-- Each employee can have their OWN outpass approver, assigned individually rather than by
+-- department. The backup is used when the requester ticks "my approver is absent" (reusing the
+-- existing on-leave toggle). If neither is set, routing falls back to the department-head chain.
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_approver_id        INT REFERENCES employees(id);  -- primary
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_backup_approver_id INT REFERENCES employees(id);  -- backup (when primary absent)
