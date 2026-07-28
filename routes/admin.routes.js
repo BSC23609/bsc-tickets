@@ -283,6 +283,16 @@ router.delete('/trades/:id', async (req, res) => {
 
 // ===================== CLEANUP (delete individual test entries) =====================
 // Delete a single ticket (its photos + event history cascade away).
+// Mute / unmute WhatsApp reminders (L1/L2/L3 escalation + resolved nudges) for ONE ticket.
+router.post('/tickets/:id/reminders', async (req, res) => {
+  const id = req.params.id;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
+  const off = !!(req.body && req.body.off);
+  const r = await q('UPDATE tickets SET reminders_off=$2 WHERE id=$1 RETURNING ref_no, reminders_off', [id, off]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Ticket not found' });
+  res.json({ ok: true, ref_no: r.rows[0].ref_no, reminders_off: r.rows[0].reminders_off });
+});
+
 router.delete('/tickets/:id', async (req, res) => {
   const id = req.params.id;
   if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
@@ -319,6 +329,7 @@ router.get('/ticket-list', async (req, res) => {
   }
   const rows = (await q(
     `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.closed_at,t.external_hold,
+            COALESCE(t.reminders_off,false) AS reminders_off,
             c.name AS category_name, r.name AS requester_name
      FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
      WHERE ${where}
@@ -698,7 +709,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED97', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED98', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

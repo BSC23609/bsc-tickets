@@ -530,7 +530,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED97, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED98, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -913,11 +913,19 @@
       const qv=document.getElementById('cl_t_q').value.trim(); if(qv) qs.set('q',qv);
       const rows=await api('/admin/ticket-list?'+qs.toString());
       document.getElementById('recentTable').innerHTML = table(
-        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime',''],
+        ['Ref','Subject','Category','Requester','Status','Priority','Raised','Downtime','Reminders',''],
         rows.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
           STATUS_STYLE[tStatusKey(t)]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
           t.status==='closed'?fmtDuration(t.downtime_mins):'—',
+          (t.reminders_off
+            ? `<button onclick="muteTicket(${t.id},false)" class="text-emerald-600 hover:underline text-xs font-semibold">🔕 Muted — turn on</button>`
+            : `<button onclick="muteTicket(${t.id},true)" class="text-slate-500 hover:underline text-xs">🔔 On — mute</button>`),
           `<button onclick="delTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    async function muteTicket(id, off){
+      try { await api('/admin/tickets/'+id+'/reminders', { method:'POST', body:{ off } });
+        toast(off?'Reminders muted for this ticket':'Reminders turned back on','success'); loadCleanupTickets(); }
+      catch(e){ alert('Could not update: '+e.message); }
     }
     async function loadCleanupOutpass(){
       const {from,to}=cleanupRange();

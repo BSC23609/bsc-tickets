@@ -374,6 +374,7 @@ CREATE INDEX IF NOT EXISTS idx_genset_logs_genset_date ON genset_logs(genset_id,
 -- ===== External / vendor support hold (pauses reminders until a working-hours ETA) =====
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_hold   BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_hours  NUMERIC(6,1);
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reminders_off   BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_set_at TIMESTAMPTZ;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_reason TEXT;
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS external_count  INT NOT NULL DEFAULT 0;

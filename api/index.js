@@ -381,7 +381,7 @@ app.all('/api/cron/escalate', async (req, res) => {
      LEFT JOIN employees l1 ON l1.id = t.l1_emp_id
      LEFT JOIN employees l2 ON l2.id = t.l2_emp_id
      LEFT JOIN employees l3 ON l3.id = t.l3_emp_id
-     WHERE t.status IN ('open','in_progress','reopened')`);
+     WHERE t.status IN ('open','in_progress','reopened') AND NOT COALESCE(t.reminders_off, false)`);
 
   // Uniform escalation for every category/trade:
   //   >= 2h unresolved -> remind L1 + L2      (level 2)
@@ -398,6 +398,7 @@ app.all('/api/cron/escalate', async (req, res) => {
         WHERE ev.ticket_id=t.id AND ev.event='resolved' ORDER BY ev.id DESC LIMIT 1) AS resolver_name
      FROM tickets t JOIN employees r ON r.id=t.requester_id
      WHERE t.status='resolved' AND t.resolved_at < now() - interval '1 hour'
+       AND NOT COALESCE(t.reminders_off, false)
        AND (t.last_reminder_at IS NULL OR t.last_reminder_at < now() - interval '1 hour')`);
   // Respond immediately; do the WhatsApp-heavy work in the background so a slow or failing
   // send can never time out or fail the cron job (which is what surfaced as GitHub errors).
