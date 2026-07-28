@@ -313,6 +313,16 @@
         <div id="gsStatus" class="text-xs mt-2"></div>
         <pre id="dbInfo" class="hidden text-[11px] bg-slate-900 text-emerald-300 rounded-lg p-3 mt-3 overflow-x-auto whitespace-pre-wrap"></pre>
       </div>
+
+      <div class="card p-5">
+        <div class="eyebrow">Conveyance WhatsApp test</div>
+        <p class="text-xs text-slate-500 mt-1 mb-3">Sends a real <b>conveyance_request</b> to a number and shows WATI's raw reply — use this to see why managers aren't getting trip-approval notifications.</p>
+        <div class="flex gap-2 items-end flex-wrap max-w-xl">
+          <div class="flex-1 min-w-[180px]"><label class="lbl">Phone (with country code)</label><input id="wtPhone" class="inp" placeholder="9198xxxxxxxx"></div>
+          <button onclick="testConveyanceWati()" class="btn text-sm">Send test</button>
+        </div>
+        <pre id="wtOut" class="hidden text-[11px] bg-slate-900 text-emerald-300 rounded-lg p-3 mt-3 overflow-x-auto whitespace-pre-wrap"></pre>
+      </div>
     </section>
 
     <!-- CONVEYANCE TRIPS (admin override) -->
@@ -520,7 +530,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED95, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED96, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -670,6 +680,16 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    async function testConveyanceWati() {
+      const phone = (document.getElementById('wtPhone').value || '').trim();
+      const out = document.getElementById('wtOut');
+      out.classList.remove('hidden');
+      out.textContent = 'Sending…';
+      try {
+        const r = await api('/admin/wati-test-conveyance', { method: 'POST', body: { phone } });
+        out.textContent = JSON.stringify(r, null, 2);
+      } catch (e) { out.textContent = 'Error: ' + e.message; }
+    }
     async function loadTicketReminders() {
       try {
         const r = await api('/admin/ticket-reminders');

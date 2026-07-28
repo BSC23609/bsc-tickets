@@ -405,6 +405,23 @@ router.post('/ticket-reminders', async (req, res) => {
   res.json({ ok: true, enabled });
 });
 
+// Diagnostic: fire the real conveyance_request template at a chosen phone (or a manager's own
+// number) and return WATI's raw reply, so we can see exactly why managers aren't getting notified.
+router.post('/wati-test-conveyance', async (req, res) => {
+  const wati = require('../lib/wati');
+  let phone = (req.body && req.body.phone || '').replace(/[^\d+]/g, '');
+  let who = 'typed number';
+  if (!phone && req.body && req.body.emp_id) {
+    const e = (await q('SELECT name, phone FROM employees WHERE id=$1', [+req.body.emp_id])).rows[0];
+    if (e) { phone = (e.phone || '').replace(/[^\d+]/g, ''); who = e.name; }
+  }
+  if (!phone) return res.status(400).json({ error: 'No phone. Enter a number or pick an employee who has one.' });
+  const out = await wati.sendTemplateDebug(phone, wati.EXPENSE_TPL.cv_request, {
+    name: who, requester: 'TEST Employee', date: '28 Jul 2026',
+    route: 'Plant \u2192 Bank', amount: '\u20b9240', token: 'TESTTOKEN123' });
+  res.json({ tested_phone: phone, recipient: who, result: out });
+});
+
 // ===================== DAILY REPORT =====================
 const parsePhones = (v) => String(v || '').split(/[\n,]/).map((s) => s.replace(/[^\d+]/g, '')).filter(Boolean);
 
@@ -681,7 +698,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED95', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED96', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
