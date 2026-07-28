@@ -284,9 +284,21 @@ router.delete('/trades/:id', async (req, res) => {
 // ===================== CLEANUP (delete individual test entries) =====================
 // Delete a single ticket (its photos + event history cascade away).
 router.delete('/tickets/:id', async (req, res) => {
-  const r = await q('DELETE FROM tickets WHERE id=$1 RETURNING ref_no', [req.params.id]);
-  if (!r.rows.length) return res.status(404).json({ error: 'Ticket not found' });
-  res.json({ ok: true, ref_no: r.rows[0].ref_no });
+  const id = req.params.id;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
+  try {
+    // Delete child rows first, so the ticket is removed even if the live DB's foreign keys were
+    // created without ON DELETE CASCADE (in which case a plain DELETE FROM tickets throws, the
+    // ticket survives, and the escalation cron keeps nudging L1/L2/L3).
+    await q('DELETE FROM ticket_photos WHERE ticket_id=$1', [id]);
+    await q('DELETE FROM ticket_events WHERE ticket_id=$1', [id]);
+    const r = await q('DELETE FROM tickets WHERE id=$1 RETURNING ref_no', [id]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Ticket not found' });
+    res.json({ ok: true, ref_no: r.rows[0].ref_no });
+  } catch (e) {
+    console.error('[ticket delete] failed:', e.message);
+    res.status(500).json({ error: 'Delete failed: ' + e.message });
+  }
 });
 
 // Recent outpass/gatepass entries (for review + cleanup).
@@ -377,6 +389,20 @@ router.put('/requester-groups', async (req, res) => {
   await q(`INSERT INTO app_settings(key,value) VALUES('requester_groups',$1)
            ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [value]);
   res.json({ ok: true });
+});
+
+// Global kill switch for ticket reminders — the L1/L2/L3 escalation nudges AND the
+// resolved-ticket confirm-close nudges. Default ON. Turning it off pauses all of them
+// without touching any per-ticket data.
+router.get('/ticket-reminders', async (req, res) => {
+  const r = (await q(`SELECT value FROM app_settings WHERE key='ticket_reminders_enabled'`)).rows[0];
+  res.json({ enabled: !r || r.value !== 'false' });
+});
+router.post('/ticket-reminders', async (req, res) => {
+  const enabled = !!(req.body && req.body.enabled);
+  await q(`INSERT INTO app_settings(key,value) VALUES('ticket_reminders_enabled',$1)
+           ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [enabled ? 'true' : 'false']);
+  res.json({ ok: true, enabled });
 });
 
 // ===================== DAILY REPORT =====================
@@ -655,7 +681,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED94', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED95', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

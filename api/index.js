@@ -358,6 +358,10 @@ app.all('/api/cron/escalate', async (req, res) => {
   const holidaySet = new Set((await q(`SELECT to_char(d,'YYYY-MM-DD') AS d FROM holidays`)).rows.map(r => r.d));
   if (!isWorkingNow(holidaySet)) return res.json({ ok: true, skipped: 'holiday', sent: 0 });
 
+  // Global admin kill switch — pause every ticket reminder (L1/L2/L3 + resolved nudges) at once.
+  const remSwitch = (await q(`SELECT value FROM app_settings WHERE key='ticket_reminders_enabled'`)).rows[0];
+  if (remSwitch && remSwitch.value === 'false') return res.json({ ok: true, skipped: 'reminders disabled by admin', sent: 0 });
+
   // Time budget: waitUntil() work still counts against the function's maxDuration, so we stop
   // sending before we hit it and let the next 15-min run pick up the rest (all sends are
   // idempotent — last_reminder_at guards them).
