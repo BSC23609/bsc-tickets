@@ -438,6 +438,15 @@
           </div>
           <input id="fwdNote" class="inp mt-2" placeholder="Note (optional) — why you're forwarding">
           <button onclick="forwardTicket(${id})" class="mt-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-slate-700 hover:bg-slate-800 transition">Forward ticket</button>
+
+          <div class="border-t border-slate-200 mt-3 pt-3">
+            ${label('Or hand to a specific person')}
+            <select id="asgEmp" class="inp mt-1">
+              <option value="">Select person…</option>
+              ${(meta.people||[]).map(pp=>`<option value="${pp.id}">${pp.name}${pp.emp_no?' ('+pp.emp_no+')':''}</option>`).join('')}
+            </select>
+            <button onclick="assignTicket(${id})" class="mt-2 text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 transition">Assign to person</button>
+          </div>
         </div>` : '';
 
       const photos = t.photos.filter(x => x.kind === 'issue');
@@ -570,6 +579,14 @@
         ts.innerHTML='<option value="">Select trade…</option>'+trades.map(x=>`<option value="${x.id}">${x.name}</option>`).join('');
         ts.classList.remove('hidden');
       } else { ts.classList.add('hidden'); ts.innerHTML='<option value="">Select trade…</option>'; }
+    }
+    async function assignTicket(id){
+      const emp=+document.getElementById('asgEmp').value;
+      if(!emp) return toast('Pick a person to assign to','error');
+      const note=document.getElementById('fwdNote').value||'';
+      try{ const r=await api(`/tickets/${id}/reassign`,{method:'POST',body:{emp_id:emp,note}});
+        toast('Assigned to '+(r.to||'the person')+' — they have been notified','success'); closeDetail(); }
+      catch(e){ toast(e.message,'error'); }
     }
     async function forwardTicket(id){
       const cid=+document.getElementById('fwdCat').value;

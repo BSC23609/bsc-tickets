@@ -478,6 +478,12 @@ router.post('/:id/forward', async (req, res) => {
   try { route = await resolveRoute(newCat, newTrade, t.location_id); }
   catch (e) { return res.status(400).json({ error: e.message }); }
 
+  // Don't orphan the ticket: if the target area has no L1 configured, the ticket would land on
+  // nobody and vanish from everyone's "Assigned to me". Block it with a clear message instead.
+  if (!route.l1) {
+    return res.status(400).json({ error: `"${route.category_name}" has no handler (L1) set${route.location_required ? ' for this location' : ''}, so the ticket would go to nobody. Set an L1 for that area first, or use "Assign to a person".` });
+  }
+
   const oldL1 = t.l1_emp_id, oldL2 = t.l2_emp_id, oldCatName = t.category_name;
   await q(`UPDATE tickets SET category_id=$2, trade_id=$3, l1_emp_id=$4, l2_emp_id=$5, l3_emp_id=$6,
        status='open', escalation_level=0, assigned_at=NULL, assigned_by_id=NULL, last_reminder_at=NULL,
@@ -496,6 +502,40 @@ router.post('/:id/forward', async (req, res) => {
     for (const id of [oldL1, oldL2]) { if (id && !seen.has(id)) { seen.add(id); const p = await empById(id); if (p) fyi.push(p); } }
     fyi.push({ id: t.requester_id, name: t.requester_name, phone: t.requester_phone });
     for (const p of fyi) if (p && p.phone) await wati.notify.forwarded(p, t, oldCatName, route.category_name);
+    await excel.syncLogToOneDrive();
+  })());
+});
+
+// ---- assign to a specific person (hand the ticket directly to a colleague) ----
+// Makes that employee the L1 handler, so it lands in their "Assigned to me" and they can resolve it.
+router.post('/:id/reassign', async (req, res) => {
+  const t = await loadTicket(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const onTicket = [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(req.user.id);
+  if (!onTicket && !req.user.is_admin) return res.status(403).json({ error: 'Only a handler on this ticket can reassign it' });
+  if (['resolved', 'closed'].includes(t.status)) return res.status(400).json({ error: 'Cannot reassign a resolved/closed ticket' });
+  const empId = +(req.body && req.body.emp_id) || null;
+  const note = ((req.body && req.body.note) || '').trim() || null;
+  if (!empId) return res.status(400).json({ error: 'Pick a person to assign to' });
+  const person = (await q('SELECT id,name,phone FROM employees WHERE id=$1 AND active=TRUE', [empId])).rows[0];
+  if (!person) return res.status(400).json({ error: 'That employee is not active' });
+  if (person.id === t.l1_emp_id) return res.status(400).json({ error: `${person.name} is already the handler` });
+
+  const oldL1 = t.l1_emp_id, oldL2 = t.l2_emp_id;
+  // Make them L1, reset the escalation clock so reminders start fresh from this handover.
+  await q(`UPDATE tickets SET l1_emp_id=$2, status='open', escalation_level=0, assigned_at=now(), assigned_by_id=$3,
+       last_reminder_at=NULL, in_progress_at=NULL, escalated_l2_at=NULL, escalated_l3_at=NULL WHERE id=$1`,
+    [t.id, empId, req.user.id]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'forwarded',$2,$3)`,
+    [t.id, req.user.id, `Assigned to ${person.name}${note ? ' · ' + note : ''}`]);
+  res.json({ ok: true, to: person.name });
+
+  background((async () => {
+    if (person.phone) await wati.notify.raised(person, t);
+    const seen = new Set([person.id]);
+    const fyi = [];
+    for (const id of [oldL1, oldL2]) { if (id && !seen.has(id)) { seen.add(id); const p = await empById(id); if (p) fyi.push(p); } }
+    for (const p of fyi) if (p && p.phone) await wati.notify.forwarded(p, t, t.category_name, `${t.category_name} (assigned to ${person.name})`);
     await excel.syncLogToOneDrive();
   })());
 });
