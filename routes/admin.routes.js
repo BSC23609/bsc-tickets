@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const { downtimeMins } = require('../lib/util');
@@ -293,6 +294,38 @@ router.post('/tickets/:id/reminders', async (req, res) => {
   res.json({ ok: true, ref_no: r.rows[0].ref_no, reminders_off: r.rows[0].reminders_off });
 });
 
+// Admin force-resolve: mark a ticket resolved directly from the cleanup list. Mirrors the normal
+// resolve flow (sets resolved_at + confirm token, nudges requester/L2 to confirm closure).
+router.post('/tickets/:id/resolve', async (req, res) => {
+  const id = req.params.id;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
+  const t = (await q(
+    `SELECT t.*, c.name AS category_name, r.name AS requester_name, r.phone AS requester_phone
+     FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     WHERE t.id=$1`, [id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  if (!['open', 'in_progress', 'reopened'].includes(t.status))
+    return res.status(400).json({ error: `Ticket is already ${t.status}` });
+  const note = ((req.body && req.body.note) || 'Resolved by admin').trim();
+  const confirmToken = crypto.randomBytes(20).toString('hex');
+  await q(`UPDATE tickets SET status='resolved', resolved_at=now(), resolution_note=$2, confirm_token=$3 WHERE id=$1`,
+    [id, note, confirmToken]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'resolved',$2,$3)`,
+    [id, req.user.id, note]);
+  res.json({ ok: true });
+  background((async () => {
+    t.confirm_token = confirmToken;
+    const seen = new Set(); const recipients = [];
+    const targets = [{ id: t.requester_id, name: t.requester_name, phone: t.requester_phone }];
+    if (t.l2_emp_id) { const l2 = (await q('SELECT id,name,phone FROM employees WHERE id=$1', [t.l2_emp_id])).rows[0]; if (l2) targets.push(l2); }
+    for (const p of targets) {
+      if (!p || !p.phone || seen.has(p.id)) continue; seen.add(p.id);
+      try { await wati.notify.resolved(p, t, 'Admin', note); recipients.push(p); } catch (e) { console.error('[admin-resolve] notify', e.message); }
+    }
+    try { await excel.syncLogToOneDrive(); } catch (e) {}
+  })());
+});
+
 router.delete('/tickets/:id', async (req, res) => {
   const id = req.params.id;
   if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
@@ -330,8 +363,11 @@ router.get('/ticket-list', async (req, res) => {
   const rows = (await q(
     `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.closed_at,t.external_hold,
             COALESCE(t.reminders_off,false) AS reminders_off,
-            c.name AS category_name, r.name AS requester_name
+            c.name AS category_name, r.name AS requester_name,
+            l1.name AS assigned_to,
+            EXISTS(SELECT 1 FROM ticket_events e WHERE e.ticket_id=t.id AND e.event='forwarded') AS was_forwarded
      FROM tickets t JOIN categories c ON c.id=t.category_id JOIN employees r ON r.id=t.requester_id
+     LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
      WHERE ${where}
      ORDER BY t.raised_at DESC LIMIT 300`, params)).rows;
   res.json(rows.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })));
@@ -713,7 +749,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED100', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED101', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
