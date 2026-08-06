@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Overtime — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-5">
+      <div class="eyebrow">Overtime</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Log your OT</h1>
+      <p class="text-sm text-slate-500 mt-1">Shift ends 7:00 PM. Enter only your OT <b>end time</b> — the amount is worked out for you (₹50 per half hour).</p>
+    </div>
+
+    <div id="notEligible" class="hidden card p-6 text-center">
+      <div class="text-3xl mb-2">🚫</div>
+      <div class="font-semibold">OT logging is for Production &amp; Dispatch staff only.</div>
+      <div class="text-sm text-slate-500 mt-1">If this is a mistake, ask HR to check your department.</div>
+    </div>
+
+    <div id="app" class="hidden">
+      <!-- Entry form -->
+      <div class="card p-5 mb-5">
+        <div class="grid sm:grid-cols-3 gap-3">
+          <div>
+            <label class="lbl">OT date</label>
+            <input id="otDate" type="date" class="inp">
+          </div>
+          <div>
+            <label class="lbl">OT end time</label>
+            <input id="endTime" type="time" class="inp" step="60" value="19:30">
+          </div>
+          <div>
+            <label class="lbl">Amount</label>
+            <div id="amtBox" class="inp bg-slate-50 flex items-center font-bold text-emerald-700">₹0</div>
+          </div>
+        </div>
+        <div id="calcHint" class="text-xs text-slate-500 mt-2"></div>
+        <div id="lateHint" class="hidden text-xs text-amber-700 mt-1 font-semibold">⚠ This is being logged more than 24 h after the OT day — it will be flagged as a late entry.</div>
+        <button id="saveBtn" onclick="saveEntry()" class="mt-3 text-white text-sm font-semibold px-5 py-2.5 rounded-xl bg-metfraa-blue" style="background:#0A4566">Save OT entry</button>
+      </div>
+
+      <!-- Month + list -->
+      <div class="flex items-center justify-between mb-2">
+        <div class="eyebrow">This month</div>
+        <input id="period" type="month" class="inp !w-auto text-sm" onchange="load()">
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">End</th>
+                <th class="text-right px-4 py-2">Hours</th><th class="text-right px-4 py-2">Amount</th>
+                <th class="text-left px-4 py-2">Status</th><th class="px-4 py-2"></th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+          <tfoot><tr class="border-t border-line font-bold"><td class="px-4 py-2" colspan="3">Total</td>
+            <td id="total" class="text-right px-4 py-2">₹0</td><td colspan="2"></td></tr></tfoot>
+        </table>
+        <div id="empty" class="hidden text-center text-slate-400 text-sm py-8">No OT logged this month yet.</div>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50"></div>
+
+  <script src="/js/common.js?v=88"></script>
+  <script>
+    let meta = null;
+    const rupee = n => '₹' + Number(n||0).toLocaleString('en-IN');
+
+    function toast(msg, kind='info'){
+      const t=document.getElementById('toast');
+      t.textContent=msg;
+      t.className='fixed bottom-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50 '+
+        (kind==='error'?'bg-red-600':kind==='success'?'bg-emerald-600':'bg-slate-800');
+      t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),2600);
+    }
+
+    // Live amount preview as they change the end time.
+    function preview(){
+      const end=document.getElementById('endTime').value;
+      const [h,m]=(end||'0:0').split(':').map(Number);
+      let mins=h*60+m; if(h<12) mins+=1440;          // after midnight
+      const ot=mins-19*60;
+      const box=document.getElementById('amtBox'), hint=document.getElementById('calcHint');
+      if(ot<=0){ box.textContent='₹0'; hint.textContent='End time must be after 7:00 PM.'; return; }
+      const halves=Math.floor(ot/30), amt=halves*50, hrs=(ot/60).toFixed(2);
+      box.textContent=rupee(amt);
+      hint.textContent=`${hrs} h of OT · ${halves} × ₹50`;
+    }
+    function checkLate(){
+      const d=document.getElementById('otDate').value; if(!d) return;
+      const shiftEnd=new Date(d+'T19:00:00+05:30');
+      document.getElementById('lateHint').classList.toggle('hidden', Date.now() <= shiftEnd.getTime()+24*3600*1000);
+    }
+
+    async function saveEntry(){
+      const ot_date=document.getElementById('otDate').value;
+      const end_time=document.getElementById('endTime').value;
+      if(!ot_date) return toast('Pick the OT date','error');
+      const btn=document.getElementById('saveBtn'); btn.disabled=true;
+      try{
+        const r=await api('/ot/entry',{method:'POST',body:{ot_date,end_time}});
+        toast('Saved '+rupee(r.amount)+(r.is_late?' (late)':''),'success');
+        await load();
+      }catch(e){ toast(e.message,'error'); }
+      finally{ btn.disabled=false; }
+    }
+
+    async function delEntry(id){
+      if(!confirm('Remove this OT entry?')) return;
+      try{ await api('/ot/entry/'+id,{method:'DELETE'}); toast('Removed','info'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    const STText={draft:['Draft','bg-slate-100 text-slate-600'],pending:['Pending approval','bg-amber-100 text-amber-700'],
+      approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700'],
+      hr_verified:['HR verified','bg-blue-100 text-blue-700'],mgmt_approved:['Mgmt approved','bg-indigo-100 text-indigo-700'],
+      paid:['Paid','bg-emerald-100 text-emerald-700']};
+
+    async function load(){
+      const period=document.getElementById('period').value || new Date().toISOString().slice(0,7);
+      meta=await api('/ot/meta?period='+period);
+      if(!meta.eligible){ document.getElementById('notEligible').classList.remove('hidden'); document.getElementById('app').classList.add('hidden'); return; }
+      const tb=document.getElementById('rows'); tb.innerHTML='';
+      let total=0;
+      (meta.entries||[]).forEach(e=>{
+        total+=Number(e.amount);
+        const [lbl,cls]=STText[e.status]||['—','bg-slate-100'];
+        const tr=document.createElement('tr'); tr.className='border-t border-line';
+        tr.innerHTML=`<td class="px-4 py-2">${e.ot_date}${e.is_late?' <span title="Logged late" class="text-amber-600">⚠</span>':''}</td>
+          <td class="px-4 py-2 mono">${e.end_time}</td>
+          <td class="px-4 py-2 text-right mono">${Number(e.hours).toFixed(2)}</td>
+          <td class="px-4 py-2 text-right mono font-semibold">${rupee(e.amount)}</td>
+          <td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded ${cls}">${lbl}</span>${e.status==='rejected'&&e.reject_reason?`<div class="text-[10px] text-red-500 mt-0.5">${e.reject_reason}</div>`:''}</td>
+          <td class="px-4 py-2 text-right">${e.status==='draft'?`<button onclick="delEntry(${e.id})" class="text-red-600 text-xs hover:underline">Remove</button>`:''}</td>`;
+        tb.appendChild(tr);
+      });
+      document.getElementById('total').textContent=rupee(total);
+      document.getElementById('empty').classList.toggle('hidden',(meta.entries||[]).length>0);
+    }
+
+    (async function(){
+      document.getElementById('endTime').addEventListener('input',preview);
+      document.getElementById('otDate').addEventListener('change',checkLate);
+      const today=new Date().toISOString().slice(0,10);
+      document.getElementById('otDate').value=today;
+      document.getElementById('otDate').max=today;
+      document.getElementById('period').value=today.slice(0,7);
+      preview(); checkLate();
+      try{ await load(); }catch(e){ toast('Could not load','error'); }
+    })();
+  </script>
+</body>
+</html>

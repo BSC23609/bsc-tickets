@@ -263,6 +263,35 @@ CREATE TABLE IF NOT EXISTS conveyance_trips (
 );
 CREATE INDEX IF NOT EXISTS idx_conv_trips_emp_period ON conveyance_trips(employee_id, period);
 CREATE INDEX IF NOT EXISTS idx_conv_trips_token      ON conveyance_trips(action_token);
+
+-- ===================== OVERTIME (OT) =====================
+-- Production & Dispatch staff log OT by entering only the END time (shift ends 19:00).
+-- Amount = Rs.50 per completed half-hour after 19:00 (see lib/ot.js). One entry per person per day.
+CREATE TABLE IF NOT EXISTS ot_entries (
+  id              SERIAL PRIMARY KEY,
+  employee_id     INT  NOT NULL REFERENCES employees(id),
+  department      TEXT,                              -- snapshot: Production | Dispatch
+  period          TEXT NOT NULL,                     -- 'YYYY-MM'
+  ot_date         DATE NOT NULL,
+  end_time        TEXT NOT NULL,                     -- 'HH:MM' 24h
+  ot_minutes      INT  NOT NULL DEFAULT 0,
+  hours           NUMERIC NOT NULL DEFAULT 0,
+  amount          NUMERIC NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'draft',     -- draft|pending|approved|rejected|hr_verified|mgmt_approved|paid
+  is_late         BOOLEAN NOT NULL DEFAULT FALSE,    -- logged >24h after the OT day
+  approver_emp_id INT REFERENCES employees(id),
+  approver_name   TEXT,
+  reviewed_at     TIMESTAMPTZ,
+  reject_reason   TEXT,
+  action_token    TEXT,
+  logged_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(employee_id, ot_date)
+);
+CREATE INDEX IF NOT EXISTS idx_ot_emp_period ON ot_entries(employee_id, period);
+CREATE INDEX IF NOT EXISTS idx_ot_token      ON ot_entries(action_token);
+CREATE INDEX IF NOT EXISTS idx_ot_status     ON ot_entries(status);
 -- Per-employee switch: does this person's conveyance need reporting-manager approval? (default yes)
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS conveyance_needs_manager BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);

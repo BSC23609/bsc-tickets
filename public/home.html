@@ -86,6 +86,16 @@
         <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
       </a>
 
+      <!-- Overtime (Production & Dispatch only) -->
+      <a id="otTile" href="/ot.html" class="hidden card lift in in-3 p-6 block group">
+        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#0A4566,#1B7BC0)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        </div>
+        <h2 class="font-display font-bold text-lg text-ink">Overtime</h2>
+        <p class="text-sm text-slate-500 mt-1">Log your OT end time — amount is calculated automatically.</p>
+        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
+      </a>
+
       <!-- Quality / QMS (separate app, one-click SSO) -->
       <a href="/sso/go?to=qms" data-app="qms" class="hidden card lift in in-4 p-6 block group">
         <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
@@ -136,6 +146,9 @@
       const first = (me.name || '').split(' ')[0];
       document.getElementById('firstName').textContent = first ? (', ' + first) : '';
       if (me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
+      // Overtime is for Production & Dispatch staff.
+      if (['production','dispatch'].includes(String(me.department||'').trim().toLowerCase()))
+        document.getElementById('otTile').classList.remove('hidden');
       // Reveal restricted app tiles only where this person has access.
       document.querySelectorAll('[data-app]').forEach(el => {
         if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');
