@@ -343,6 +343,10 @@
             <select id="wtWhich" class="inp">
               <option value="conveyance">conveyance_request (trip approval)</option>
               <option value="overdue">outpass_overdue (gatepass overdue → HR)</option>
+              <option value="ot_approval">ot_approval (OT → Kannan/Kumar)</option>
+              <option value="ot_hr">ot_hr_verify (OT → HR)</option>
+              <option value="ot_mgmt">ot_mgmt_approval (OT → Management)</option>
+              <option value="ot_accounts">ot_accounts_pay (OT → Accounts)</option>
             </select>
           </div>
           <div class="flex-1 min-w-[160px]"><label class="lbl">Phone (with country code)</label><input id="wtPhone" class="inp" placeholder="9198xxxxxxxx"></div>
@@ -557,7 +561,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED105, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED107, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

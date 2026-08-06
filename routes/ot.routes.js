@@ -3,6 +3,8 @@ const crypto = require('crypto');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const wati = require('../lib/wati');
+const graph = require('../lib/graph');
+const { buildOtReportXlsx } = require('../lib/ot_report');
 const { background } = require('../lib/bg');
 const { computeOt } = require('../lib/ot');
 const router = express.Router();
@@ -31,6 +33,44 @@ async function otHrId() {
 async function otMgmtIds() {
   const r = (await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0];
   return r && r.value ? r.value.split(',').map(Number).filter(Boolean) : [];
+}
+// After management approval: build the report, email Accounts, and WhatsApp Accounts to check email.
+async function sendBatchToAccounts(batchId, period) {
+  const summary = (await q(
+    `SELECT e.name AS employee_name, e.emp_no, o.department,
+            count(*) AS days, COALESCE(sum(o.hours),0) AS hours, COALESCE(sum(o.amount),0) AS amount
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+     WHERE o.batch_id=$1 GROUP BY e.name, e.emp_no, o.department ORDER BY e.name`, [batchId])).rows;
+  const detail = (await q(
+    `SELECT e.name AS employee_name, e.emp_no, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time, o.hours, o.amount, o.is_late
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id WHERE o.batch_id=$1 ORDER BY e.name, o.ot_date`, [batchId])).rows;
+  const rep = await buildOtReportXlsx(period, summary, detail);
+
+  const cfg = Object.fromEntries((await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_accounts_emp_id','ot_accounts_email')`)).rows.map(r => [r.key, r.value]));
+  if (cfg.ot_accounts_email) {
+    try {
+      await graph.sendMail({
+        to: cfg.ot_accounts_email,
+        subject: `Approved OT report — ${rep.monthName}`,
+        html: `<p>Please find attached the management-approved overtime report for <b>${rep.monthName}</b>.</p>
+               <p>${rep.emp_count} employees · Total <b>Rs. ${rep.total.toLocaleString('en-IN')}</b>.</p>
+               <p>Kindly process the payment.</p>`,
+        attachments: [{
+          name: `OT_${period}.xlsx`,
+          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          contentBytes: rep.base64,
+        }],
+      });
+    } catch (e) { console.error('[ot accounts email]', e.message); }
+  }
+  if (cfg.ot_accounts_emp_id) {
+    const acc = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [+cfg.ot_accounts_emp_id])).rows[0];
+    if (acc && acc.phone) {
+      try { await wati.notify.ot.accounts(acc, { period: rep.monthName, employees: rep.emp_count, total: rep.total }); }
+      catch (e) { console.error('[ot accounts notify]', e.message); }
+    }
+  }
+  await q(`UPDATE ot_batches SET status='sent_accounts', sent_accounts_at=now() WHERE id=$1`, [batchId]);
 }
 // Ping HR (Rajasekar) that approved OT is waiting for verification. Best-effort, one message.
 async function pingHr() {
@@ -289,7 +329,7 @@ router.post('/mgmt-batch/:id/approve', requireOtMgmt, async (req, res) => {
   await q(`UPDATE ot_batches SET status='approved', mgmt_emp_id=$2, mgmt_name=$3, reviewed_at=now() WHERE id=$1`, [b.id, req.user.id, req.user.name]);
   await q(`UPDATE ot_entries SET status='mgmt_approved', updated_at=now() WHERE batch_id=$1`, [b.id]);
   res.json({ ok: true });
-  // Phase 4b will email the report to Accounts + WhatsApp them here.
+  background((async () => { await sendBatchToAccounts(b.id, b.period); })());
 });
 router.post('/mgmt-batch/:id/reject', requireOtMgmt, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });

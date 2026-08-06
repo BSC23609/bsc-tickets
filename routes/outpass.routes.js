@@ -222,6 +222,18 @@ async function applyReject(o, actorId, actorName, reason) {
   })());
 }
 
+// ---- approve ALL pending for this approver (one-shot) ----
+router.post('/approve-all', async (req, res) => {
+  const rows = (await q(`SELECT * FROM outpass_requests WHERE approver_id=$1 AND status='pending'`, [req.user.id])).rows;
+  res.json({ ok: true, approved: rows.length });
+  background((async () => {
+    for (const o of rows) {
+      try { await applyApprove(o, req.user.id, req.user.name); }
+      catch (e) { console.error('[outpass approve-all]', o.id, e.message); }
+    }
+  })());
+});
+
 // ---- approve (in-app) ----
 router.post('/:id/approve', async (req, res) => {
   const o = (await q('SELECT * FROM outpass_requests WHERE id=$1', [req.params.id])).rows[0];

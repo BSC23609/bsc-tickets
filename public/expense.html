@@ -237,7 +237,13 @@
     </section>
 
     <section id="tab-appr" class="hidden"><div id="apprList" class="space-y-3"></div></section>
-    <section id="tab-final" class="hidden"><div id="finalList" class="space-y-3"></div></section>
+    <section id="tab-final" class="hidden">
+      <div id="finalAllBar" class="hidden card p-3 mb-3 flex items-center justify-between gap-3">
+        <span class="text-sm text-slate-500"><span id="finalAllCount" class="font-bold text-ink"></span> awaiting final approval</span>
+        <button onclick="finalApproveAll()" class="btn text-sm">✓ Approve all for payment</button>
+      </div>
+      <div id="finalList" class="space-y-3"></div>
+    </section>
     <section id="tab-pay" class="hidden">
       <div class="flex gap-2 mb-3">
         <button onclick="loadPayments('unpaid')" class="btn-ghost text-xs">Awaiting payment</button>
@@ -638,6 +644,8 @@
     async function loadFinalApprovals(){
       const el=document.getElementById('finalList');
       const list=await api('/expense/final-approvals');
+      const bar=document.getElementById('finalAllBar');
+      if(bar){ bar.classList.toggle('hidden', list.length===0); const c=document.getElementById('finalAllCount'); if(c) c.textContent=list.length+(list.length===1?' claim':' claims'); }
       if(!list.length){ el.innerHTML='<div class="text-sm text-slate-400 py-12 text-center">Nothing waiting for final approval.</div>'; return; }
       el.innerHTML=list.map(s=>`<div onclick="openDetail(${s.id})" class="card lift p-4 flex items-center justify-between gap-3">
         <div><div class="flex items-center gap-2 flex-wrap"><span class="mono text-[11px] text-slate-400">${s.ref_no}</span>${statusPill(s.status)}
@@ -711,11 +719,11 @@
             <div class="mt-2">${statusPill(s.status)} <span class="pill bg-slate-100 text-slate-600">${s.emp_name} (${s.emp_code})</span></div></div>
           <button onclick="closeModal()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
         </div>
+        ${actions ? `<div class="p-4 border-b border-line bg-slate-50">${actions}<div id="retArea"></div></div>` : '<div id="retArea" class="hidden"></div>'}
         <div class="p-5 text-sm">
           <div class="flex items-center justify-between"><div class="eyebrow">Claim</div><div class="font-display font-bold text-lg">${fmtMoney(s.total_amount)}</div></div>
           ${table}${ret}
           <div class="mt-3 flex items-center justify-between"><div class="flex items-center gap-2">${dl}${cmdBtn}</div>${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
-          ${actions}<div id="retArea"></div>
         </div>`;
       document.getElementById('expModal').classList.remove('hidden');
     }
@@ -725,6 +733,12 @@
     async function hrApprove(id){ const fid=document.getElementById('finalSel').value; if(!fid) return toast('Pick a final approver','error');
       try{ await api('/expense/'+id+'/hr-approve',{method:'POST',body:{final_approver_id:+fid}}); toast('Approved & sent to final approver','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
     async function finalApprove(id){ try{ await api('/expense/'+id+'/final-approve',{method:'POST'}); toast('Approved for payment','success'); closeModal(); refreshFinalCount(); loadFinalApprovals(); }catch(e){toast(e.message,'error');} }
+    async function finalApproveAll(){
+      if(!confirm('Approve ALL claims awaiting your final approval for payment? This sends each to accounts.')) return;
+      try{ const r=await api('/expense/final-approve-all',{method:'POST',body:{}});
+        toast(`Approved ${r.approved} claim${r.approved===1?'':'s'} for payment`,'success'); refreshFinalCount(); loadFinalApprovals(); }
+      catch(e){ toast(e.message,'error'); }
+    }
     async function sendToCmd(id){ try{ const r=await api('/expense/'+id+'/send-cmd',{method:'POST'}); toast('Sent to '+(r.to||'CMD')+' on WhatsApp','success'); }catch(e){ toast(e.message,'error'); } }
     async function doReturn(id,stage){ const reason=(document.getElementById('rjr').value||'').trim(); if(!reason) return toast('Add a reason','error');
       const ep = stage==='final'?'/final-return':'/hr-return';

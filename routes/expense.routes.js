@@ -599,17 +599,12 @@ router.post('/:id/hr-return', async (req, res) => {
   await returnToEmployee(row, 'hr', reason, req.user.name);
   res.json({ ok: true });
 });
-router.post('/:id/final-approve', async (req, res) => {
-  const row = await loadRow(req.params.id);
-  if (!row) return res.status(404).json({ error: 'Not found' });
-  if (row.status !== 'pending_final') return res.status(409).json({ error: 'Not awaiting final approval' });
-  if (!(req.user.is_admin || row.final_approver_id === req.user.id)) return res.status(403).json({ error: 'Not the assigned approver' });
-  await q(`UPDATE expense_submissions SET status='approved', final_by_name=$2, final_at=now() WHERE id=$1`, [row.id, req.user.name]);
-  res.json({ ok: true });
+async function applyFinalApprove(row, byName) {
+  await q(`UPDATE expense_submissions SET status='approved', final_by_name=$2, final_at=now() WHERE id=$1`, [row.id, byName]);
   background((async () => {
     const c = await chain.getChain();
     const full = await loadRow(row.id);
-    const pdf = await uploadChainPdf(full, 'approved', full.final_by_name || req.user.name, fmtDateTime(new Date()));
+    const pdf = await uploadChainPdf(full, 'approved', full.final_by_name || byName, fmtDateTime(new Date()));
     const acctEmail = chain.accountsEmailFor(c, full.emp_no);
     if (acctEmail) await graph.sendMail({
       to: acctEmail,
@@ -621,6 +616,25 @@ router.post('/:id/final-approve', async (req, res) => {
     if (c.cmd_notify_id) { const cmd = await empById(c.cmd_notify_id); if (cmd && cmd.phone) await wati.notify.expense.cmd(cmd, chainSummary(full), 'Approved for payment'); }
     if (CMD_TEST_PHONE) await wati.notify.expense.cmd({ name: 'Test', phone: CMD_TEST_PHONE }, chainSummary(full), 'Approved for payment');
   })());
+}
+
+router.post('/:id/final-approve', async (req, res) => {
+  const row = await loadRow(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'pending_final') return res.status(409).json({ error: 'Not awaiting final approval' });
+  if (!(req.user.is_admin || row.final_approver_id === req.user.id)) return res.status(403).json({ error: 'Not the assigned approver' });
+  await applyFinalApprove(row, req.user.name);
+  res.json({ ok: true });
+});
+
+// One-shot: approve for payment every claim awaiting THIS approver's final approval.
+router.post('/final-approve-all', async (req, res) => {
+  const rows = (await q(
+    `SELECT * FROM expense_submissions WHERE status='pending_final'` +
+    (req.user.is_admin ? '' : ' AND final_approver_id=$1'),
+    req.user.is_admin ? [] : [req.user.id])).rows;
+  for (const row of rows) { try { await applyFinalApprove(row, req.user.name); } catch (e) { console.error('[final-approve-all]', row.id, e.message); } }
+  res.json({ ok: true, approved: rows.length });
 });
 
 // Manually send a submitted claim to the CMD for verification (with a download-PDF WhatsApp button).

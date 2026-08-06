@@ -123,7 +123,13 @@
     <!-- MY REQUESTS -->
     <section id="tab-mine" class="hidden"><div id="myList" class="space-y-3"></div></section>
     <!-- TO APPROVE -->
-    <section id="tab-appr" class="hidden"><div id="apprList" class="space-y-3"></div></section>
+    <section id="tab-appr" class="hidden">
+      <div id="apprAllBar" class="hidden card p-3 mb-3 flex items-center justify-between gap-3">
+        <span class="text-sm text-slate-500"><span id="apprAllCount" class="font-bold text-ink"></span> waiting for you</span>
+        <button onclick="approveAllOutpass()" class="btn text-sm">✓ Approve all</button>
+      </div>
+      <div id="apprList" class="space-y-3"></div>
+    </section>
   </main>
 
   <!-- Detail / approval modal -->
@@ -269,9 +275,23 @@
           return;
         }
         el.innerHTML = rows.map(o => card(o, scope)).join('');
+        if (scope === 'approvals') {
+          const pend = rows.filter(o => o.status === 'pending').length;
+          const bar = document.getElementById('apprAllBar');
+          if (bar) { bar.classList.toggle('hidden', pend === 0); document.getElementById('apprAllCount').textContent = pend + (pend === 1 ? ' request' : ' requests'); }
+        }
       } catch (e) {
         el.innerHTML = `<div class="text-sm text-red-500 py-8 text-center">Couldn't load — ${e.message}</div>`;
       }
+    }
+
+    async function approveAllOutpass() {
+      if (!confirm('Approve ALL requests waiting for you?')) return;
+      try {
+        const r = await api('/outpass/approve-all', { method: 'POST', body: {} });
+        toast(`Approving ${r.approved} request${r.approved === 1 ? '' : 's'} — passes are being sent`, 'success');
+        setTimeout(afterAction, 800);
+      } catch (e) { toast(e.message, 'error'); }
     }
 
     function card(o, scope) {
@@ -320,6 +340,7 @@
           </div>
           <button onclick="closeModal()" class="text-slate-400 hover:text-ink text-2xl leading-none">&times;</button>
         </div>
+        ${p.canAction ? `<div class="p-4 border-b border-line bg-slate-50">${actions}<div id="rejectArea"></div></div>` : ''}
         <div class="p-5 space-y-4 text-sm">
           <div class="grid grid-cols-2 gap-3">
             ${field('Date', fmtDate(o.req_date))}
@@ -333,8 +354,6 @@
           ${o.actioned_at ? `<div class="text-xs text-slate-500">${o.status === 'approved' ? 'Approved' : 'Rejected'} by ${o.actioned_by_name} · ${fmtDateTime(o.actioned_at)}</div>` : ''}
           ${rejBox}
           ${dl}
-          ${actions}
-          <div id="rejectArea"></div>
         </div>`;
       document.getElementById('ogModal').classList.remove('hidden');
     }
