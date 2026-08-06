@@ -96,6 +96,16 @@
         <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
       </a>
 
+      <!-- OT Approvals (only for configured OT approvers: Kannan / Kumar) -->
+      <a id="otApproveTile" href="/ot-approve.html" class="hidden card lift in in-3 p-6 block group">
+        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#059669,#0A4566)">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+        </div>
+        <h2 class="font-display font-bold text-lg text-ink">OT Approvals</h2>
+        <p class="text-sm text-slate-500 mt-1">Review and approve overtime submitted by your team.</p>
+        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
+      </a>
+
       <!-- Quality / QMS (separate app, one-click SSO) -->
       <a href="/sso/go?to=qms" data-app="qms" class="hidden card lift in in-4 p-6 block group">
         <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
@@ -149,6 +159,7 @@
       // Overtime is for Production & Dispatch staff.
       if (['production','dispatch'].includes(String(me.department||'').trim().toLowerCase()))
         document.getElementById('otTile').classList.remove('hidden');
+      if (me.ot_approver) document.getElementById('otApproveTile').classList.remove('hidden');
       // Reveal restricted app tiles only where this person has access.
       document.querySelectorAll('[data-app]').forEach(el => {
         if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');

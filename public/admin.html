@@ -315,6 +315,17 @@
       </div>
 
       <div class="card p-5">
+        <div class="eyebrow">Overtime approvers</div>
+        <p class="text-xs text-slate-500 mt-1 mb-3">Who approves OT for each department. Production → Kannan, Dispatch → Kumar N. (If Kumar logs his own OT, it auto-skips to HR.)</p>
+        <div class="grid sm:grid-cols-2 gap-3 max-w-xl">
+          <div><label class="lbl">Production approver</label><select id="otProd" class="inp"></select></div>
+          <div><label class="lbl">Dispatch approver</label><select id="otDisp" class="inp"></select></div>
+        </div>
+        <button onclick="saveOtApprovers()" class="btn text-sm mt-3">Save OT approvers</button>
+        <span id="otApprMsg" class="text-xs ml-2"></span>
+      </div>
+
+      <div class="card p-5">
         <div class="eyebrow">WhatsApp template test</div>
         <p class="text-xs text-slate-500 mt-1 mb-3">Sends a real template to a number and shows WATI's raw reply — use this to see why a notification isn't arriving.</p>
         <div class="flex gap-2 items-end flex-wrap max-w-xl">
@@ -456,7 +467,7 @@
     function openGateTab() {
       if (!document.getElementById('osMonth').value)
         document.getElementById('osMonth').value = new Date().toISOString().slice(0,7);
-      loadGateSettings(); loadCurrentlyOut(); loadOverstay();
+      loadGateSettings(); loadCurrentlyOut(); loadOverstay(); loadOtApprovers();
       clearInterval(gateTimer);
       gateTimer = setInterval(() => { if (!document.getElementById('tab-gate').classList.contains('hidden')) loadCurrentlyOut(); }, 60000);
     }
@@ -536,7 +547,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED102, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED103, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -686,6 +697,21 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    async function loadOtApprovers(){
+      let d; try{ d=await api('/admin/ot-approvers'); }catch(e){ return; }
+      const opts=(sel)=>['<option value="">— none —</option>'].concat((d.people||[]).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`)).join('');
+      document.getElementById('otProd').innerHTML=opts(d.production);
+      document.getElementById('otDisp').innerHTML=opts(d.dispatch);
+    }
+    async function saveOtApprovers(){
+      const production=+document.getElementById('otProd').value||null;
+      const dispatch=+document.getElementById('otDisp').value||null;
+      const msg=document.getElementById('otApprMsg');
+      try{ await api('/admin/ot-approvers',{method:'POST',body:{production,dispatch}});
+        msg.textContent='Saved ✓'; msg.className='text-xs ml-2 text-emerald-600'; }
+      catch(e){ msg.textContent=e.message; msg.className='text-xs ml-2 text-red-600'; }
+    }
+
     async function testWati() {
       const phone = (document.getElementById('wtPhone').value || '').trim();
       const which = document.getElementById('wtWhich').value;

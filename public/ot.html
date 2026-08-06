@@ -133,6 +133,13 @@
       catch(e){ toast(e.message,'error'); }
     }
 
+    async function submitDay(date){
+      if(!confirm('Submit '+date+' OT for approval? You won\'t be able to edit it after.')) return;
+      try{ const r=await api('/ot/submit',{method:'POST',body:{date}});
+        toast(r.self_approved?'Submitted (auto-approved)':'Submitted for approval','success'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
     const STText={draft:['Draft','bg-slate-100 text-slate-600'],pending:['Pending approval','bg-amber-100 text-amber-700'],
       approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700'],
       hr_verified:['HR verified','bg-blue-100 text-blue-700'],mgmt_approved:['Mgmt approved','bg-indigo-100 text-indigo-700'],
@@ -153,7 +160,7 @@
           <td class="px-4 py-2 text-right mono">${Number(e.hours).toFixed(2)}</td>
           <td class="px-4 py-2 text-right mono font-semibold">${rupee(e.amount)}</td>
           <td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded ${cls}">${lbl}</span>${e.status==='rejected'&&e.reject_reason?`<div class="text-[10px] text-red-500 mt-0.5">${e.reject_reason}</div>`:''}</td>
-          <td class="px-4 py-2 text-right">${e.status==='draft'?`<button onclick="delEntry(${e.id})" class="text-red-600 text-xs hover:underline">Remove</button>`:''}</td>`;
+          <td class="px-4 py-2 text-right">${e.status==='draft'?`<button onclick="submitDay('${e.ot_date}')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry(${e.id})" class="text-red-600 text-xs hover:underline">Remove</button>`:''}</td>`;
         tb.appendChild(tr);
       });
       document.getElementById('total').textContent=rupee(total);

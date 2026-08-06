@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OT Approvals — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Overtime</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">OT approvals</h1>
+      <p class="text-sm text-slate-500 mt-1">Overtime submitted by your team, waiting for your approval.</p>
+    </div>
+
+    <!-- Approve-all bar (top) -->
+    <div id="topBar" class="hidden card p-4 mb-4 flex items-center justify-between gap-3 sticky top-16 z-20">
+      <div class="text-sm"><span id="cnt" class="font-bold"></span> pending · <span id="tot" class="font-bold text-emerald-700"></span></div>
+      <button onclick="approveAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">✓ Approve all</button>
+    </div>
+
+    <div id="rows"></div>
+    <div id="empty" class="hidden card p-8 text-center text-slate-400">
+      <div class="text-3xl mb-2">✅</div>Nothing waiting for your approval.
+    </div>
+  </main>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50"></div>
+
+  <script src="/js/common.js?v=88"></script>
+  <script>
+    const rupee = n => '₹' + Number(n||0).toLocaleString('en-IN');
+    function toast(msg, kind='info'){
+      const t=document.getElementById('toast'); t.textContent=msg;
+      t.className='fixed bottom-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50 '+
+        (kind==='error'?'bg-red-600':kind==='success'?'bg-emerald-600':'bg-slate-800');
+      t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),2600);
+    }
+
+    async function load(){
+      const d=await api('/ot/approvals');
+      document.getElementById('cnt').textContent=d.count;
+      document.getElementById('tot').textContent=rupee(d.total);
+      document.getElementById('topBar').classList.toggle('hidden', d.count===0);
+      document.getElementById('empty').classList.toggle('hidden', d.count>0);
+      const box=document.getElementById('rows'); box.innerHTML='';
+      (d.entries||[]).forEach(e=>{
+        const div=document.createElement('div'); div.className='card p-4 mb-3';
+        div.innerHTML=`
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <div class="font-semibold">${e.employee_name} <span class="text-xs text-slate-400 mono">${e.emp_no||''}</span></div>
+              <div class="text-xs text-slate-500">${e.ot_date} · ends ${e.end_time} · ${Number(e.hours).toFixed(2)} h ${e.is_late?'· <span class="text-amber-600 font-semibold">late</span>':''}</div>
+            </div>
+            <div class="text-lg font-bold text-emerald-700">${rupee(e.amount)}</div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="decide(${e.id},true)" class="flex-1 text-white text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>
+            <button onclick="decide(${e.id},false)" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50">Reject</button>
+          </div>`;
+        box.appendChild(div);
+      });
+    }
+
+    async function decide(id, ok){
+      let reason=null;
+      if(!ok){ reason=prompt('Reason for rejecting?'); if(reason===null) return; }
+      try{ await api('/ot/approvals/'+id+'/'+(ok?'approve':'reject'),{method:'POST',body:ok?{}:{reason}});
+        toast(ok?'Approved':'Rejected','success'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function approveAll(){
+      if(!confirm('Approve ALL pending OT entries?')) return;
+      try{ const r=await api('/ot/approvals/approve-all',{method:'POST',body:{}});
+        toast('Approved '+r.approved+' entries','success'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    load().catch(()=>toast('Could not load','error'));
+  </script>
+</body>
+</html>

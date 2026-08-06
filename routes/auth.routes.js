@@ -44,6 +44,7 @@ router.get('/me', auth.requireAuth, async (req, res) => {
     department: u.department, job_title: u.job_title,
     is_admin: u.is_admin, must_reset: u.must_reset,
     can_self_raise: u.can_self_raise === true,
+    ot_approver: ((await q(`SELECT value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch')`)).rows.map(r => +r.value)).includes(u.id),
     apps: require('../lib/apps').appAccessFor(u),
     token,
   });
