@@ -320,6 +320,7 @@
         <div class="grid sm:grid-cols-2 gap-3 max-w-xl">
           <div><label class="lbl">Production approver</label><select id="otProd" class="inp"></select></div>
           <div><label class="lbl">Dispatch approver</label><select id="otDisp" class="inp"></select></div>
+          <div><label class="lbl">HR verifier (Rajasekar)</label><select id="otHr" class="inp"></select></div>
         </div>
         <button onclick="saveOtApprovers()" class="btn text-sm mt-3">Save OT approvers</button>
         <span id="otApprMsg" class="text-xs ml-2"></span>
@@ -547,7 +548,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED103, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED104, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -702,12 +703,14 @@
       const opts=(sel)=>['<option value="">— none —</option>'].concat((d.people||[]).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`)).join('');
       document.getElementById('otProd').innerHTML=opts(d.production);
       document.getElementById('otDisp').innerHTML=opts(d.dispatch);
+      document.getElementById('otHr').innerHTML=opts(d.hr);
     }
     async function saveOtApprovers(){
       const production=+document.getElementById('otProd').value||null;
       const dispatch=+document.getElementById('otDisp').value||null;
+      const hr=+document.getElementById('otHr').value||null;
       const msg=document.getElementById('otApprMsg');
-      try{ await api('/admin/ot-approvers',{method:'POST',body:{production,dispatch}});
+      try{ await api('/admin/ot-approvers',{method:'POST',body:{production,dispatch,hr}});
         msg.textContent='Saved ✓'; msg.className='text-xs ml-2 text-emerald-600'; }
       catch(e){ msg.textContent=e.message; msg.className='text-xs ml-2 text-red-600'; }
     }

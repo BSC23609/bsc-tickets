@@ -24,6 +24,21 @@ async function allApproverIds() {
   const rows = (await q(`SELECT value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch')`)).rows;
   return rows.map(r => +r.value).filter(Boolean);
 }
+async function otHrId() {
+  const r = (await q(`SELECT value FROM app_settings WHERE key='ot_hr_emp_id'`)).rows[0];
+  return r && r.value ? +r.value : null;
+}
+// Ping HR (Rajasekar) that approved OT is waiting for verification. Best-effort, one message.
+async function pingHr() {
+  const hrId = await otHrId();
+  if (!hrId) return;
+  const hr = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [hrId])).rows[0];
+  if (!hr || !hr.phone) return;
+  const agg = (await q(`SELECT count(*) AS c, COALESCE(sum(amount),0) AS t FROM ot_entries WHERE status='approved'`)).rows[0];
+  if (+agg.c === 0) return;
+  try { await wati.notify.ot.hrVerify(hr, { count: agg.c, total: agg.t }); }
+  catch (e) { console.error('[ot pingHr]', e.message); }
+}
 
 // Late if logged more than 24h after the OT day's 19:00 IST shift-end.
 function isLate(otDate) {
@@ -116,7 +131,9 @@ router.post('/submit', async (req, res) => {
   if (approverId === req.user.id) {
     await q(`UPDATE ot_entries SET status='approved', approver_emp_id=$2, approver_name=$3, reviewed_at=now(), updated_at=now() WHERE id=$1`,
       [e.id, req.user.id, req.user.name]);
-    return res.json({ ok: true, self_approved: true });
+    res.json({ ok: true, self_approved: true });
+    background((async () => { await pingHr(); })());
+    return;
   }
 
   const token = crypto.randomBytes(16).toString('hex');
@@ -154,6 +171,7 @@ async function decide(req, res, approve) {
   if (e.status !== 'pending') return res.status(400).json({ error: `Already ${e.status}` });
   if (approve) {
     await q(`UPDATE ot_entries SET status='approved', approver_name=$2, reviewed_at=now(), updated_at=now() WHERE id=$1`, [e.id, req.user.name]);
+    background((async () => { await pingHr(); })());
   } else {
     const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected';
     await q(`UPDATE ot_entries SET status='rejected', approver_name=$2, reject_reason=$3, reviewed_at=now(), updated_at=now() WHERE id=$1`, [e.id, req.user.name, reason]);
@@ -168,6 +186,39 @@ router.post('/approvals/approve-all', async (req, res) => {
   const r = await q(`UPDATE ot_entries SET status='approved', approver_name=$2, reviewed_at=now(), updated_at=now()
      WHERE approver_emp_id=$1 AND status='pending' RETURNING id`, [req.user.id, req.user.name]);
   res.json({ ok: true, approved: r.rows.length });
+  if (r.rows.length) background((async () => { await pingHr(); })());
+});
+
+// ---- HR verification (Rajasekar) ----
+async function requireOtHr(req, res, next) {
+  const hrId = await otHrId();
+  if (req.user.is_admin || (hrId && req.user.id === hrId)) return next();
+  return res.status(403).json({ error: 'Only HR can verify OT.' });
+}
+router.get('/hr-queue', requireOtHr, async (req, res) => {
+  const rows = (await q(
+    `SELECT o.id, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time, o.hours, o.amount, o.is_late,
+            o.department, o.approver_name, e.name AS employee_name, e.emp_no
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+     WHERE o.status='approved' ORDER BY o.ot_date DESC, e.name`)).rows;
+  res.json({ count: rows.length, total: rows.reduce((s, r) => s + Number(r.amount), 0), entries: rows });
+});
+router.post('/hr-verify/:id', requireOtHr, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const r = await q(`UPDATE ot_entries SET status='hr_verified', updated_at=now() WHERE id=$1 AND status='approved' RETURNING id`, [req.params.id]);
+  if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
+  res.json({ ok: true });
+});
+router.post('/hr-verify-all', requireOtHr, async (req, res) => {
+  const r = await q(`UPDATE ot_entries SET status='hr_verified', updated_at=now() WHERE status='approved' RETURNING id`);
+  res.json({ ok: true, verified: r.rows.length });
+});
+router.post('/hr-reject/:id', requireOtHr, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected by HR';
+  const r = await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, updated_at=now() WHERE id=$1 AND status='approved' RETURNING id`, [req.params.id, reason]);
+  if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
+  res.json({ ok: true });
 });
 
 module.exports = router;
