@@ -113,6 +113,78 @@ function rejectPage(token, t) {
     </form>
   </div></body></html>`;
 }
+
+// --- OT one-tap approval (WhatsApp button -> /ota/:token) ---
+function otApprovePage(token, o) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve overtime</title></head>
+  <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9">
+  <div style="max-width:440px;margin:7vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 24px">
+    <div style="font-size:44px;line-height:1;text-align:center">\u23f0</div>
+    <h2 style="color:#112532;margin:.4em 0 .2em;text-align:center">Approve this overtime?</h2>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;color:#334155;font-size:14px">
+      <div><b>${o.emp_name}</b>${o.department ? ' \u00b7 ' + o.department : ''}</div>
+      <div style="color:#64748b">${fmtTripDate(o.ot_date_s)} \u00b7 ends ${o.end_time} \u00b7 ${Number(o.hours).toFixed(2)} h${o.is_late ? ' \u00b7 <span style="color:#b45309;font-weight:600">late</span>' : ''}</div>
+      <div style="color:#0f766e;font-weight:700;font-size:16px;margin-top:4px">${inrLabel(o.amount)}</div>
+    </div>
+    <form method="POST" action="/ota/${token}/approve">
+      <button type="submit" style="width:100%;background:#059669;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\u2713 Approve</button>
+    </form>
+    <a href="/ota/${token}/reject" style="display:block;text-align:center;margin-top:12px;color:#dc2626;font-weight:600;font-size:14px;text-decoration:none">Reject instead</a>
+  </div></body></html>`;
+}
+app.get('/ota/:token', async (req, res) => {
+  try {
+    const ot = require('../routes/ot.routes')._internal;
+    const o = await ot.loadOtByToken(req.params.token);
+    if (!o) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This approval link is not recognised, or the OT was already handled.'));
+    if (o.status !== 'pending') return res.send(actionPage(o.status === 'approved' ? '\u2705' : '\u26d4', `Already ${o.status}`, `This OT entry was already ${o.status}.`));
+    res.send(otApprovePage(req.params.token, o));
+  } catch (e) { console.error('ota-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.post('/ota/:token/approve', async (req, res) => {
+  try {
+    const ot = require('../routes/ot.routes')._internal;
+    const o = await ot.loadOtByToken(req.params.token);
+    if (!o) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the OT was already handled.'));
+    if (o.status !== 'pending') return res.send(actionPage(o.status === 'approved' ? '\u2705' : '\u26d4', `Already ${o.status}`, `This OT entry was already ${o.status}.`));
+    await ot.applyOtApprove(o);
+    res.send(actionPage('\u2705', 'Approved', `${o.emp_name}'s overtime on ${fmtTripDate(o.ot_date_s)} (${inrLabel(o.amount)}) is approved and sent to HR.`));
+  } catch (e) { console.error('ota-approve', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.get('/ota/:token/reject', async (req, res) => {
+  try {
+    const ot = require('../routes/ot.routes')._internal;
+    const o = await ot.loadOtByToken(req.params.token);
+    if (!o) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the OT was already handled.'));
+    if (o.status !== 'pending') return res.send(actionPage(o.status === 'approved' ? '\u2705' : '\u26d4', `Already ${o.status}`, `This OT entry was already ${o.status}.`));
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reject overtime</title></head>
+    <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9">
+    <div style="max-width:440px;margin:8vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 24px">
+      <div style="font-size:44px;line-height:1;text-align:center">\ud83d\udcdd</div>
+      <h2 style="color:#112532;margin:.4em 0 .2em;text-align:center">Reject this overtime?</h2>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;color:#334155;font-size:14px">
+        <div><b>${o.emp_name}</b></div>
+        <div style="color:#64748b">${fmtTripDate(o.ot_date_s)} \u00b7 ends ${o.end_time} \u00b7 ${inrLabel(o.amount)}</div>
+      </div>
+      <form method="POST" action="/ota/${req.params.token}/reject">
+        <label style="font-size:13px;color:#64748b">Reason (optional, shown to the employee)</label>
+        <textarea name="reason" rows="3" placeholder="e.g. Wrong end time" style="width:100%;box-sizing:border-box;margin-top:6px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px"></textarea>
+        <button type="submit" style="width:100%;margin-top:14px;background:#dc2626;color:#fff;border:0;border-radius:10px;padding:13px;font-size:15px;font-weight:600">Confirm rejection</button>
+      </form>
+    </div></body></html>`);
+  } catch (e) { console.error('ota-reject-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.post('/ota/:token/reject', async (req, res) => {
+  try {
+    const ot = require('../routes/ot.routes')._internal;
+    const o = await ot.loadOtByToken(req.params.token);
+    if (!o) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the OT was already handled.'));
+    if (o.status !== 'pending') return res.send(actionPage(o.status === 'approved' ? '\u2705' : '\u26d4', `Already ${o.status}`, `This OT entry was already ${o.status}.`));
+    const reason = ((req.body && req.body.reason) || '').toString().trim();
+    await ot.applyOtReject(o, reason);
+    res.send(actionPage('\u26d4', 'Rejected', `${o.emp_name}'s overtime on ${fmtTripDate(o.ot_date_s)} has been rejected. They have been notified.`));
+  } catch (e) { console.error('ota-reject-post', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
 app.get('/cva/:token', async (req, res) => {
   try {
     const conv = require('../routes/expense.routes')._internal;

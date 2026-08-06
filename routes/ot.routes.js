@@ -210,7 +210,7 @@ router.post('/submit', async (req, res) => {
     const appr = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [approverId])).rows[0];
     const pend = +(await q(`SELECT count(*) FROM ot_entries WHERE approver_emp_id=$1 AND status='pending'`, [approverId])).rows[0].count;
     if (appr && appr.phone) {
-      try { await wati.notify.ot.approval(appr, { employee: req.user.name, date: otDate, hours: (+e.hours).toFixed(2), amount: e.amount, pending: pend }); }
+      try { await wati.notify.ot.approval(appr, { employee: req.user.name, date: otDate, hours: (+e.hours).toFixed(2), amount: e.amount, pending: pend, token }); }
       catch (err) { console.error('[ot submit notify]', err.message); }
     }
   })());
@@ -397,4 +397,29 @@ router.post('/mgmt-batch/:id/reject', requireOtMgmt, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- one-tap (WhatsApp button) helpers: operate on a single entry by its action_token ----
+async function loadOtByToken(token) {
+  if (!token) return null;
+  return (await q(
+    `SELECT o.*, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date_s, e.name AS emp_name, e.phone AS emp_phone
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id WHERE o.action_token=$1`, [token])).rows[0] || null;
+}
+async function applyOtApprove(o) {
+  let approverName = o.approver_name;
+  if (!approverName && o.approver_emp_id) {
+    const a = (await q(`SELECT name FROM employees WHERE id=$1`, [o.approver_emp_id])).rows[0];
+    approverName = a ? a.name : 'Approver';
+  }
+  await q(`UPDATE ot_entries SET status='approved', approver_name=$2, reviewed_at=now(), action_token=NULL, updated_at=now() WHERE id=$1`,
+    [o.id, approverName || 'Approver']);
+  await pingHr();
+}
+async function applyOtReject(o, reason) {
+  await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, reviewed_at=now(), action_token=NULL, updated_at=now() WHERE id=$1`,
+    [o.id, reason || 'Rejected']);
+  const emp = (await q(`SELECT name, phone FROM employees WHERE id=$1`, [o.employee_id])).rows[0];
+  if (emp && emp.phone) { try { await wati.notify.ot.rejected(emp, { date: o.ot_date_s || o.ot_date, amount: o.amount, stage: 'approver', reason: reason || '-' }); } catch (e) { console.error('[ot token reject notify]', e.message); } }
+}
+
 module.exports = router;
+module.exports._internal = { loadOtByToken, applyOtApprove, applyOtReject };
