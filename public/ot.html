@@ -39,9 +39,9 @@
       <p class="text-sm text-slate-500 mb-4">Shift ends 7:00 PM. Enter only your OT <b>end time</b> &mdash; the amount is worked out for you (&#8377;50 per half hour).</p>
       <div class="card p-5 mb-5">
         <div class="grid sm:grid-cols-3 gap-3">
-          <div><label class="lbl">OT date</label><input id="otDate" type="date" class="inp"></div>
-          <div><label class="lbl">OT end time</label><input id="endTime" type="time" class="inp" step="60" value="19:30"></div>
-          <div><label class="lbl">Amount</label><div id="amtBox" class="inp bg-slate-50 flex items-center font-bold text-emerald-700">&#8377;0</div></div>
+          <div><label class="fieldlabel">OT date</label><input id="otDate" type="date" class="field"></div>
+          <div><label class="fieldlabel">OT end time</label><input id="endTime" type="time" class="field" step="60" value="19:30"></div>
+          <div><label class="fieldlabel">Amount</label><div id="amtBox" class="field bg-slate-50 flex items-center font-bold text-emerald-700">&#8377;0</div></div>
         </div>
         <div id="calcHint" class="text-xs text-slate-500 mt-2"></div>
         <div id="lateHint" class="hidden text-xs text-amber-700 mt-1 font-semibold">&#9888; Logging more than 24 h after the OT day &mdash; it will be flagged as a late entry.</div>
@@ -49,7 +49,7 @@
       </div>
       <div class="flex items-center justify-between mb-2">
         <div class="eyebrow">This month</div>
-        <input id="period" type="month" class="inp !w-auto text-sm" onchange="entryLoad()">
+        <input id="period" type="month" class="field !w-auto text-sm" onchange="entryLoad()">
       </div>
       <div class="card p-0 overflow-hidden">
         <table class="w-full text-sm">
@@ -83,7 +83,7 @@
         <div><div class="font-semibold text-sm">Push a month to Management</div>
           <div class="text-xs text-slate-500">Consolidates verified OT for the month and sends it for final approval.</div></div>
         <div class="flex items-center gap-2">
-          <input id="genMonth" type="month" class="inp !w-auto text-sm">
+          <input id="genMonth" type="month" class="field !w-auto text-sm">
           <button onclick="hrGenMonth()" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700">Push month &rarr;</button>
         </div>
       </div>
