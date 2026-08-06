@@ -198,14 +198,24 @@ router.post('/submit', async (req, res) => {
 // ---- Approver side (Kannan / Kumar) ----
 router.get('/approvals', async (req, res) => {
   const admin = !!req.user.is_admin;
+  const period = /^\d{4}-\d{2}$/.test(req.query.period || '') ? req.query.period : null;
+  const status = req.query.status && req.query.status !== 'all' ? req.query.status : null;
+  const where = []; const params = [];
+  if (admin) { where.push(`o.approver_emp_id IS NOT NULL`); }
+  else { params.push(req.user.id); where.push(`o.approver_emp_id=$${params.length}`); }
+  if (period) { params.push(period); where.push(`o.period=$${params.length}`); }
+  if (status) { params.push(status); where.push(`o.status=$${params.length}`); }
   const rows = (await q(
     `SELECT o.id, o.employee_id, o.department, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time,
-            o.hours, o.amount, o.is_late, e.name AS employee_name, e.emp_no
+            o.hours, o.amount, o.is_late, o.status, o.reject_reason, e.name AS employee_name, e.emp_no
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
-     WHERE o.status='pending'` + (admin ? '' : ' AND o.approver_emp_id=$1') + `
-     ORDER BY o.ot_date DESC, e.name`, admin ? [] : [req.user.id])).rows;
-  const total = rows.reduce((s, r) => s + Number(r.amount), 0);
-  res.json({ count: rows.length, total, entries: rows });
+     WHERE ${where.join(' AND ')} ORDER BY e.name, o.ot_date DESC`, params)).rows;
+  const pending = rows.filter(r => r.status === 'pending');
+  res.json({
+    entries: rows,
+    count: pending.length, total: pending.reduce((s, r) => s + Number(r.amount), 0),
+    employees: [...new Set(rows.map(r => r.employee_name))].sort(),
+  });
 });
 
 async function decide(req, res, approve) {
@@ -244,12 +254,23 @@ async function requireOtHr(req, res, next) {
   return res.status(403).json({ error: 'Only HR can verify OT.' });
 }
 router.get('/hr-queue', requireOtHr, async (req, res) => {
+  const period = /^\d{4}-\d{2}$/.test(req.query.period || '') ? req.query.period : null;
+  const status = req.query.status && req.query.status !== 'all' ? req.query.status : null;
+  const HR_STAGES = ['approved', 'hr_verified', 'mgmt_pending', 'mgmt_approved', 'paid'];
+  const where = [`o.status = ANY($1)`]; const params = [HR_STAGES];
+  if (period) { params.push(period); where.push(`o.period=$${params.length}`); }
+  if (status) { params.push(status); where.push(`o.status=$${params.length}`); }
   const rows = (await q(
     `SELECT o.id, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time, o.hours, o.amount, o.is_late,
-            o.department, o.approver_name, e.name AS employee_name, e.emp_no
+            o.status, o.department, o.approver_name, e.name AS employee_name, e.emp_no
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
-     WHERE o.status='approved' ORDER BY o.ot_date DESC, e.name`)).rows;
-  res.json({ count: rows.length, total: rows.reduce((s, r) => s + Number(r.amount), 0), entries: rows });
+     WHERE ${where.join(' AND ')} ORDER BY e.name, o.ot_date DESC`, params)).rows;
+  const toVerify = rows.filter(r => r.status === 'approved');
+  res.json({
+    entries: rows,
+    count: toVerify.length, total: toVerify.reduce((s, r) => s + Number(r.amount), 0),
+    employees: [...new Set(rows.map(r => r.employee_name))].sort(),
+  });
 });
 router.post('/hr-verify/:id', requireOtHr, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });

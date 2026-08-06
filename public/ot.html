@@ -66,15 +66,30 @@
     </section>
 
     <section id="pane-appr" class="hidden">
+      <div class="flex flex-wrap gap-2 items-end mb-4">
+        <div><label class="fieldlabel">Month</label><input id="apprMonth" type="month" class="field !w-auto text-sm" onchange="apprLoad()"></div>
+        <div><label class="fieldlabel">Status</label><select id="apprStatus" class="field !w-auto text-sm" onchange="apprLoad()">
+          <option value="all">All</option><option value="pending">Pending</option><option value="approved">Approved</option>
+          <option value="rejected">Rejected</option><option value="hr_verified">HR verified</option>
+          <option value="mgmt_pending">With management</option><option value="mgmt_approved">Final approved</option></select></div>
+        <div><label class="fieldlabel">Employee</label><select id="apprEmp" class="field !w-auto text-sm" onchange="apprRender()"><option value="">All</option></select></div>
+      </div>
       <div id="apprBar" class="hidden card p-4 mb-4 flex items-center justify-between gap-3">
         <div class="text-sm"><span id="apprCnt" class="font-bold"></span> pending &middot; <span id="apprTot" class="font-bold text-emerald-700"></span></div>
-        <button onclick="apprApproveAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">&#10003; Approve all</button>
+        <button onclick="apprApproveAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">&#10003; Approve all pending</button>
       </div>
       <div id="apprList"></div>
-      <div id="apprEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>Nothing waiting for your approval.</div>
+      <div id="apprEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>No entries for this filter.</div>
     </section>
 
     <section id="pane-hr" class="hidden">
+      <div class="flex flex-wrap gap-2 items-end mb-4">
+        <div><label class="fieldlabel">Month</label><input id="hrMonth" type="month" class="field !w-auto text-sm" onchange="hrLoad()"></div>
+        <div><label class="fieldlabel">Status</label><select id="hrStatus" class="field !w-auto text-sm" onchange="hrLoad()">
+          <option value="all">All</option><option value="approved">To verify</option><option value="hr_verified">HR verified</option>
+          <option value="mgmt_pending">With management</option><option value="mgmt_approved">Final approved</option></select></div>
+        <div><label class="fieldlabel">Employee</label><select id="hrEmp" class="field !w-auto text-sm" onchange="hrRender()"><option value="">All</option></select></div>
+      </div>
       <div id="hrBar" class="hidden card p-4 mb-4 flex items-center justify-between gap-3">
         <div class="text-sm"><span id="hrCnt" class="font-bold"></span> to verify &middot; <span id="hrTot" class="font-bold text-emerald-700"></span></div>
         <button onclick="hrVerifyAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">&#10003; Verify all</button>
@@ -88,7 +103,7 @@
         </div>
       </div>
       <div id="hrList"></div>
-      <div id="hrEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>Nothing to verify.</div>
+      <div id="hrEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>No entries for this filter.</div>
     </section>
 
     <section id="pane-mgmt" class="hidden">
@@ -197,19 +212,49 @@
       document.getElementById('entryEmpty').classList.toggle('hidden',(m.entries||[]).length>0);
     }
 
+    let apprData = [];
+    function statusPill(s){
+      const t=STText[s]||['—','bg-slate-100 text-slate-600'];
+      return '<span class="text-[11px] font-semibold px-2 py-0.5 rounded '+t[1]+'">'+t[0]+'</span>';
+    }
+    function fillEmpFilter(sel, employees){
+      const cur=sel.value;
+      sel.innerHTML='<option value="">All employees</option>'+employees.map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
+      if(employees.includes(cur)) sel.value=cur;
+    }
+    // group rows by employee -> [{name, emp_no, rows:[], total}]
+    function groupByEmp(rows){
+      const map=new Map();
+      rows.forEach(r=>{ if(!map.has(r.employee_name)) map.set(r.employee_name,{name:r.employee_name,emp_no:r.emp_no,rows:[],total:0}); const g=map.get(r.employee_name); g.rows.push(r); g.total+=Number(r.amount); });
+      return [...map.values()];
+    }
+
     async function apprLoad(){
-      const d=await api('/ot/approvals');
+      const period=document.getElementById('apprMonth').value;
+      const status=document.getElementById('apprStatus').value;
+      const d=await api('/ot/approvals?period='+encodeURIComponent(period||'')+'&status='+encodeURIComponent(status||'all'));
+      apprData=d.entries||[];
       document.getElementById('apprCnt').textContent=d.count; document.getElementById('apprTot').textContent=rupee(d.total);
       document.getElementById('apprBar').classList.toggle('hidden', d.count===0);
-      document.getElementById('apprEmpty').classList.toggle('hidden', d.count>0);
+      fillEmpFilter(document.getElementById('apprEmp'), d.employees||[]);
+      apprRender();
+    }
+    function apprRender(){
+      const emp=document.getElementById('apprEmp').value;
+      const rows=emp?apprData.filter(r=>r.employee_name===emp):apprData;
+      document.getElementById('apprEmpty').classList.toggle('hidden', rows.length>0);
       const box=document.getElementById('apprList'); box.innerHTML='';
-      (d.entries||[]).forEach(e=>{ const div=document.createElement('div'); div.className='card p-4 mb-3';
-        div.innerHTML='<div class="flex items-center justify-between gap-3 mb-3"><div><div class="font-semibold">'+e.employee_name+' <span class="text-xs text-slate-400 mono">'+(e.emp_no||'')+'</span></div>'+
-          '<div class="text-xs text-slate-500">'+e.ot_date+' \u00b7 ends '+e.end_time+' \u00b7 '+Number(e.hours).toFixed(2)+' h '+(e.is_late?'\u00b7 <span class="text-amber-600 font-semibold">late</span>':'')+'</div></div>'+
-          '<div class="text-lg font-bold text-emerald-700">'+rupee(e.amount)+'</div></div>'+
-          '<div class="flex gap-2"><button onclick="apprDecide('+e.id+',true)" class="flex-1 text-white text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>'+
-          '<button onclick="apprDecide('+e.id+',false)" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>';
-        box.appendChild(div); });
+      groupByEmp(rows).forEach(g=>{
+        const card=document.createElement('div'); card.className='card p-4 mb-3';
+        let html='<div class="flex items-center justify-between mb-2 pb-2 border-b border-line"><div class="font-semibold">'+g.name+' <span class="text-xs text-slate-400 mono">'+(g.emp_no||'')+'</span></div><div class="text-sm font-bold text-emerald-700">'+rupee(g.total)+'</div></div>';
+        g.rows.forEach(e=>{
+          const act = e.status==='pending'
+            ? '<div class="flex gap-2 shrink-0"><button onclick="apprDecide('+e.id+',true)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button><button onclick="apprDecide('+e.id+',false)" class="text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>'
+            : statusPill(e.status);
+          html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0"><div class="text-sm"><span class="mono">'+e.ot_date+'</span> · ends '+e.end_time+' · '+Number(e.hours).toFixed(2)+' h · <span class="font-semibold">'+rupee(e.amount)+'</span>'+(e.is_late?' · <span class="text-amber-600 font-semibold">late</span>':'')+(e.status==='rejected'&&e.reject_reason?'<span class="text-[11px] text-red-500"> — '+e.reject_reason+'</span>':'')+'</div>'+act+'</div>';
+        });
+        card.innerHTML=html; box.appendChild(card);
+      });
     }
     async function apprDecide(id,ok){ let reason=null; if(!ok){ reason=prompt('Reason for rejecting?'); if(reason===null) return; }
       try{ await api('/ot/approvals/'+id+'/'+(ok?'approve':'reject'),{method:'POST',body:ok?{}:{reason}}); toast(ok?'Approved':'Rejected','success'); await apprLoad(); }
@@ -218,19 +263,33 @@
       try{ const r=await api('/ot/approvals/approve-all',{method:'POST',body:{}}); toast('Approved '+r.approved+' entries','success'); await apprLoad(); }
       catch(e){ toast(e.message,'error'); } }
 
+    let hrData = [];
     async function hrLoad(){
-      const d=await api('/ot/hr-queue');
+      const period=document.getElementById('hrMonth').value;
+      const status=document.getElementById('hrStatus').value;
+      const d=await api('/ot/hr-queue?period='+encodeURIComponent(period||'')+'&status='+encodeURIComponent(status||'all'));
+      hrData=d.entries||[];
       document.getElementById('hrCnt').textContent=d.count; document.getElementById('hrTot').textContent=rupee(d.total);
       document.getElementById('hrBar').classList.toggle('hidden', d.count===0);
-      document.getElementById('hrEmpty').classList.toggle('hidden', d.count>0);
+      fillEmpFilter(document.getElementById('hrEmp'), d.employees||[]);
+      hrRender();
+    }
+    function hrRender(){
+      const emp=document.getElementById('hrEmp').value;
+      const rows=emp?hrData.filter(r=>r.employee_name===emp):hrData;
+      document.getElementById('hrEmpty').classList.toggle('hidden', rows.length>0);
       const box=document.getElementById('hrList'); box.innerHTML='';
-      (d.entries||[]).forEach(e=>{ const div=document.createElement('div'); div.className='card p-4 mb-3';
-        div.innerHTML='<div class="flex items-center justify-between gap-3 mb-3"><div><div class="font-semibold">'+e.employee_name+' <span class="text-xs text-slate-400 mono">'+(e.emp_no||'')+'</span></div>'+
-          '<div class="text-xs text-slate-500">'+e.ot_date+' \u00b7 ends '+e.end_time+' \u00b7 '+Number(e.hours).toFixed(2)+' h \u00b7 '+(e.department||'')+' '+(e.is_late?'\u00b7 <span class="text-amber-600 font-semibold">late</span>':'')+' \u00b7 by '+(e.approver_name||'')+'</div></div>'+
-          '<div class="text-lg font-bold text-emerald-700">'+rupee(e.amount)+'</div></div>'+
-          '<div class="flex gap-2"><button onclick="hrDecide('+e.id+',true)" class="flex-1 text-white text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700">Verify</button>'+
-          '<button onclick="hrDecide('+e.id+',false)" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>';
-        box.appendChild(div); });
+      groupByEmp(rows).forEach(g=>{
+        const card=document.createElement('div'); card.className='card p-4 mb-3';
+        let html='<div class="flex items-center justify-between mb-2 pb-2 border-b border-line"><div class="font-semibold">'+g.name+' <span class="text-xs text-slate-400 mono">'+(g.emp_no||'')+'</span></div><div class="text-sm font-bold text-emerald-700">'+rupee(g.total)+'</div></div>';
+        g.rows.forEach(e=>{
+          const act = e.status==='approved'
+            ? '<div class="flex gap-2 shrink-0"><button onclick="hrDecide('+e.id+',true)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Verify</button><button onclick="hrDecide('+e.id+',false)" class="text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>'
+            : statusPill(e.status);
+          html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0"><div class="text-sm"><span class="mono">'+e.ot_date+'</span> · ends '+e.end_time+' · '+Number(e.hours).toFixed(2)+' h · <span class="font-semibold">'+rupee(e.amount)+'</span>'+(e.is_late?' · <span class="text-amber-600 font-semibold">late</span>':'')+'</div>'+act+'</div>';
+        });
+        card.innerHTML=html; box.appendChild(card);
+      });
     }
     async function hrDecide(id,ok){ let reason=null; if(!ok){ reason=prompt('Reason for rejecting?'); if(reason===null) return; }
       try{ await api('/ot/'+(ok?'hr-verify':'hr-reject')+'/'+id,{method:'POST',body:ok?{}:{reason}}); toast(ok?'Verified':'Rejected','success'); await hrLoad(); }
@@ -295,6 +354,8 @@
       const today=new Date().toISOString().slice(0,10);
       document.getElementById('otDate').value=today; document.getElementById('otDate').max=today;
       document.getElementById('period').value=today.slice(0,7);
+      document.getElementById('apprMonth').value=today.slice(0,7);
+      document.getElementById('hrMonth').value=today.slice(0,7);
       const lm=new Date(); lm.setMonth(lm.getMonth()-1); document.getElementById('genMonth').value=lm.toISOString().slice(0,7);
       document.getElementById('endTime').addEventListener('input',preview);
       document.getElementById('otDate').addEventListener('change',checkLate);
