@@ -150,6 +150,20 @@ router.post('/entry', async (req, res) => {
 });
 
 // Remove a still-draft entry.
+// Revert an entry back to draft so the employee can fix and resubmit — allowed until HR verifies it
+// (i.e. while pending / approved / rejected). Clears any approval/rejection so it starts fresh.
+router.post('/entry/:id/revert', async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const e = (await q('SELECT * FROM ot_entries WHERE id=$1', [req.params.id])).rows[0];
+  if (!e) return res.status(404).json({ error: 'Not found' });
+  if (e.employee_id !== req.user.id && !req.user.is_admin) return res.status(403).json({ error: 'You can only revert your own OT entries.' });
+  if (!['pending', 'approved', 'rejected'].includes(e.status))
+    return res.status(400).json({ error: `Can't revert once ${e.status} — HR has verified it or it's already in a monthly report.` });
+  await q(`UPDATE ot_entries SET status='draft', approver_emp_id=NULL, approver_name=NULL, action_token=NULL,
+       reviewed_at=NULL, reject_reason=NULL, batch_id=NULL, updated_at=now() WHERE id=$1`, [e.id]);
+  res.json({ ok: true });
+});
+
 router.delete('/entry/:id', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
   const r = await q(`DELETE FROM ot_entries WHERE id=$1 AND employee_id=$2 AND status='draft' RETURNING id`,

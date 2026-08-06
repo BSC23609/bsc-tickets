@@ -192,6 +192,11 @@
         toast(r.self_approved?'Submitted (auto-approved)':'Submitted for approval','success'); await entryLoad(); }
       catch(e){ toast(e.message,'error'); }
     }
+    async function revertEntry(id){
+      if(!confirm('Revert this entry back to draft? Any approval or rejection will be cleared so you can edit and resubmit it.')) return;
+      try{ await api('/ot/entry/'+id+'/revert',{method:'POST',body:{}}); toast('Reverted to draft — edit and resubmit','success'); await entryLoad(); }
+      catch(e){ toast(e.message,'error'); }
+    }
     const STText={draft:['Draft','bg-slate-100 text-slate-600'],pending:['Pending approval','bg-amber-100 text-amber-700'],
       approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700'],
       hr_verified:['HR verified','bg-blue-100 text-blue-700'],mgmt_pending:['With management','bg-indigo-100 text-indigo-700'],
@@ -206,7 +211,7 @@
           '<td class="px-4 py-2 mono">'+e.end_time+'</td><td class="px-4 py-2 text-right mono">'+Number(e.hours).toFixed(2)+'</td>'+
           '<td class="px-4 py-2 text-right mono font-semibold">'+rupee(e.amount)+'</td>'+
           '<td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded '+st[1]+'">'+st[0]+'</span>'+(e.status==='rejected'&&e.reject_reason?'<div class="text-[10px] text-red-500 mt-0.5">'+e.reject_reason+'</div>':'')+'</td>'+
-          '<td class="px-4 py-2 text-right">'+(e.status==='draft'?'<button onclick="submitDay(\''+e.ot_date+'\')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry('+e.id+')" class="text-red-600 text-xs hover:underline">Remove</button>':'')+'</td>';
+          '<td class="px-4 py-2 text-right">'+(e.status==='draft'?'<button onclick="submitDay(\''+e.ot_date+'\')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry('+e.id+')" class="text-red-600 text-xs hover:underline">Remove</button>':(['pending','approved','rejected'].includes(e.status)?'<button onclick="revertEntry('+e.id+')" class="text-amber-700 text-xs font-semibold hover:underline">Revert to draft</button>':''))+'</td>';
         tb.appendChild(tr); });
       document.getElementById('entryTotal').textContent=rupee(total);
       document.getElementById('entryEmpty').classList.toggle('hidden',(m.entries||[]).length>0);
