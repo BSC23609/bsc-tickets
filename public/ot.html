@@ -10,7 +10,9 @@
   <meta name="theme-color" content="#0A4566">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/theme.css">
-  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
+  .ot-tab{padding:.5rem .9rem;border-radius:.6rem;font-size:.85rem;font-weight:600;color:#64748b;cursor:pointer;white-space:nowrap}
+  .ot-tab.on{background:#0A4566;color:#fff}</style>
 </head>
 <body class="min-h-screen bg-white text-ink">
   <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
@@ -26,58 +28,98 @@
   </header>
 
   <main class="max-w-3xl mx-auto px-4 py-7">
-    <div class="mb-5">
+    <div class="mb-4">
       <div class="eyebrow">Overtime</div>
-      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Log your OT</h1>
-      <p class="text-sm text-slate-500 mt-1">Shift ends 7:00 PM. Enter only your OT <b>end time</b> — the amount is worked out for you (₹50 per half hour).</p>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Overtime</h1>
     </div>
 
-    <div id="notEligible" class="hidden card p-6 text-center">
-      <div class="text-3xl mb-2">🚫</div>
-      <div class="font-semibold">OT logging is for Production &amp; Dispatch staff only.</div>
-      <div class="text-sm text-slate-500 mt-1">If this is a mistake, ask HR to check your department.</div>
-    </div>
+    <div id="tabBar" class="flex gap-2 mb-5 overflow-x-auto pb-1"></div>
 
-    <div id="app" class="hidden">
-      <!-- Entry form -->
+    <section id="pane-entry" class="hidden">
+      <p class="text-sm text-slate-500 mb-4">Shift ends 7:00 PM. Enter only your OT <b>end time</b> &mdash; the amount is worked out for you (&#8377;50 per half hour).</p>
       <div class="card p-5 mb-5">
         <div class="grid sm:grid-cols-3 gap-3">
-          <div>
-            <label class="lbl">OT date</label>
-            <input id="otDate" type="date" class="inp">
-          </div>
-          <div>
-            <label class="lbl">OT end time</label>
-            <input id="endTime" type="time" class="inp" step="60" value="19:30">
-          </div>
-          <div>
-            <label class="lbl">Amount</label>
-            <div id="amtBox" class="inp bg-slate-50 flex items-center font-bold text-emerald-700">₹0</div>
-          </div>
+          <div><label class="lbl">OT date</label><input id="otDate" type="date" class="inp"></div>
+          <div><label class="lbl">OT end time</label><input id="endTime" type="time" class="inp" step="60" value="19:30"></div>
+          <div><label class="lbl">Amount</label><div id="amtBox" class="inp bg-slate-50 flex items-center font-bold text-emerald-700">&#8377;0</div></div>
         </div>
         <div id="calcHint" class="text-xs text-slate-500 mt-2"></div>
-        <div id="lateHint" class="hidden text-xs text-amber-700 mt-1 font-semibold">⚠ This is being logged more than 24 h after the OT day — it will be flagged as a late entry.</div>
-        <button id="saveBtn" onclick="saveEntry()" class="mt-3 text-white text-sm font-semibold px-5 py-2.5 rounded-xl bg-metfraa-blue" style="background:#0A4566">Save OT entry</button>
+        <div id="lateHint" class="hidden text-xs text-amber-700 mt-1 font-semibold">&#9888; Logging more than 24 h after the OT day &mdash; it will be flagged as a late entry.</div>
+        <button id="saveBtn" onclick="saveEntry()" class="mt-3 text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">Save OT entry</button>
       </div>
-
-      <!-- Month + list -->
       <div class="flex items-center justify-between mb-2">
         <div class="eyebrow">This month</div>
-        <input id="period" type="month" class="inp !w-auto text-sm" onchange="load()">
+        <input id="period" type="month" class="inp !w-auto text-sm" onchange="entryLoad()">
       </div>
       <div class="card p-0 overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
-            <tr><th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">End</th>
-                <th class="text-right px-4 py-2">Hours</th><th class="text-right px-4 py-2">Amount</th>
-                <th class="text-left px-4 py-2">Status</th><th class="px-4 py-2"></th></tr>
-          </thead>
-          <tbody id="rows"></tbody>
+          <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+            <th class="text-left px-4 py-2">Date</th><th class="text-left px-4 py-2">End</th>
+            <th class="text-right px-4 py-2">Hours</th><th class="text-right px-4 py-2">Amount</th>
+            <th class="text-left px-4 py-2">Status</th><th class="px-4 py-2"></th></tr></thead>
+          <tbody id="entryRows"></tbody>
           <tfoot><tr class="border-t border-line font-bold"><td class="px-4 py-2" colspan="3">Total</td>
-            <td id="total" class="text-right px-4 py-2">₹0</td><td colspan="2"></td></tr></tfoot>
+            <td id="entryTotal" class="text-right px-4 py-2">&#8377;0</td><td colspan="2"></td></tr></tfoot>
         </table>
-        <div id="empty" class="hidden text-center text-slate-400 text-sm py-8">No OT logged this month yet.</div>
+        <div id="entryEmpty" class="hidden text-center text-slate-400 text-sm py-8">No OT logged this month yet.</div>
       </div>
+    </section>
+
+    <section id="pane-appr" class="hidden">
+      <div id="apprBar" class="hidden card p-4 mb-4 flex items-center justify-between gap-3">
+        <div class="text-sm"><span id="apprCnt" class="font-bold"></span> pending &middot; <span id="apprTot" class="font-bold text-emerald-700"></span></div>
+        <button onclick="apprApproveAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">&#10003; Approve all</button>
+      </div>
+      <div id="apprList"></div>
+      <div id="apprEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>Nothing waiting for your approval.</div>
+    </section>
+
+    <section id="pane-hr" class="hidden">
+      <div id="hrBar" class="hidden card p-4 mb-4 flex items-center justify-between gap-3">
+        <div class="text-sm"><span id="hrCnt" class="font-bold"></span> to verify &middot; <span id="hrTot" class="font-bold text-emerald-700"></span></div>
+        <button onclick="hrVerifyAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">&#10003; Verify all</button>
+      </div>
+      <div class="card p-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <div><div class="font-semibold text-sm">Push a month to Management</div>
+          <div class="text-xs text-slate-500">Consolidates verified OT for the month and sends it for final approval.</div></div>
+        <div class="flex items-center gap-2">
+          <input id="genMonth" type="month" class="inp !w-auto text-sm">
+          <button onclick="hrGenMonth()" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700">Push month &rarr;</button>
+        </div>
+      </div>
+      <div id="hrList"></div>
+      <div id="hrEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>Nothing to verify.</div>
+    </section>
+
+    <section id="pane-mgmt" class="hidden">
+      <div id="mgmtList"></div>
+      <div id="mgmtEmpty" class="hidden card p-8 text-center text-slate-400"><div class="text-3xl mb-2">&#9989;</div>No OT batches waiting for approval.</div>
+      <div id="mgmtDetail" class="hidden">
+        <button onclick="mgmtBack()" class="text-sm text-slate-500 hover:text-ink mb-3">&larr; Back to batches</button>
+        <div class="card p-4 mb-4 sticky top-16 z-20">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <div><div id="mgTitle" class="font-bold"></div><div id="mgSub" class="text-xs text-slate-500"></div></div>
+            <div id="mgTotal" class="text-lg font-bold text-emerald-700"></div>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="mgmtApprove()" class="flex-1 text-white text-sm font-semibold px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">&#10003; Approve batch</button>
+            <button onclick="mgmtReject()" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button>
+          </div>
+        </div>
+        <div class="card p-0 overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs uppercase"><tr>
+              <th class="text-left px-3 py-2">Employee</th><th class="text-left px-3 py-2">Dept</th>
+              <th class="text-right px-3 py-2">Days</th><th class="text-right px-3 py-2">Hours</th><th class="text-right px-3 py-2">Amount</th></tr></thead>
+            <tbody id="mgLines"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="notEligible" class="hidden card p-6 text-center">
+      <div class="text-3xl mb-2">&#128683;</div>
+      <div class="font-semibold">You don't have access to any overtime function.</div>
     </div>
   </main>
 
@@ -85,97 +127,181 @@
 
   <script src="/js/common.js?v=88"></script>
   <script>
-    let meta = null;
-    const rupee = n => '₹' + Number(n||0).toLocaleString('en-IN');
+    const rupee = n => '\u20b9' + Number(n||0).toLocaleString('en-IN');
+    let me = {}, currentBatch=null;
 
     function toast(msg, kind='info'){
-      const t=document.getElementById('toast');
-      t.textContent=msg;
+      const t=document.getElementById('toast'); t.textContent=msg;
       t.className='fixed bottom-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50 '+
         (kind==='error'?'bg-red-600':kind==='success'?'bg-emerald-600':'bg-slate-800');
       t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),2600);
     }
+    function monthName(p){ const [y,m]=p.split('-'); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'}); }
 
-    // Live amount preview as they change the end time.
+    function showTab(key){
+      ['entry','appr','hr','mgmt'].forEach(k=>{
+        document.getElementById('pane-'+k).classList.toggle('hidden', k!==key);
+        const tb=document.getElementById('tab-'+k); if(tb) tb.classList.toggle('on', k===key);
+      });
+      if(key==='entry') entryLoad();
+      if(key==='appr') apprLoad();
+      if(key==='hr') hrLoad();
+      if(key==='mgmt') mgmtLoadList();
+    }
+
     function preview(){
-      const end=document.getElementById('endTime').value;
-      const [h,m]=(end||'0:0').split(':').map(Number);
-      let mins=h*60+m; if(h<12) mins+=1440;          // after midnight
-      const ot=mins-19*60;
+      const [h,m]=(document.getElementById('endTime').value||'0:0').split(':').map(Number);
+      let mins=h*60+m; if(h<12) mins+=1440; const ot=mins-19*60;
       const box=document.getElementById('amtBox'), hint=document.getElementById('calcHint');
-      if(ot<=0){ box.textContent='₹0'; hint.textContent='End time must be after 7:00 PM.'; return; }
-      const halves=Math.floor(ot/30), amt=halves*50, hrs=(ot/60).toFixed(2);
-      box.textContent=rupee(amt);
-      hint.textContent=`${hrs} h of OT · ${halves} × ₹50`;
+      if(ot<=0){ box.textContent=rupee(0); hint.textContent='End time must be after 7:00 PM.'; return; }
+      const halves=Math.floor(ot/30); box.textContent=rupee(halves*50); hint.textContent=(ot/60).toFixed(2)+' h of OT \u00b7 '+halves+' \u00d7 \u20b950';
     }
     function checkLate(){
       const d=document.getElementById('otDate').value; if(!d) return;
       const shiftEnd=new Date(d+'T19:00:00+05:30');
       document.getElementById('lateHint').classList.toggle('hidden', Date.now() <= shiftEnd.getTime()+24*3600*1000);
     }
-
     async function saveEntry(){
-      const ot_date=document.getElementById('otDate').value;
-      const end_time=document.getElementById('endTime').value;
+      const ot_date=document.getElementById('otDate').value, end_time=document.getElementById('endTime').value;
       if(!ot_date) return toast('Pick the OT date','error');
       const btn=document.getElementById('saveBtn'); btn.disabled=true;
-      try{
-        const r=await api('/ot/entry',{method:'POST',body:{ot_date,end_time}});
-        toast('Saved '+rupee(r.amount)+(r.is_late?' (late)':''),'success');
-        await load();
-      }catch(e){ toast(e.message,'error'); }
-      finally{ btn.disabled=false; }
+      try{ const r=await api('/ot/entry',{method:'POST',body:{ot_date,end_time}});
+        toast('Saved '+rupee(r.amount)+(r.is_late?' (late)':''),'success'); await entryLoad(); }
+      catch(e){ toast(e.message,'error'); } finally{ btn.disabled=false; }
     }
-
-    async function delEntry(id){
-      if(!confirm('Remove this OT entry?')) return;
-      try{ await api('/ot/entry/'+id,{method:'DELETE'}); toast('Removed','info'); await load(); }
-      catch(e){ toast(e.message,'error'); }
-    }
-
+    async function delEntry(id){ if(!confirm('Remove this OT entry?')) return;
+      try{ await api('/ot/entry/'+id,{method:'DELETE'}); toast('Removed','info'); await entryLoad(); }catch(e){ toast(e.message,'error'); } }
     async function submitDay(date){
       if(!confirm('Submit '+date+' OT for approval? You won\'t be able to edit it after.')) return;
       try{ const r=await api('/ot/submit',{method:'POST',body:{date}});
-        toast(r.self_approved?'Submitted (auto-approved)':'Submitted for approval','success'); await load(); }
+        toast(r.self_approved?'Submitted (auto-approved)':'Submitted for approval','success'); await entryLoad(); }
       catch(e){ toast(e.message,'error'); }
     }
-
     const STText={draft:['Draft','bg-slate-100 text-slate-600'],pending:['Pending approval','bg-amber-100 text-amber-700'],
       approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700'],
-      hr_verified:['HR verified','bg-blue-100 text-blue-700'],mgmt_approved:['Mgmt approved','bg-indigo-100 text-indigo-700'],
-      paid:['Paid','bg-emerald-100 text-emerald-700']};
-
-    async function load(){
+      hr_verified:['HR verified','bg-blue-100 text-blue-700'],mgmt_pending:['With management','bg-indigo-100 text-indigo-700'],
+      mgmt_approved:['Approved (final)','bg-indigo-100 text-indigo-700'],paid:['Paid','bg-emerald-100 text-emerald-700']};
+    async function entryLoad(){
       const period=document.getElementById('period').value || new Date().toISOString().slice(0,7);
-      meta=await api('/ot/meta?period='+period);
-      if(!meta.eligible){ document.getElementById('notEligible').classList.remove('hidden'); document.getElementById('app').classList.add('hidden'); return; }
-      const tb=document.getElementById('rows'); tb.innerHTML='';
-      let total=0;
-      (meta.entries||[]).forEach(e=>{
-        total+=Number(e.amount);
-        const [lbl,cls]=STText[e.status]||['—','bg-slate-100'];
+      const m=await api('/ot/meta?period='+period);
+      const tb=document.getElementById('entryRows'); tb.innerHTML=''; let total=0;
+      (m.entries||[]).forEach(e=>{ total+=Number(e.amount); const st=STText[e.status]||['\u2014','bg-slate-100'];
         const tr=document.createElement('tr'); tr.className='border-t border-line';
-        tr.innerHTML=`<td class="px-4 py-2">${e.ot_date}${e.is_late?' <span title="Logged late" class="text-amber-600">⚠</span>':''}</td>
-          <td class="px-4 py-2 mono">${e.end_time}</td>
-          <td class="px-4 py-2 text-right mono">${Number(e.hours).toFixed(2)}</td>
-          <td class="px-4 py-2 text-right mono font-semibold">${rupee(e.amount)}</td>
-          <td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded ${cls}">${lbl}</span>${e.status==='rejected'&&e.reject_reason?`<div class="text-[10px] text-red-500 mt-0.5">${e.reject_reason}</div>`:''}</td>
-          <td class="px-4 py-2 text-right">${e.status==='draft'?`<button onclick="submitDay('${e.ot_date}')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry(${e.id})" class="text-red-600 text-xs hover:underline">Remove</button>`:''}</td>`;
-        tb.appendChild(tr);
-      });
-      document.getElementById('total').textContent=rupee(total);
-      document.getElementById('empty').classList.toggle('hidden',(meta.entries||[]).length>0);
+        tr.innerHTML='<td class="px-4 py-2">'+e.ot_date+(e.is_late?' <span title="Logged late" class="text-amber-600">\u26a0</span>':'')+'</td>'+
+          '<td class="px-4 py-2 mono">'+e.end_time+'</td><td class="px-4 py-2 text-right mono">'+Number(e.hours).toFixed(2)+'</td>'+
+          '<td class="px-4 py-2 text-right mono font-semibold">'+rupee(e.amount)+'</td>'+
+          '<td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded '+st[1]+'">'+st[0]+'</span>'+(e.status==='rejected'&&e.reject_reason?'<div class="text-[10px] text-red-500 mt-0.5">'+e.reject_reason+'</div>':'')+'</td>'+
+          '<td class="px-4 py-2 text-right">'+(e.status==='draft'?'<button onclick="submitDay(\''+e.ot_date+'\')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry('+e.id+')" class="text-red-600 text-xs hover:underline">Remove</button>':'')+'</td>';
+        tb.appendChild(tr); });
+      document.getElementById('entryTotal').textContent=rupee(total);
+      document.getElementById('entryEmpty').classList.toggle('hidden',(m.entries||[]).length>0);
     }
 
+    async function apprLoad(){
+      const d=await api('/ot/approvals');
+      document.getElementById('apprCnt').textContent=d.count; document.getElementById('apprTot').textContent=rupee(d.total);
+      document.getElementById('apprBar').classList.toggle('hidden', d.count===0);
+      document.getElementById('apprEmpty').classList.toggle('hidden', d.count>0);
+      const box=document.getElementById('apprList'); box.innerHTML='';
+      (d.entries||[]).forEach(e=>{ const div=document.createElement('div'); div.className='card p-4 mb-3';
+        div.innerHTML='<div class="flex items-center justify-between gap-3 mb-3"><div><div class="font-semibold">'+e.employee_name+' <span class="text-xs text-slate-400 mono">'+(e.emp_no||'')+'</span></div>'+
+          '<div class="text-xs text-slate-500">'+e.ot_date+' \u00b7 ends '+e.end_time+' \u00b7 '+Number(e.hours).toFixed(2)+' h '+(e.is_late?'\u00b7 <span class="text-amber-600 font-semibold">late</span>':'')+'</div></div>'+
+          '<div class="text-lg font-bold text-emerald-700">'+rupee(e.amount)+'</div></div>'+
+          '<div class="flex gap-2"><button onclick="apprDecide('+e.id+',true)" class="flex-1 text-white text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>'+
+          '<button onclick="apprDecide('+e.id+',false)" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>';
+        box.appendChild(div); });
+    }
+    async function apprDecide(id,ok){ let reason=null; if(!ok){ reason=prompt('Reason for rejecting?'); if(reason===null) return; }
+      try{ await api('/ot/approvals/'+id+'/'+(ok?'approve':'reject'),{method:'POST',body:ok?{}:{reason}}); toast(ok?'Approved':'Rejected','success'); await apprLoad(); }
+      catch(e){ toast(e.message,'error'); } }
+    async function apprApproveAll(){ if(!confirm('Approve ALL pending OT entries?')) return;
+      try{ const r=await api('/ot/approvals/approve-all',{method:'POST',body:{}}); toast('Approved '+r.approved+' entries','success'); await apprLoad(); }
+      catch(e){ toast(e.message,'error'); } }
+
+    async function hrLoad(){
+      const d=await api('/ot/hr-queue');
+      document.getElementById('hrCnt').textContent=d.count; document.getElementById('hrTot').textContent=rupee(d.total);
+      document.getElementById('hrBar').classList.toggle('hidden', d.count===0);
+      document.getElementById('hrEmpty').classList.toggle('hidden', d.count>0);
+      const box=document.getElementById('hrList'); box.innerHTML='';
+      (d.entries||[]).forEach(e=>{ const div=document.createElement('div'); div.className='card p-4 mb-3';
+        div.innerHTML='<div class="flex items-center justify-between gap-3 mb-3"><div><div class="font-semibold">'+e.employee_name+' <span class="text-xs text-slate-400 mono">'+(e.emp_no||'')+'</span></div>'+
+          '<div class="text-xs text-slate-500">'+e.ot_date+' \u00b7 ends '+e.end_time+' \u00b7 '+Number(e.hours).toFixed(2)+' h \u00b7 '+(e.department||'')+' '+(e.is_late?'\u00b7 <span class="text-amber-600 font-semibold">late</span>':'')+' \u00b7 by '+(e.approver_name||'')+'</div></div>'+
+          '<div class="text-lg font-bold text-emerald-700">'+rupee(e.amount)+'</div></div>'+
+          '<div class="flex gap-2"><button onclick="hrDecide('+e.id+',true)" class="flex-1 text-white text-sm font-semibold px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700">Verify</button>'+
+          '<button onclick="hrDecide('+e.id+',false)" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>';
+        box.appendChild(div); });
+    }
+    async function hrDecide(id,ok){ let reason=null; if(!ok){ reason=prompt('Reason for rejecting?'); if(reason===null) return; }
+      try{ await api('/ot/'+(ok?'hr-verify':'hr-reject')+'/'+id,{method:'POST',body:ok?{}:{reason}}); toast(ok?'Verified':'Rejected','success'); await hrLoad(); }
+      catch(e){ toast(e.message,'error'); } }
+    async function hrVerifyAll(){ if(!confirm('Verify ALL approved OT entries?')) return;
+      try{ const r=await api('/ot/hr-verify-all',{method:'POST',body:{}}); toast('Verified '+r.verified+' entries','success'); await hrLoad(); }
+      catch(e){ toast(e.message,'error'); } }
+    async function hrGenMonth(){ const period=document.getElementById('genMonth').value; if(!period) return toast('Pick a month','error');
+      if(!confirm('Push '+period+' verified OT to management for approval?')) return;
+      try{ const r=await api('/ot/hr-generate',{method:'POST',body:{period}}); toast('Pushed: '+r.employees+' employees, \u20b9'+r.total,'success'); await hrLoad(); }
+      catch(e){ toast(e.message,'error'); } }
+
+    async function mgmtLoadList(){
+      document.getElementById('mgmtDetail').classList.add('hidden');
+      document.getElementById('mgmtList').classList.remove('hidden');
+      const rows=await api('/ot/mgmt-batches');
+      document.getElementById('mgmtEmpty').classList.toggle('hidden', rows.length>0);
+      const box=document.getElementById('mgmtList'); box.innerHTML='';
+      rows.forEach(b=>{ const div=document.createElement('div'); div.className='card p-4 mb-3 flex items-center justify-between gap-3 cursor-pointer hover:shadow-md';
+        div.onclick=()=>mgmtOpen(b.id);
+        div.innerHTML='<div><div class="font-semibold">'+monthName(b.period)+'</div><div class="text-xs text-slate-500">'+b.emp_count+' employees \u00b7 '+b.entry_count+' days \u00b7 by '+(b.generated_by_name||'HR')+'</div></div>'+
+          '<div class="text-right"><div class="text-lg font-bold text-emerald-700">'+rupee(b.total_amount)+'</div><div class="text-xs text-brand-600">Review &rarr;</div></div>';
+        box.appendChild(div); });
+    }
+    async function mgmtOpen(id){
+      const d=await api('/ot/mgmt-batch/'+id); currentBatch=d.batch;
+      document.getElementById('mgmtList').classList.add('hidden'); document.getElementById('mgmtEmpty').classList.add('hidden');
+      document.getElementById('mgmtDetail').classList.remove('hidden');
+      document.getElementById('mgTitle').textContent=monthName(d.batch.period)+' OT';
+      document.getElementById('mgSub').textContent=d.batch.emp_count+' employees \u00b7 '+d.batch.entry_count+' days';
+      document.getElementById('mgTotal').textContent=rupee(d.batch.total_amount);
+      document.getElementById('mgLines').innerHTML=(d.lines||[]).map(function(l){ return '<tr class="border-t border-line">'+
+        '<td class="px-3 py-2 font-medium">'+l.employee_name+' <span class="text-[11px] text-slate-400 mono">'+(l.emp_no||'')+'</span></td>'+
+        '<td class="px-3 py-2 text-slate-500">'+(l.department||'')+'</td>'+
+        '<td class="px-3 py-2 text-right mono">'+l.days+(+l.late_days?' <span title="'+l.late_days+' late" class="text-amber-500">\u26a0</span>':'')+'</td>'+
+        '<td class="px-3 py-2 text-right mono">'+Number(l.hours).toFixed(1)+'</td>'+
+        '<td class="px-3 py-2 text-right mono font-semibold">'+rupee(l.amount)+'</td></tr>'; }).join('');
+    }
+    function mgmtBack(){ mgmtLoadList(); }
+    async function mgmtApprove(){ if(!confirm('Approve the '+monthName(currentBatch.period)+' OT batch? It will be sent to Accounts for payment.')) return;
+      try{ await api('/ot/mgmt-batch/'+currentBatch.id+'/approve',{method:'POST',body:{}}); toast('Batch approved','success'); mgmtLoadList(); }
+      catch(e){ toast(e.message,'error'); } }
+    async function mgmtReject(){ const reason=prompt('Reason for rejecting this batch? (sends entries back to HR)'); if(reason===null) return;
+      try{ await api('/ot/mgmt-batch/'+currentBatch.id+'/reject',{method:'POST',body:{reason}}); toast('Batch rejected \u2014 sent back to HR','info'); mgmtLoadList(); }
+      catch(e){ toast(e.message,'error'); } }
+
     (async function(){
+      try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
+      const otDept=['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
+      const canEntry = otDept || me.is_admin;
+      const canAppr  = me.ot_approver || me.is_admin;
+      const canHr    = me.ot_hr || me.is_admin;
+      const canMgmt  = me.ot_mgmt || me.is_admin;
+
+      const tabs=[]; const bar=document.getElementById('tabBar');
+      const add=(key,label)=>{ const b=document.createElement('div'); b.id='tab-'+key; b.className='ot-tab'; b.textContent=label; b.onclick=()=>showTab(key); bar.appendChild(b); tabs.push(key); };
+      if(canEntry) add('entry','Log OT');
+      if(canAppr)  add('appr','Approvals');
+      if(canHr)    add('hr','HR Verification');
+      if(canMgmt)  add('mgmt','Management');
+
+      const today=new Date().toISOString().slice(0,10);
+      document.getElementById('otDate').value=today; document.getElementById('otDate').max=today;
+      document.getElementById('period').value=today.slice(0,7);
+      const lm=new Date(); lm.setMonth(lm.getMonth()-1); document.getElementById('genMonth').value=lm.toISOString().slice(0,7);
       document.getElementById('endTime').addEventListener('input',preview);
       document.getElementById('otDate').addEventListener('change',checkLate);
-      const today=new Date().toISOString().slice(0,10);
-      document.getElementById('otDate').value=today;
-      document.getElementById('otDate').max=today;
-      document.getElementById('period').value=today.slice(0,7);
       preview(); checkLate();
-      try{ await load(); }catch(e){ toast('Could not load','error'); }
+
+      if(tabs.length===0){ document.getElementById('notEligible').classList.remove('hidden'); document.getElementById('tabBar').classList.add('hidden'); return; }
+      showTab(tabs[0]);
     })();
   </script>
 </body>

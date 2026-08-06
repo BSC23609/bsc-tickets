@@ -92,39 +92,15 @@
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
         </div>
         <h2 class="font-display font-bold text-lg text-ink">Overtime</h2>
-        <p class="text-sm text-slate-500 mt-1">Log your OT end time — amount is calculated automatically.</p>
+        <p class="text-sm text-slate-500 mt-1">Log OT, approve, verify and final-approve — all in one place.</p>
         <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
       </a>
 
-      <!-- OT Approvals (only for configured OT approvers: Kannan / Kumar) -->
-      <a id="otApproveTile" href="/ot-approve.html" class="hidden card lift in in-3 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#059669,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">OT Approvals</h2>
-        <p class="text-sm text-slate-500 mt-1">Review and approve overtime submitted by your team.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
+      
 
-      <!-- OT HR Verification (only for the configured HR: Rajasekar) -->
-      <a id="otHrTile" href="/ot-hr.html" class="hidden card lift in in-3 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#2563EB,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">OT — HR Verification</h2>
-        <p class="text-sm text-slate-500 mt-1">Verify manager-approved overtime before the monthly report.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
+      
 
-      <!-- OT Management Approval (only for configured management approvers) -->
-      <a id="otMgmtTile" href="/ot-mgmt.html" class="hidden card lift in in-3 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#4F46E5,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">OT — Management Approval</h2>
-        <p class="text-sm text-slate-500 mt-1">Final approval of the monthly consolidated OT report.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
+      
 
       <!-- Quality / QMS (separate app, one-click SSO) -->
       <a href="/sso/go?to=qms" data-app="qms" class="hidden card lift in in-4 p-6 block group">
@@ -177,12 +153,10 @@
       document.getElementById('firstName').textContent = first ? (', ' + first) : '';
       if (me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
       // Overtime is for Production & Dispatch staff.
-      // Overtime is for Production & Dispatch staff (and admins, for oversight/testing).
+      // One Overtime tile — opens a hub with sub-tabs for whatever OT roles this person has.
       const otDept = ['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
-      if (otDept || me.is_admin) document.getElementById('otTile').classList.remove('hidden');
-      if (me.ot_approver || me.is_admin) document.getElementById('otApproveTile').classList.remove('hidden');
-      if (me.ot_hr || me.is_admin) document.getElementById('otHrTile').classList.remove('hidden');
-      if (me.ot_mgmt || me.is_admin) document.getElementById('otMgmtTile').classList.remove('hidden');
+      if (otDept || me.ot_approver || me.ot_hr || me.ot_mgmt || me.is_admin)
+        document.getElementById('otTile').classList.remove('hidden');
       // Reveal restricted app tiles only where this person has access.
       document.querySelectorAll('[data-app]').forEach(el => {
         if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');
