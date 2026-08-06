@@ -476,6 +476,9 @@ router.post('/wati-test', async (req, res) => {
   } else if (which === 'ot_accounts') {
     template = wati.TEMPLATES.ot_accounts;
     params = { name: 'Lakshmi', period: 'July 2026', employees: '8', total: '9200' };
+  } else if (which === 'ot_rejected') {
+    template = wati.TEMPLATES.ot_rejected;
+    params = { name: 'TEST Employee', date: '05 Aug 2026', amount: '150', stage: 'approver', reason: 'Wrong end time' };
   } else {
     template = wati.EXPENSE_TPL.cv_request;
     params = { name: 'Manager', requester: 'TEST Employee', date: '28 Jul 2026',
@@ -789,7 +792,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED112', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED113', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

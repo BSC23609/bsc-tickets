@@ -192,9 +192,9 @@
         toast(r.self_approved?'Submitted (auto-approved)':'Submitted for approval','success'); await entryLoad(); }
       catch(e){ toast(e.message,'error'); }
     }
-    async function revertEntry(id){
-      if(!confirm('Revert this entry back to draft? Any approval or rejection will be cleared so you can edit and resubmit it.')) return;
-      try{ await api('/ot/entry/'+id+'/revert',{method:'POST',body:{}}); toast('Reverted to draft — edit and resubmit','success'); await entryLoad(); }
+    async function revertEntry(id, reload){
+      if(!confirm('Revert this entry back to draft? Any approval or rejection will be cleared so it can be edited and resubmitted.')) return;
+      try{ await api('/ot/entry/'+id+'/revert',{method:'POST',body:{}}); toast('Reverted to draft','success'); await (reload||entryLoad)(); }
       catch(e){ toast(e.message,'error'); }
     }
     const STText={draft:['Draft','bg-slate-100 text-slate-600'],pending:['Pending approval','bg-amber-100 text-amber-700'],
@@ -255,7 +255,9 @@
         g.rows.forEach(e=>{
           const act = e.status==='pending'
             ? '<div class="flex gap-2 shrink-0"><button onclick="apprDecide('+e.id+',true)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button><button onclick="apprDecide('+e.id+',false)" class="text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>'
-            : statusPill(e.status);
+            : (['approved','rejected'].includes(e.status)
+                ? '<div class="flex items-center gap-2 shrink-0">'+statusPill(e.status)+'<button onclick="revertEntry('+e.id+',apprLoad)" class="text-amber-700 text-xs font-semibold hover:underline">Revert</button></div>'
+                : statusPill(e.status));
           html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0"><div class="text-sm"><span class="mono">'+e.ot_date+'</span> · ends '+e.end_time+' · '+Number(e.hours).toFixed(2)+' h · <span class="font-semibold">'+rupee(e.amount)+'</span>'+(e.is_late?' · <span class="text-amber-600 font-semibold">late</span>':'')+(e.status==='rejected'&&e.reject_reason?'<span class="text-[11px] text-red-500"> — '+e.reject_reason+'</span>':'')+'</div>'+act+'</div>';
         });
         card.innerHTML=html; box.appendChild(card);
@@ -289,7 +291,7 @@
         let html='<div class="flex items-center justify-between mb-2 pb-2 border-b border-line"><div class="font-semibold">'+g.name+' <span class="text-xs text-slate-400 mono">'+(g.emp_no||'')+'</span></div><div class="text-sm font-bold text-emerald-700">'+rupee(g.total)+'</div></div>';
         g.rows.forEach(e=>{
           const act = e.status==='approved'
-            ? '<div class="flex gap-2 shrink-0"><button onclick="hrDecide('+e.id+',true)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Verify</button><button onclick="hrDecide('+e.id+',false)" class="text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button></div>'
+            ? '<div class="flex gap-2 shrink-0"><button onclick="hrDecide('+e.id+',true)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Verify</button><button onclick="hrDecide('+e.id+',false)" class="text-red-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button><button onclick="revertEntry('+e.id+',hrLoad)" class="text-amber-700 text-xs font-semibold hover:underline px-1">Revert</button></div>'
             : statusPill(e.status);
           html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0"><div class="text-sm"><span class="mono">'+e.ot_date+'</span> · ends '+e.end_time+' · '+Number(e.hours).toFixed(2)+' h · <span class="font-semibold">'+rupee(e.amount)+'</span>'+(e.is_late?' · <span class="text-amber-600 font-semibold">late</span>':'')+'</div>'+act+'</div>';
         });

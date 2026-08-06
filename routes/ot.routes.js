@@ -156,7 +156,14 @@ router.post('/entry/:id/revert', async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
   const e = (await q('SELECT * FROM ot_entries WHERE id=$1', [req.params.id])).rows[0];
   if (!e) return res.status(404).json({ error: 'Not found' });
-  if (e.employee_id !== req.user.id && !req.user.is_admin) return res.status(403).json({ error: 'You can only revert your own OT entries.' });
+  const approverIds = await allApproverIds();
+  const hrId = await otHrId();
+  const allowed = req.user.is_admin
+    || e.employee_id === req.user.id
+    || (e.approver_emp_id && e.approver_emp_id === req.user.id)
+    || approverIds.includes(req.user.id)
+    || (hrId && hrId === req.user.id);
+  if (!allowed) return res.status(403).json({ error: 'Only the employee, their approver, HR or an admin can revert this.' });
   if (!['pending', 'approved', 'rejected'].includes(e.status))
     return res.status(400).json({ error: `Can't revert once ${e.status} — HR has verified it or it's already in a monthly report.` });
   await q(`UPDATE ot_entries SET status='draft', approver_emp_id=NULL, approver_name=NULL, action_token=NULL,
@@ -244,6 +251,10 @@ async function decide(req, res, approve) {
   } else {
     const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected';
     await q(`UPDATE ot_entries SET status='rejected', approver_name=$2, reject_reason=$3, reviewed_at=now(), updated_at=now() WHERE id=$1`, [e.id, req.user.name, reason]);
+    background((async () => {
+      const emp = (await q(`SELECT name, phone FROM employees WHERE id=$1`, [e.employee_id])).rows[0];
+      if (emp && emp.phone) { try { await wati.notify.ot.rejected(emp, { date: e.ot_date, amount: e.amount, stage: 'approver', reason }); } catch (er) { console.error('[ot reject notify]', er.message); } }
+    })());
   }
   res.json({ ok: true });
 }
@@ -299,9 +310,14 @@ router.post('/hr-verify-all', requireOtHr, async (req, res) => {
 router.post('/hr-reject/:id', requireOtHr, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
   const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected by HR';
-  const r = await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, updated_at=now() WHERE id=$1 AND status='approved' RETURNING id`, [req.params.id, reason]);
+  const r = await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, updated_at=now() WHERE id=$1 AND status='approved' RETURNING id, employee_id, to_char(ot_date,'YYYY-MM-DD') AS ot_date, amount`, [req.params.id, reason]);
   if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
   res.json({ ok: true });
+  const row = r.rows[0];
+  background((async () => {
+    const emp = (await q(`SELECT name, phone FROM employees WHERE id=$1`, [row.employee_id])).rows[0];
+    if (emp && emp.phone) { try { await wati.notify.ot.rejected(emp, { date: row.ot_date, amount: row.amount, stage: 'HR', reason }); } catch (er) { console.error('[ot hr-reject notify]', er.message); } }
+  })());
 });
 
 // HR consolidates a month's verified OT into a batch and pushes it to Management.
