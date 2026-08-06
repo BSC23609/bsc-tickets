@@ -12,7 +12,7 @@ const router = express.Router();
 router.use(auth.requireAuth);
 
 const OT_DEPTS = ['production', 'dispatch'];
-const isEligible = (u) => OT_DEPTS.includes(String(u.department || '').trim().toLowerCase());
+const isEligible = (u) => u.is_admin || OT_DEPTS.includes(String(u.department || '').trim().toLowerCase());
 const periodOf = (dateStr) => String(dateStr).slice(0, 7);
 const APP_URL = process.env.PUBLIC_BASE_URL || 'https://tickets.bharatsteels.in';
 
@@ -197,12 +197,13 @@ router.post('/submit', async (req, res) => {
 
 // ---- Approver side (Kannan / Kumar) ----
 router.get('/approvals', async (req, res) => {
+  const admin = !!req.user.is_admin;
   const rows = (await q(
     `SELECT o.id, o.employee_id, o.department, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time,
             o.hours, o.amount, o.is_late, e.name AS employee_name, e.emp_no
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
-     WHERE o.approver_emp_id=$1 AND o.status='pending'
-     ORDER BY o.ot_date DESC, e.name`, [req.user.id])).rows;
+     WHERE o.status='pending'` + (admin ? '' : ' AND o.approver_emp_id=$1') + `
+     ORDER BY o.ot_date DESC, e.name`, admin ? [] : [req.user.id])).rows;
   const total = rows.reduce((s, r) => s + Number(r.amount), 0);
   res.json({ count: rows.length, total, entries: rows });
 });
@@ -227,8 +228,11 @@ router.post('/approvals/:id/reject', (req, res) => decide(req, res, false));
 
 // Approve every pending OT routed to me in one shot.
 router.post('/approvals/approve-all', async (req, res) => {
-  const r = await q(`UPDATE ot_entries SET status='approved', approver_name=$2, reviewed_at=now(), updated_at=now()
-     WHERE approver_emp_id=$1 AND status='pending' RETURNING id`, [req.user.id, req.user.name]);
+  const admin = !!req.user.is_admin;
+  const r = await q(
+    `UPDATE ot_entries SET status='approved', approver_name=$1, reviewed_at=now(), updated_at=now()
+     WHERE status='pending'` + (admin ? '' : ' AND approver_emp_id=$2') + ` RETURNING id`,
+    admin ? [req.user.name] : [req.user.name, req.user.id]);
   res.json({ ok: true, approved: r.rows.length });
   if (r.rows.length) background((async () => { await pingHr(); })());
 });

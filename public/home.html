@@ -177,11 +177,12 @@
       document.getElementById('firstName').textContent = first ? (', ' + first) : '';
       if (me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
       // Overtime is for Production & Dispatch staff.
-      if (['production','dispatch'].includes(String(me.department||'').trim().toLowerCase()))
-        document.getElementById('otTile').classList.remove('hidden');
-      if (me.ot_approver) document.getElementById('otApproveTile').classList.remove('hidden');
-      if (me.ot_hr) document.getElementById('otHrTile').classList.remove('hidden');
-      if (me.ot_mgmt) document.getElementById('otMgmtTile').classList.remove('hidden');
+      // Overtime is for Production & Dispatch staff (and admins, for oversight/testing).
+      const otDept = ['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
+      if (otDept || me.is_admin) document.getElementById('otTile').classList.remove('hidden');
+      if (me.ot_approver || me.is_admin) document.getElementById('otApproveTile').classList.remove('hidden');
+      if (me.ot_hr || me.is_admin) document.getElementById('otHrTile').classList.remove('hidden');
+      if (me.ot_mgmt || me.is_admin) document.getElementById('otMgmtTile').classList.remove('hidden');
       // Reveal restricted app tiles only where this person has access.
       document.querySelectorAll('[data-app]').forEach(el => {
         if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');
