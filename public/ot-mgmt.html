@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OT — Management Approval — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css">
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen bg-white text-ink">
+  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
+    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
+      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
+      <div class="flex items-center gap-4 text-sm">
+        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
+        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+      </div>
+      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Overtime</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Management approval</h1>
+      <p class="text-sm text-slate-500 mt-1">Monthly OT consolidated by HR, awaiting your final approval.</p>
+    </div>
+
+    <div id="list"></div>
+    <div id="empty" class="hidden card p-8 text-center text-slate-400">
+      <div class="text-3xl mb-2">✅</div>No OT batches waiting for approval.
+    </div>
+
+    <!-- Detail view -->
+    <div id="detail" class="hidden">
+      <button onclick="back()" class="text-sm text-slate-500 hover:text-ink mb-3">← Back to batches</button>
+      <!-- Approve/Reject at the TOP -->
+      <div class="card p-4 mb-4 sticky top-16 z-20">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div><div id="dTitle" class="font-bold"></div><div id="dSub" class="text-xs text-slate-500"></div></div>
+          <div id="dTotal" class="text-lg font-bold text-emerald-700"></div>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="approve()" class="flex-1 text-white text-sm font-semibold px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">✓ Approve batch</button>
+          <button onclick="reject()" class="flex-1 text-red-700 text-sm font-semibold px-4 py-2.5 rounded-lg border border-red-300 hover:bg-red-50">Reject</button>
+        </div>
+      </div>
+      <div class="card p-0 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-slate-500 text-xs uppercase">
+            <tr><th class="text-left px-3 py-2">Employee</th><th class="text-left px-3 py-2">Dept</th>
+              <th class="text-right px-3 py-2">Days</th><th class="text-right px-3 py-2">Hours</th><th class="text-right px-3 py-2">Amount</th></tr>
+          </thead>
+          <tbody id="lines"></tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50"></div>
+
+  <script src="/js/common.js?v=88"></script>
+  <script>
+    const rupee = n => '₹' + Number(n||0).toLocaleString('en-IN');
+    let currentBatch = null;
+    function toast(msg, kind='info'){
+      const t=document.getElementById('toast'); t.textContent=msg;
+      t.className='fixed bottom-5 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50 '+
+        (kind==='error'?'bg-red-600':kind==='success'?'bg-emerald-600':'bg-slate-800');
+      t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),2600);
+    }
+    function monthName(p){ const [y,m]=p.split('-'); return new Date(y,m-1,1).toLocaleString('en-IN',{month:'long',year:'numeric'}); }
+
+    async function loadList(){
+      document.getElementById('detail').classList.add('hidden');
+      document.getElementById('list').classList.remove('hidden');
+      const rows=await api('/ot/mgmt-batches');
+      document.getElementById('empty').classList.toggle('hidden', rows.length>0);
+      const box=document.getElementById('list'); box.innerHTML='';
+      rows.forEach(b=>{
+        const div=document.createElement('div'); div.className='card p-4 mb-3 flex items-center justify-between gap-3 cursor-pointer hover:shadow-md';
+        div.onclick=()=>openBatch(b.id);
+        div.innerHTML=`<div><div class="font-semibold">${monthName(b.period)}</div>
+          <div class="text-xs text-slate-500">${b.emp_count} employees · ${b.entry_count} days · by ${b.generated_by_name||'HR'}</div></div>
+          <div class="text-right"><div class="text-lg font-bold text-emerald-700">${rupee(b.total_amount)}</div><div class="text-xs text-brand-600">Review →</div></div>`;
+        box.appendChild(div);
+      });
+    }
+
+    async function openBatch(id){
+      const d=await api('/ot/mgmt-batch/'+id);
+      currentBatch=d.batch;
+      document.getElementById('list').classList.add('hidden');
+      document.getElementById('empty').classList.add('hidden');
+      document.getElementById('detail').classList.remove('hidden');
+      document.getElementById('dTitle').textContent=monthName(d.batch.period)+' OT';
+      document.getElementById('dSub').textContent=`${d.batch.emp_count} employees · ${d.batch.entry_count} days`;
+      document.getElementById('dTotal').textContent=rupee(d.batch.total_amount);
+      document.getElementById('lines').innerHTML=(d.lines||[]).map(l=>`
+        <tr class="border-t border-line">
+          <td class="px-3 py-2 font-medium">${l.employee_name} <span class="text-[11px] text-slate-400 mono">${l.emp_no||''}</span></td>
+          <td class="px-3 py-2 text-slate-500">${l.department||''}</td>
+          <td class="px-3 py-2 text-right mono">${l.days}${+l.late_days?` <span title="${l.late_days} late" class="text-amber-500">⚠</span>`:''}</td>
+          <td class="px-3 py-2 text-right mono">${Number(l.hours).toFixed(1)}</td>
+          <td class="px-3 py-2 text-right mono font-semibold">${rupee(l.amount)}</td>
+        </tr>`).join('');
+    }
+    function back(){ loadList(); }
+
+    async function approve(){
+      if(!confirm('Approve the '+monthName(currentBatch.period)+' OT batch? It will be sent to Accounts for payment.')) return;
+      try{ await api('/ot/mgmt-batch/'+currentBatch.id+'/approve',{method:'POST',body:{}});
+        toast('Batch approved','success'); loadList(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function reject(){
+      const reason=prompt('Reason for rejecting this batch? (sends entries back to HR)');
+      if(reason===null) return;
+      try{ await api('/ot/mgmt-batch/'+currentBatch.id+'/reject',{method:'POST',body:{reason}});
+        toast('Batch rejected — sent back to HR','info'); loadList(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    loadList().catch(()=>toast('Could not load','error'));
+  </script>
+</body>
+</html>

@@ -38,6 +38,17 @@
       <button onclick="verifyAll()" class="text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">✓ Verify all</button>
     </div>
 
+    <div class="card p-4 mb-4 flex items-center justify-between gap-3 flex-wrap">
+      <div>
+        <div class="font-semibold text-sm">Push a month to Management</div>
+        <div class="text-xs text-slate-500">Consolidates all your verified OT for the month and sends it to management for final approval.</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input id="genMonth" type="month" class="inp !w-auto text-sm">
+        <button onclick="genMonth()" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700">Push month →</button>
+      </div>
+    </div>
+
     <div id="rows"></div>
     <div id="empty" class="hidden card p-8 text-center text-slate-400">
       <div class="text-3xl mb-2">✅</div>Nothing waiting for your approval.
@@ -94,6 +105,15 @@
         toast('Verified '+r.verified+' entries','success'); await load(); }
       catch(e){ toast(e.message,'error'); }
     }
+    async function genMonth(){
+      const period=document.getElementById('genMonth').value;
+      if(!period) return toast('Pick a month','error');
+      if(!confirm('Push '+period+' verified OT to management for approval?')) return;
+      try{ const r=await api('/ot/hr-generate',{method:'POST',body:{period}});
+        toast(`Pushed: ${r.employees} employees, ₹${r.total}`,'success'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    (function(){ const d=new Date(); d.setMonth(d.getMonth()-1); document.getElementById('genMonth').value=d.toISOString().slice(0,7); })();
 
     load().catch(()=>toast('Could not load','error'));
   </script>

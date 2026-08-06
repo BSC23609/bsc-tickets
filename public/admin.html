@@ -322,6 +322,15 @@
           <div><label class="lbl">Dispatch approver</label><select id="otDisp" class="inp"></select></div>
           <div><label class="lbl">HR verifier (Rajasekar)</label><select id="otHr" class="inp"></select></div>
         </div>
+        <div class="mt-3">
+          <label class="lbl">Management approvers (any can approve — Goverdhan / Gourav / Shivam)</label>
+          <select id="otMgmt" class="inp" multiple size="4"></select>
+          <div class="text-[11px] text-slate-400 mt-1">Ctrl/Cmd-click to select multiple.</div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3 max-w-xl mt-3">
+          <div><label class="lbl">Accounts contact (WhatsApp)</label><select id="otAcc" class="inp"></select></div>
+          <div><label class="lbl">Accounts email (for report)</label><input id="otAccEmail" class="inp" placeholder="accounts@bharatsteels.in"></div>
+        </div>
         <button onclick="saveOtApprovers()" class="btn text-sm mt-3">Save OT approvers</button>
         <span id="otApprMsg" class="text-xs ml-2"></span>
       </div>
@@ -548,7 +557,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED104, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED105, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -704,13 +713,19 @@
       document.getElementById('otProd').innerHTML=opts(d.production);
       document.getElementById('otDisp').innerHTML=opts(d.dispatch);
       document.getElementById('otHr').innerHTML=opts(d.hr);
+      document.getElementById('otAcc').innerHTML=opts(d.accounts);
+      document.getElementById('otAccEmail').value=d.accounts_email||'';
+      // multi-select for management
+      const mg=new Set((d.mgmt||[]).map(Number));
+      document.getElementById('otMgmt').innerHTML=(d.people||[]).map(p=>`<option value="${p.id}" ${mg.has(p.id)?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`).join('');
     }
     async function saveOtApprovers(){
-      const production=+document.getElementById('otProd').value||null;
-      const dispatch=+document.getElementById('otDisp').value||null;
-      const hr=+document.getElementById('otHr').value||null;
+      const val=id=>+document.getElementById(id).value||null;
+      const mgmt=Array.from(document.getElementById('otMgmt').selectedOptions).map(o=>+o.value);
       const msg=document.getElementById('otApprMsg');
-      try{ await api('/admin/ot-approvers',{method:'POST',body:{production,dispatch,hr}});
+      try{ await api('/admin/ot-approvers',{method:'POST',body:{
+        production:val('otProd'), dispatch:val('otDisp'), hr:val('otHr'),
+        mgmt, accounts:val('otAcc'), accounts_email:document.getElementById('otAccEmail').value }});
         msg.textContent='Saved ✓'; msg.className='text-xs ml-2 text-emerald-600'; }
       catch(e){ msg.textContent=e.message; msg.className='text-xs ml-2 text-red-600'; }
     }

@@ -292,6 +292,26 @@ CREATE TABLE IF NOT EXISTS ot_entries (
 CREATE INDEX IF NOT EXISTS idx_ot_emp_period ON ot_entries(employee_id, period);
 CREATE INDEX IF NOT EXISTS idx_ot_token      ON ot_entries(action_token);
 CREATE INDEX IF NOT EXISTS idx_ot_status     ON ot_entries(status);
+
+-- Monthly OT batch: HR consolidates verified OT for a period and pushes it to Management.
+CREATE TABLE IF NOT EXISTS ot_batches (
+  id            SERIAL PRIMARY KEY,
+  period        TEXT NOT NULL,                       -- 'YYYY-MM'
+  status        TEXT NOT NULL DEFAULT 'mgmt_pending',-- mgmt_pending | approved | rejected | sent_accounts
+  entry_count   INT NOT NULL DEFAULT 0,
+  emp_count     INT NOT NULL DEFAULT 0,
+  total_amount  NUMERIC NOT NULL DEFAULT 0,
+  generated_by  INT REFERENCES employees(id),
+  generated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  mgmt_emp_id   INT REFERENCES employees(id),
+  mgmt_name     TEXT,
+  reviewed_at   TIMESTAMPTZ,
+  reject_reason TEXT,
+  sent_accounts_at TIMESTAMPTZ,
+  action_token  TEXT
+);
+ALTER TABLE ot_entries ADD COLUMN IF NOT EXISTS batch_id INT REFERENCES ot_batches(id);
+CREATE INDEX IF NOT EXISTS idx_ot_batch ON ot_entries(batch_id);
 -- Per-employee switch: does this person's conveyance need reporting-manager approval? (default yes)
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS conveyance_needs_manager BOOLEAN NOT NULL DEFAULT TRUE;
 CREATE INDEX IF NOT EXISTS idx_exp_emp    ON expense_submissions(employee_id);

@@ -698,19 +698,29 @@ router.put('/approvers/leavecover', async (req, res) => {
 // ---- Gate geofence + overdue settings (for outpass return tracking) ----
 // OT approvers: Production → Kannan, Dispatch → Kumar N (picked from employee list).
 router.get('/ot-approvers', async (req, res) => {
-  const rows = (await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch','ot_hr_emp_id')`)).rows;
-  const m = Object.fromEntries(rows.map(r => [r.key, +r.value]));
+  const rows = (await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch','ot_hr_emp_id','ot_mgmt_emp_ids','ot_accounts_emp_id','ot_accounts_email')`)).rows;
+  const m = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const people = (await q(`SELECT id,name,emp_no,department FROM employees WHERE active=TRUE ORDER BY name`)).rows;
-  res.json({ production: m.ot_approver_production || null, dispatch: m.ot_approver_dispatch || null, hr: m.ot_hr_emp_id || null, people });
+  res.json({
+    production: +m.ot_approver_production || null, dispatch: +m.ot_approver_dispatch || null,
+    hr: +m.ot_hr_emp_id || null,
+    mgmt: (m.ot_mgmt_emp_ids || '').split(',').map(Number).filter(Boolean),
+    accounts: +m.ot_accounts_emp_id || null, accounts_email: m.ot_accounts_email || '',
+    people,
+  });
 });
 router.post('/ot-approvers', async (req, res) => {
-  const prod = +(req.body && req.body.production) || null;
-  const disp = +(req.body && req.body.dispatch) || null;
-  const hr = +(req.body && req.body.hr) || null;
-  for (const [key, val] of [['ot_approver_production', prod], ['ot_approver_dispatch', disp], ['ot_hr_emp_id', hr]]) {
+  const b = req.body || {};
+  const setStr = async (key, val) => {
     if (val) await q(`INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [key, String(val)]);
     else await q(`DELETE FROM app_settings WHERE key=$1`, [key]);
-  }
+  };
+  await setStr('ot_approver_production', +b.production || null);
+  await setStr('ot_approver_dispatch', +b.dispatch || null);
+  await setStr('ot_hr_emp_id', +b.hr || null);
+  await setStr('ot_mgmt_emp_ids', Array.isArray(b.mgmt) ? b.mgmt.map(Number).filter(Boolean).join(',') : null);
+  await setStr('ot_accounts_emp_id', +b.accounts || null);
+  await setStr('ot_accounts_email', (b.accounts_email || '').trim() || null);
   res.json({ ok: true });
 });
 
@@ -767,7 +777,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED104', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED105', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

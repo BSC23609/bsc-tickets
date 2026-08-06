@@ -28,6 +28,10 @@ async function otHrId() {
   const r = (await q(`SELECT value FROM app_settings WHERE key='ot_hr_emp_id'`)).rows[0];
   return r && r.value ? +r.value : null;
 }
+async function otMgmtIds() {
+  const r = (await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0];
+  return r && r.value ? r.value.split(',').map(Number).filter(Boolean) : [];
+}
 // Ping HR (Rajasekar) that approved OT is waiting for verification. Best-effort, one message.
 async function pingHr() {
   const hrId = await otHrId();
@@ -218,6 +222,83 @@ router.post('/hr-reject/:id', requireOtHr, async (req, res) => {
   const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected by HR';
   const r = await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, updated_at=now() WHERE id=$1 AND status='approved' RETURNING id`, [req.params.id, reason]);
   if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
+  res.json({ ok: true });
+});
+
+// HR consolidates a month's verified OT into a batch and pushes it to Management.
+router.post('/hr-generate', requireOtHr, async (req, res) => {
+  const period = String((req.body && req.body.period) || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Pick a valid month (YYYY-MM)' });
+  const mgmtIds = await otMgmtIds();
+  if (!mgmtIds.length) return res.status(400).json({ error: 'No management approver set. Ask admin to configure OT management approvers.' });
+
+  const verified = (await q(`SELECT id, employee_id, amount FROM ot_entries WHERE period=$1 AND status='hr_verified' AND batch_id IS NULL`, [period])).rows;
+  if (!verified.length) return res.status(400).json({ error: 'No HR-verified OT for that month to push.' });
+  const empCount = new Set(verified.map(v => v.employee_id)).size;
+  const total = verified.reduce((s, v) => s + Number(v.amount), 0);
+
+  const token = crypto.randomBytes(16).toString('hex');
+  const batch = (await q(
+    `INSERT INTO ot_batches (period, status, entry_count, emp_count, total_amount, generated_by, action_token)
+     VALUES ($1,'mgmt_pending',$2,$3,$4,$5,$6) RETURNING id`,
+    [period, verified.length, empCount, total, req.user.id, token])).rows[0];
+  await q(`UPDATE ot_entries SET status='mgmt_pending', batch_id=$2, updated_at=now() WHERE period=$1 AND status='hr_verified' AND batch_id IS NULL`,
+    [period, batch.id]);
+  res.json({ ok: true, batch_id: batch.id, entries: verified.length, employees: empCount, total });
+
+  background((async () => {
+    for (const mid of mgmtIds) {
+      const m = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [mid])).rows[0];
+      if (m && m.phone) { try { await wati.notify.ot.mgmt(m, { period, employees: empCount, total }); } catch (e) { console.error('[ot mgmt notify]', e.message); } }
+    }
+  })());
+});
+
+// ---- Management (Goverdhan / Gourav / Shivam) ----
+async function requireOtMgmt(req, res, next) {
+  const ids = await otMgmtIds();
+  if (req.user.is_admin || ids.includes(req.user.id)) return next();
+  return res.status(403).json({ error: 'Only management can approve OT batches.' });
+}
+router.get('/mgmt-batches', requireOtMgmt, async (req, res) => {
+  const rows = (await q(
+    `SELECT b.id, b.period, b.entry_count, b.emp_count, b.total_amount, to_char(b.generated_at,'DD Mon YYYY') AS generated_at,
+            g.name AS generated_by_name
+     FROM ot_batches b LEFT JOIN employees g ON g.id=b.generated_by
+     WHERE b.status='mgmt_pending' ORDER BY b.period DESC`)).rows;
+  res.json(rows);
+});
+// Per-employee consolidated breakdown for a batch.
+router.get('/mgmt-batch/:id', requireOtMgmt, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const b = (await q(`SELECT * FROM ot_batches WHERE id=$1`, [req.params.id])).rows[0];
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  const lines = (await q(
+    `SELECT e.name AS employee_name, e.emp_no, o.department,
+            count(*) AS days, COALESCE(sum(o.hours),0) AS hours, COALESCE(sum(o.amount),0) AS amount,
+            COALESCE(sum(CASE WHEN o.is_late THEN 1 ELSE 0 END),0) AS late_days
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+     WHERE o.batch_id=$1 GROUP BY e.name, e.emp_no, o.department ORDER BY e.name`, [req.params.id])).rows;
+  res.json({ batch: { id: b.id, period: b.period, entry_count: b.entry_count, emp_count: b.emp_count, total_amount: b.total_amount, status: b.status }, lines });
+});
+router.post('/mgmt-batch/:id/approve', requireOtMgmt, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const b = (await q(`SELECT * FROM ot_batches WHERE id=$1`, [req.params.id])).rows[0];
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  if (b.status !== 'mgmt_pending') return res.status(400).json({ error: `Batch already ${b.status}` });
+  await q(`UPDATE ot_batches SET status='approved', mgmt_emp_id=$2, mgmt_name=$3, reviewed_at=now() WHERE id=$1`, [b.id, req.user.id, req.user.name]);
+  await q(`UPDATE ot_entries SET status='mgmt_approved', updated_at=now() WHERE batch_id=$1`, [b.id]);
+  res.json({ ok: true });
+  // Phase 4b will email the report to Accounts + WhatsApp them here.
+});
+router.post('/mgmt-batch/:id/reject', requireOtMgmt, async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
+  const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected by management';
+  const b = (await q(`SELECT * FROM ot_batches WHERE id=$1 AND status='mgmt_pending'`, [req.params.id])).rows[0];
+  if (!b) return res.status(400).json({ error: 'Not pending' });
+  // Send the entries back to HR-verified so HR can fix and re-push.
+  await q(`UPDATE ot_batches SET status='rejected', mgmt_emp_id=$2, mgmt_name=$3, reject_reason=$4, reviewed_at=now() WHERE id=$1`, [b.id, req.user.id, req.user.name, reason]);
+  await q(`UPDATE ot_entries SET status='hr_verified', batch_id=NULL, updated_at=now() WHERE batch_id=$1`, [b.id]);
   res.json({ ok: true });
 });
 
