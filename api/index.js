@@ -575,15 +575,20 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   const op = require('../routes/outpass.routes')._internal;
   const cfg = await op.gateConfig();
   const overdue = await op.findOverdue(cfg.overdueMin);
-  res.json({ ok: true, overdue: overdue.length });   // respond now; send in background
+  // Resolve HR up-front so we can report it (this is the usual reason HR doesn't get the alert).
+  let hr = null;
+  if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
+  res.json({
+    ok: true, overdue: overdue.length,
+    hr_emp_id: cfg.hrEmpId || null,          // null = "HR (also receives overdue alerts)" not set in Gate settings
+    hr_resolved: !!hr,                        // false = that person is missing/inactive
+    hr_has_phone: !!(hr && hr.phone),         // false = HR has no phone on their record
+  });
   if (!overdue.length) return;
 
   require('../lib/bg').background((async () => {
     const wati = require('../lib/wati');
     const { fmtDateTime } = { fmtDateTime: (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) };
-    // Resolve HR once.
-    let hr = null;
-    if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
     const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
     for (const o of overdue) {
       if (Date.now() > DEADLINE) { console.warn('[outpass-overdue] budget spent, rest deferred'); break; }
