@@ -223,6 +223,9 @@ ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_by_id          INT R
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_by_name        TEXT;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS hr_at             TIMESTAMPTZ;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_approver_id INT REFERENCES employees(id);
+-- Offline settlement: big payments the person gets signed by management physically and hands to accounts.
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS settled_offline_at      TIMESTAMPTZ;
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS settled_offline_by_name TEXT;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_by_name     TEXT;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS final_at          TIMESTAMPTZ;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS return_reason     TEXT;

@@ -72,16 +72,26 @@ async function sendBatchToAccounts(batchId, period) {
   }
   await q(`UPDATE ot_batches SET status='sent_accounts', sent_accounts_at=now() WHERE id=$1`, [batchId]);
 }
-// Ping HR (Rajasekar) that approved OT is waiting for verification. Best-effort, one message.
+// Nudge HR that approved OT is waiting — but only ONCE per pile: we don't re-ping until HR has
+// cleared the approved queue, so approving many entries in a row sends a single digest, not spam.
 async function pingHr() {
   const hrId = await otHrId();
   if (!hrId) return;
-  const hr = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [hrId])).rows[0];
-  if (!hr || !hr.phone) return;
   const agg = (await q(`SELECT count(*) AS c, COALESCE(sum(amount),0) AS t FROM ot_entries WHERE status='approved'`)).rows[0];
   if (+agg.c === 0) return;
-  try { await wati.notify.ot.hrVerify(hr, { count: agg.c, total: agg.t }); }
-  catch (e) { console.error('[ot pingHr]', e.message); }
+  const already = (await q(`SELECT value FROM app_settings WHERE key='ot_hr_ping_sent'`)).rows[0];
+  if (already && already.value === '1') return;                 // HR already nudged for this pile
+  const hr = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [hrId])).rows[0];
+  if (!hr || !hr.phone) return;
+  try {
+    await wati.notify.ot.hrVerify(hr, { count: agg.c, total: agg.t });
+    await q(`INSERT INTO app_settings(key,value) VALUES('ot_hr_ping_sent','1') ON CONFLICT(key) DO UPDATE SET value='1'`);
+  } catch (e) { console.error('[ot pingHr]', e.message); }
+}
+// Once HR clears the approved queue (verified/rejected/reverted), allow the next pile to nudge again.
+async function resetHrPingIfEmpty() {
+  const c = +(await q(`SELECT count(*) AS c FROM ot_entries WHERE status='approved'`)).rows[0].c;
+  if (c === 0) await q(`DELETE FROM app_settings WHERE key='ot_hr_ping_sent'`);
 }
 
 // Late if logged more than 24h after the OT day's 19:00 IST shift-end.
@@ -168,6 +178,7 @@ router.post('/entry/:id/revert', async (req, res) => {
     return res.status(400).json({ error: `Can't revert once ${e.status} — HR has verified it or it's already in a monthly report.` });
   await q(`UPDATE ot_entries SET status='draft', approver_emp_id=NULL, approver_name=NULL, action_token=NULL,
        reviewed_at=NULL, reject_reason=NULL, batch_id=NULL, updated_at=now() WHERE id=$1`, [e.id]);
+  await resetHrPingIfEmpty();
   res.json({ ok: true });
 });
 
@@ -301,10 +312,12 @@ router.post('/hr-verify/:id', requireOtHr, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
   const r = await q(`UPDATE ot_entries SET status='hr_verified', updated_at=now() WHERE id=$1 AND status='approved' RETURNING id`, [req.params.id]);
   if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
+  await resetHrPingIfEmpty();
   res.json({ ok: true });
 });
 router.post('/hr-verify-all', requireOtHr, async (req, res) => {
   const r = await q(`UPDATE ot_entries SET status='hr_verified', updated_at=now() WHERE status='approved' RETURNING id`);
+  await resetHrPingIfEmpty();
   res.json({ ok: true, verified: r.rows.length });
 });
 router.post('/hr-reject/:id', requireOtHr, async (req, res) => {
@@ -312,6 +325,7 @@ router.post('/hr-reject/:id', requireOtHr, async (req, res) => {
   const reason = ((req.body && req.body.reason) || '').trim() || 'Rejected by HR';
   const r = await q(`UPDATE ot_entries SET status='rejected', reject_reason=$2, updated_at=now() WHERE id=$1 AND status='approved' RETURNING id, employee_id, to_char(ot_date,'YYYY-MM-DD') AS ot_date, amount`, [req.params.id, reason]);
   if (!r.rows.length) return res.status(400).json({ error: 'Not in an approved state' });
+  await resetHrPingIfEmpty();
   res.json({ ok: true });
   const row = r.rows[0];
   background((async () => {

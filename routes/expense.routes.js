@@ -561,6 +561,7 @@ router.get('/:id', async (req, res) => {
   const owner = row.employee_id === req.user.id;
   const hr = await isHrApprover(req.user);
   if (!owner && !hr && row.final_approver_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
+  const _c = await chain.getChain();
   res.json({ ...row, period_label: row.period ? monthLabel(row.period) : '',
     category_label: catLabel(row.expense_category === 'CAT1' ? 'CAT1' : 'CAT2'),
     perms: {
@@ -568,6 +569,8 @@ router.get('/:id', async (req, res) => {
       can_hr: row.status === 'pending_hr' && hr,
       can_final: row.status === 'pending_final' && (req.user.is_admin || row.final_approver_id === req.user.id),
       can_send_cmd: (req.user.is_admin || hr || row.final_approver_id === req.user.id) && ['pending_hr', 'pending_final', 'approved'].includes(row.status),
+      can_settle_offline: (owner || req.user.is_admin || (_c.accounts_notify_id && _c.accounts_notify_id === req.user.id))
+        && ['draft', 'pending', 'pending_hr', 'pending_final', 'returned'].includes(row.status),
       is_returned: row.status === 'returned' && owner,
     } });
 });
@@ -599,6 +602,26 @@ router.post('/:id/hr-return', async (req, res) => {
   await returnToEmployee(row, 'hr', reason, req.user.name);
   res.json({ ok: true });
 });
+// Settle offline: big payments the filer gets physically signed by management and hands to accounts.
+// Skips the whole in-app HR + final chain; just logs it as settled offline. Filer, Accounts or admin.
+const OFFLINE_FROM = ['draft', 'pending', 'pending_hr', 'pending_final', 'returned'];
+router.post('/:id/settle-offline', async (req, res) => {
+  const row = await loadRow(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  const c = await chain.getChain();
+  const owner = row.employee_id === req.user.id;
+  const isAccounts = c.accounts_notify_id && c.accounts_notify_id === req.user.id;
+  if (!(owner || req.user.is_admin || isAccounts))
+    return res.status(403).json({ error: 'Only the person who filed it, Accounts, or an admin can settle it offline.' });
+  if (!OFFLINE_FROM.includes(row.status))
+    return res.status(409).json({ error: `Can't settle offline once it is ${row.status}.` });
+  const token = row.pdf_token || crypto.randomBytes(12).toString('hex');
+  await q(`UPDATE expense_submissions SET status='settled_offline', settled_offline_at=now(), settled_offline_by_name=$2,
+       pdf_token=COALESCE(pdf_token,$3), submitted_at=COALESCE(submitted_at,now()), updated_at=now() WHERE id=$1`,
+    [row.id, req.user.name, token]);
+  res.json({ ok: true });
+});
+
 async function applyFinalApprove(row, byName) {
   await q(`UPDATE expense_submissions SET status='approved', final_by_name=$2, final_at=now() WHERE id=$1`, [row.id, byName]);
   background((async () => {

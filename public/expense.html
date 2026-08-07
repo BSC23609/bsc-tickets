@@ -280,6 +280,7 @@
       const m={draft:['bg-slate-100 text-slate-600','Draft'],generated:['bg-slate-100 text-slate-600','Generated'],
         pending_hr:['bg-amber-100 text-amber-700','Pending HR'],pending_final:['bg-indigo-100 text-indigo-700','Pending final'],
         approved:['bg-emerald-100 text-emerald-700','Approved'],returned:['bg-red-100 text-red-700','Returned'],
+        settled_offline:['bg-violet-100 text-violet-700','Settled offline'],
         pending:['bg-amber-100 text-amber-700','Pending'],rejected:['bg-red-100 text-red-700','Rejected']}[s]||['bg-slate-100 text-slate-600',s];
       return `<span class="pill ${m[0]}"><span class="dot"></span>${m[1]}</span>`;
     }
@@ -381,7 +382,7 @@
     function cvRenderClaims(){
       const box=document.getElementById('cv_claims'); const cs=cv.claims||[];
       if(!cs.length){ box.innerHTML=''; return; }
-      const badge=s=>({pending_hr:['bg-amber-100 text-amber-700','With HR'],pending_final:['bg-blue-100 text-blue-700','With final approver'],approved:['bg-emerald-100 text-emerald-700','✓ Approved · paid']}[s]||['bg-slate-100 text-slate-600',s]);
+      const badge=s=>({pending_hr:['bg-amber-100 text-amber-700','With HR'],pending_final:['bg-blue-100 text-blue-700','With final approver'],approved:['bg-emerald-100 text-emerald-700','✓ Approved · paid'],settled_offline:['bg-violet-100 text-violet-700','Settled offline']}[s]||['bg-slate-100 text-slate-600',s]);
       box.innerHTML = `<div class="card p-4"><div class="sechead"><span class="t">Claims submitted for this month</span></div><div class="space-y-2 mt-2">`
         + cs.map(c=>{ const b=badge(c.status);
             const recall = c.status==='pending_hr' ? `<button onclick="recallConveyance()" class="text-xs underline text-brand-700 hover:text-brand-800 ml-2">Recall</button>`:'';
@@ -500,10 +501,11 @@
       await api('/expense/conveyance/'+period+'/submit',{method:'POST'});
       toast('Submitted for approval','success'); await loadConveyance();
     }
-    const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected'}[s]||s);
+    const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected',settled_offline:'settled offline'}[s]||s);
     function statusText(s){ return ({
       pending_hr:'It is with HR for review.',
       pending_final:'HR approved it; it is with the final approver.',
+      settled_offline:'It was settled offline — signed by management and handed to accounts.',
       approved:'It has been approved and sent to accounts for payment.',
       returned:'It was returned for changes.',
       rejected:'It was rejected.'
@@ -709,6 +711,7 @@
       }
       const dl = s.pdf_token ? `<a href="/dlx/${s.pdf_token}" target="_blank" class="btn-ghost text-sm inline-flex">Download PDF</a>` : '';
       const cmdBtn = p.can_send_cmd ? `<button onclick="clickBusy(this,'Sending…',()=>sendToCmd(${s.id}))" class="btn-ghost text-sm inline-flex">Send to CMD</button>` : '';
+      const offlineBtn = p.can_settle_offline ? `<button onclick="settleOffline(${s.id})" class="btn-ghost text-sm inline-flex" style="color:#7c3aed">Mark settled offline</button>` : '';
       const ret = s.status==='returned' ? `<div class="bg-red-50 border border-red-200 rounded-xl p-3 text-sm mt-3"><div class="eyebrow" style="color:#b91c1c">Returned by ${s.return_stage==='final'?'final approver':'HR'}</div><div class="mt-0.5">${esc(s.return_reason||'')}</div></div>`:'';
       const trail = [s.hr_by_name?`HR ✓ ${esc(s.hr_by_name)}`:'', s.final_by_name?`Final ✓ ${esc(s.final_by_name)}`:''].filter(Boolean).join(' · ');
       document.getElementById('expModalInner').innerHTML=`
@@ -723,7 +726,7 @@
         <div class="p-5 text-sm">
           <div class="flex items-center justify-between"><div class="eyebrow">Claim</div><div class="font-display font-bold text-lg">${fmtMoney(s.total_amount)}</div></div>
           ${table}${ret}
-          <div class="mt-3 flex items-center justify-between"><div class="flex items-center gap-2">${dl}${cmdBtn}</div>${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
+          <div class="mt-3 flex items-center justify-between"><div class="flex items-center gap-2">${dl}${cmdBtn}${offlineBtn}</div>${trail?`<span class="text-xs text-slate-400">${trail}</span>`:''}</div>
         </div>`;
       document.getElementById('expModal').classList.remove('hidden');
     }
@@ -732,6 +735,11 @@
       <div class="flex justify-end mt-2"><button onclick="clickBusy(this,'Sending…',()=>doReturn(${id},'${stage}'))" class="text-white text-sm font-semibold px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700">Send back to employee</button></div></div>`; }
     async function hrApprove(id){ const fid=document.getElementById('finalSel').value; if(!fid) return toast('Pick a final approver','error');
       try{ await api('/expense/'+id+'/hr-approve',{method:'POST',body:{final_approver_id:+fid}}); toast('Approved & sent to final approver','success'); closeModal(); refreshApprCount(); loadApprovals(); }catch(e){toast(e.message,'error');} }
+    async function settleOffline(id){
+      if(!confirm('Mark this as settled OFFLINE?\n\nUse this when the report is physically signed by management and handed to accounts. It will NOT go through in-app HR / management approval.')) return;
+      try{ await api('/expense/'+id+'/settle-offline',{method:'POST'}); toast('Marked as settled offline','success'); closeModal(); loadMine(); }
+      catch(e){ toast(e.message,'error'); }
+    }
     async function finalApprove(id){ try{ await api('/expense/'+id+'/final-approve',{method:'POST'}); toast('Approved for payment','success'); closeModal(); refreshFinalCount(); loadFinalApprovals(); }catch(e){toast(e.message,'error');} }
     async function finalApproveAll(){
       if(!confirm('Approve ALL claims awaiting your final approval for payment? This sends each to accounts.')) return;
