@@ -619,7 +619,7 @@ router.post('/:id/settle-offline', async (req, res) => {
   await q(`UPDATE expense_submissions SET status='settled_offline', settled_offline_at=now(), settled_offline_by_name=$2,
        pdf_token=COALESCE(pdf_token,$3), submitted_at=COALESCE(submitted_at,now()), updated_at=now() WHERE id=$1`,
     [row.id, req.user.name, token]);
-  res.json({ ok: true });
+  res.json({ ok: true, pdf_token: row.pdf_token || token });
 });
 
 async function applyFinalApprove(row, byName) {

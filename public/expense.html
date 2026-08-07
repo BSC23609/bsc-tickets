@@ -186,6 +186,7 @@
         <div class="flex gap-2">
           <button onclick="clickBusy(this,'Saving…',()=>saveOutstation())" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
           <button onclick="clickBusy(this,'Submitting…',submitOutstation)" id="ot_submit" class="btn text-sm">Submit to HR</button>
+          <button onclick="clickBusy(this,'Saving…',settleOutstationOffline)" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
         </div>
       </div>
     </section>
@@ -195,8 +196,8 @@
       <div class="infobar mb-4">
         <div class="ic">i</div>
         <div class="text-sm leading-tight flex-1">
-          <div class="font-semibold text-ink">Self-service reimbursement</div>
-          <div class="text-slate-500 text-xs mt-0.5">Generate a PDF with your bills to print. No HR approval needed; a copy is saved to OneDrive.</div>
+          <div class="font-semibold text-ink">Two ways to settle</div>
+          <div class="text-slate-500 text-xs mt-0.5"><b>Submit for approval</b> — goes through HR &amp; final approval in the app. &nbsp;<b>Settle offline</b> — generates a PDF to print, get signed by management and hand to accounts (no in-app approval).</div>
         </div>
         <button onclick="newMisc()" class="btn-ghost text-xs shrink-0">Start new</button>
       </div>
@@ -208,6 +209,7 @@
       <div class="claimbar">
         <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
         <button onclick="clickBusy(this,'Submitting…',submitMisc)" id="ms_gen" class="btn text-sm">Submit for approval</button>
+        <button onclick="clickBusy(this,'Saving…',settleMiscOffline)" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
       </div>
     </section>
 
@@ -905,6 +907,15 @@
       try{ await api('/expense/outstation/'+otDraft.id+'/submit',{method:'POST'}); toast('Submitted to HR','success'); loadOutstation(); }
       catch(e){ toast(e.message,'error'); }
     }
+    async function settleOutstationOffline(){
+      try{ await saveOutstation(true); }catch(e){ return; }
+      if(!confirm("Settle this OFFLINE?\n\nA PDF will open for you to print, get signed by management, and hand to accounts. It will NOT go through in-app HR / management approval.")) return;
+      try{ const r=await api('/expense/'+otDraft.id+'/settle-offline',{method:'POST'});
+        toast('Saved as settled offline','success');
+        if(r.pdf_token) window.open('/dlx/'+r.pdf_token,'_blank');
+        loadOutstation();
+      }catch(e){ toast(e.message,'error'); }
+    }
 
     // ===== MISCELLANEOUS =====
     let msDraft=null, msItems=[];
@@ -935,6 +946,17 @@
       if(!confirm("Submit this claim for approval? It goes to HR for review, then final approval.")) return;
       try{ await api('/expense/misc/'+msDraft.id+'/submit',{method:'POST'});
         toast('Submitted for approval','success'); showForm('mine');
+      }catch(e){ toast(e.message,'error'); }
+    }
+
+    async function settleMiscOffline(){
+      if(!msItems.length) return toast('Add at least one item','error');
+      await saveMisc(true);
+      if(!confirm("Settle this OFFLINE?\n\nA PDF will open for you to print, get signed by management, and hand to accounts. It will NOT go through in-app HR / management approval.")) return;
+      try{ const r=await api('/expense/'+msDraft.id+'/settle-offline',{method:'POST'});
+        toast('Saved as settled offline','success');
+        if(r.pdf_token) window.open('/dlx/'+r.pdf_token,'_blank');
+        showForm('mine');
       }catch(e){ toast(e.message,'error'); }
     }
 
