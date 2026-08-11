@@ -91,8 +91,11 @@ async function submitAllowed(formType, period) {
 async function refNo(prefix) {
   const now = new Date();
   const dp = `${String(now.getFullYear()).slice(2)}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
-  const { rows } = await q(`SELECT COUNT(*)::int n FROM expense_submissions WHERE ref_no LIKE $1`, [`EXP/BSC/${prefix}/${dp}/%`]);
-  return `EXP/BSC/${prefix}/${dp}/${String(rows[0].n + 1).padStart(3, '0')}`;
+  const base = `EXP/BSC/${prefix}/${dp}/`;
+  const { rows } = await q(
+    `SELECT COALESCE(MAX(NULLIF(split_part(ref_no, '/', 5), '')::int), 0) AS mx
+     FROM expense_submissions WHERE ref_no LIKE $1`, [`${base}%`]);
+  return `${base}${String(rows[0].mx + 1).padStart(3, '0')}`;
 }
 
 async function loadRow(id) {

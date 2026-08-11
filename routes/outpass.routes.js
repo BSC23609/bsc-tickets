@@ -122,14 +122,24 @@ router.post('/', async (req, res) => {
   const approver = await resolveApprover(req.user, { onLeave });
   if (!approver) return res.status(400).json({ error: 'No approver is configured for your department. Please contact admin.' });
 
-  const ref = await nextOutpassRefNo();
   const actionToken = crypto.randomBytes(20).toString('hex');
-  const { rows } = await q(
-    `INSERT INTO outpass_requests(ref_no,type,on_duty,req_date,requester_id,purpose,out_time,in_time,approver_id,approver_label,manager_on_leave,action_token)
-     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-    [ref, type, !!on_duty, req_date || new Date(), req.user.id, purpose.trim(),
-     out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken]);
-  const id = rows[0].id;
+  // Regenerate + retry if two requests race to the same ref number (unique-violation 23505).
+  let id, ref;
+  for (let attempt = 0; ; attempt++) {
+    ref = await nextOutpassRefNo();
+    try {
+      const { rows } = await q(
+        `INSERT INTO outpass_requests(ref_no,type,on_duty,req_date,requester_id,purpose,out_time,in_time,approver_id,approver_label,manager_on_leave,action_token)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        [ref, type, !!on_duty, req_date || new Date(), req.user.id, purpose.trim(),
+         out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken]);
+      id = rows[0].id;
+      break;
+    } catch (e) {
+      if (e && e.code === '23505' && attempt < 5) continue;   // duplicate ref, try the next number
+      throw e;
+    }
+  }
   res.json({ ok: true, id, ref_no: ref });
 
   background((async () => {
