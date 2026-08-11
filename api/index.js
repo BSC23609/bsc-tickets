@@ -243,6 +243,7 @@ app.use('/api/tickets', require('../routes/tickets.routes'));
 app.use('/api/outpass', require('../routes/outpass.routes'));
 app.use('/api/expense', require('../routes/expense.routes'));
 app.use('/api/ot', require('../routes/ot.routes'));
+app.use('/api/inbox', require('../routes/inbox.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
 app.use('/api/genset', require('../routes/genset.routes'));
 
