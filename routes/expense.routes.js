@@ -631,7 +631,7 @@ async function applyFinalApprove(row, byName) {
     const c = await chain.getChain();
     const full = await loadRow(row.id);
     const pdf = await uploadChainPdf(full, 'approved', full.final_by_name || byName, fmtDateTime(new Date()));
-    const acctEmail = chain.accountsEmailFor(c, full.emp_no);
+    const acctEmail = chain.accountsEmailFor(c, full.emp_code);
     if (acctEmail) await graph.sendMail({
       to: acctEmail,
       subject: `Approved expense — ${full.emp_name} — ${FORM_LABEL[full.form_type]} ${full.period ? monthLabel(full.period) : ''} — ${fmtMoney(full.total_amount)}`,
