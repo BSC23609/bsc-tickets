@@ -96,7 +96,11 @@
             <div class="flex gap-2" id="og_out_pick">
               <select class="field tp-h"></select>
               <select class="field tp-m"></select>
-              <select class="field tp-ap"></select>
+              <div class="flex rounded-lg overflow-hidden border border-line shrink-0">
+                <button type="button" class="tp-am px-3 py-2 text-sm font-semibold bg-white text-slate-700">AM</button>
+                <button type="button" class="tp-pm px-3 py-2 text-sm font-semibold bg-white text-slate-700 border-l border-line">PM</button>
+              </div>
+              <input type="hidden" class="tp-ap">
             </div>
           </div>
           <div id="inWrap">
@@ -104,7 +108,11 @@
             <div class="flex gap-2" id="og_in_pick">
               <select class="field tp-h"></select>
               <select class="field tp-m"></select>
-              <select class="field tp-ap"></select>
+              <div class="flex rounded-lg overflow-hidden border border-line shrink-0">
+                <button type="button" class="tp-am px-3 py-2 text-sm font-semibold bg-white text-slate-700">AM</button>
+                <button type="button" class="tp-pm px-3 py-2 text-sm font-semibold bg-white text-slate-700 border-l border-line">PM</button>
+              </div>
+              <input type="hidden" class="tp-ap">
             </div>
           </div>
 
@@ -161,12 +169,20 @@
     // "HH:MM AM/PM" — the exact format the backend already stores, so nothing downstream changes.
     function buildPicker(wrapId) {
       const w = document.getElementById(wrapId);
-      const hSel = w.querySelector('.tp-h'), mSel = w.querySelector('.tp-m'), apSel = w.querySelector('.tp-ap');
+      const hSel = w.querySelector('.tp-h'), mSel = w.querySelector('.tp-m');
       hSel.innerHTML = '<option value="">Hr</option>' +
         Array.from({length: 12}, (_, i) => `<option value="${String(i+1).padStart(2,'0')}">${i+1}</option>`).join('');
       mSel.innerHTML = '<option value="">Min</option>' +
         Array.from({length: 12}, (_, i) => { const m = String(i*5).padStart(2,'0'); return `<option value="${m}">${m}</option>`; }).join('');
-      apSel.innerHTML = '<option value="">AM/PM</option><option value="AM">AM</option><option value="PM">PM</option>';
+      // AM/PM is a two-button toggle (clearer than a dropdown) backed by a hidden .tp-ap field.
+      const hidden = w.querySelector('.tp-ap'), am = w.querySelector('.tp-am'), pm = w.querySelector('.tp-pm');
+      const paint = () => {
+        am.className = 'tp-am px-3 py-2 text-sm font-semibold ' + (hidden.value === 'AM' ? 'bg-ink text-white' : 'bg-white text-slate-700');
+        pm.className = 'tp-pm px-3 py-2 text-sm font-semibold border-l border-line ' + (hidden.value === 'PM' ? 'bg-ink text-white' : 'bg-white text-slate-700');
+      };
+      am.onclick = () => { hidden.value = 'AM'; paint(); };
+      pm.onclick = () => { hidden.value = 'PM'; paint(); };
+      paint();
     }
     // "" until all three parts are chosen; else "HH:MM AM/PM".
     function readPicker(wrapId) {
@@ -177,6 +193,16 @@
     function resetPicker(wrapId) {
       const w = document.getElementById(wrapId);
       w.querySelectorAll('select').forEach(s => s.value = '');
+      const hidden = w.querySelector('.tp-ap'); if (hidden) hidden.value = '';
+      w.querySelectorAll('.tp-am, .tp-pm').forEach(b => b.className = b.className.replace('bg-ink text-white', 'bg-white text-slate-700'));
+    }
+    // Precise message about what's missing in a time (so AM/PM omissions are obvious).
+    function timeError(wrapId, label) {
+      const w = document.getElementById(wrapId);
+      const h = w.querySelector('.tp-h').value, m = w.querySelector('.tp-m').value, ap = w.querySelector('.tp-ap').value;
+      if (!h || !m) return `Pick the hour and minute for the ${label}`;
+      if (!ap) return `Tap AM or PM for the ${label}`;
+      return '';
     }
 
     async function init() {
@@ -224,8 +250,8 @@
       const in_time = readPicker('og_in_pick');
       if (!approver) return toast('No approver is set for your department — contact admin', 'error');
       if (!purpose) return toast('Enter the purpose', 'error');
-      if (!out_time) return toast('Enter the out-time', 'error');
-      if (ogType === 'gatepass' && !in_time) return toast('Enter the in-time', 'error');
+      const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return toast(outErr, 'error');
+      if (ogType === 'gatepass') { const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error'); }
 
       const btn = document.getElementById('ogSubmit');
       btn.disabled = true; btn.textContent = 'Submitting…';
