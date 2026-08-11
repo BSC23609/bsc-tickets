@@ -782,6 +782,24 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Phone audit: active employees whose number is missing or not a valid WhatsApp number.
+router.get('/phone-audit', async (req, res) => {
+  const rows = (await q(
+    `SELECT id, emp_no, name, department, phone
+     FROM employees
+     WHERE active=TRUE AND (phone IS NULL OR length(regexp_replace(phone,'\\D','','g')) < 10)
+     ORDER BY department NULLS LAST, name`)).rows;
+  res.json({ rows });
+});
+
+// Update just the phone (used by the audit tool) — doesn't touch any other field.
+router.post('/employees/:id/phone', async (req, res) => {
+  const phone = normPhone((req.body && req.body.phone) || '');
+  if (!phone) return res.status(400).json({ error: 'Enter a valid number' });
+  await q(`UPDATE employees SET phone=$2 WHERE id=$1`, [req.params.id, phone]);
+  res.json({ ok: true, phone });
+});
+
 // Save the email that receives "a cron looks stopped" alerts (empty to disable).
 router.post('/ops-alert-email', async (req, res) => {
   const email = String((req.body && req.body.email) || '').trim();
@@ -858,7 +876,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED125', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED126', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

@@ -210,6 +210,15 @@
       <div id="healthBody" class="grid md:grid-cols-2 gap-3"></div>
 
       <div class="card p-4 mt-3">
+        <div class="flex items-center justify-between gap-2">
+          <div class="font-semibold text-sm">Employees needing a valid WhatsApp number</div>
+          <button onclick="loadPhoneAudit()" class="btn-ghost text-xs">↻ Refresh</button>
+        </div>
+        <p class="text-xs text-slate-500 mt-1 mb-2">These active employees won't receive any WhatsApp alerts until a valid number is set.</p>
+        <div id="phoneAuditBody" class="text-sm"></div>
+      </div>
+
+      <div class="card p-4 mt-3">
         <div class="font-semibold text-sm mb-1">Alert email for stopped jobs</div>
         <p class="text-xs text-slate-500 mb-2">If a background job stops running, we'll email this address once. Leave blank to disable.</p>
         <div class="flex gap-2 items-end flex-wrap">
@@ -609,7 +618,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED125, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED126, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -785,6 +794,24 @@
       C.push(card('Background jobs (crons)', cronRows+`<div class="text-[11px] text-slate-400 mt-1">Red = not run in over 3 hours (may be stopped).</div>`));
       document.getElementById('healthBody').innerHTML=C.join('');
       document.getElementById('opsEmail').value = d.ops_alert_email || '';
+      loadPhoneAudit();
+    }
+    async function loadPhoneAudit(){
+      let d; try{ d=await api('/admin/phone-audit'); }catch(e){ return; }
+      const box=document.getElementById('phoneAuditBody');
+      if(!d.rows.length){ box.innerHTML='<div class="text-emerald-700 text-sm">✓ Everyone has a valid number.</div>'; return; }
+      box.innerHTML=d.rows.map(r=>`<div class="flex items-center gap-2 py-1.5 border-t border-line flex-wrap">
+        <div class="flex-1 min-w-[180px]"><span class="font-semibold">${r.name}</span> <span class="text-xs text-slate-400 mono">${r.emp_no||''}</span> <span class="text-xs text-slate-400">${r.department||''}</span></div>
+        <input id="pa_${r.id}" class="inp !py-1 text-sm" style="max-width:170px" placeholder="10-digit or 91…" value="${r.phone||''}">
+        <button onclick="savePhone(${r.id})" class="btn text-xs">Save</button>
+      </div>`).join('');
+    }
+    async function savePhone(id){
+      const v=document.getElementById('pa_'+id).value.trim();
+      if(!v) return toast('Enter a number','error');
+      try{ const r=await api('/admin/employees/'+id+'/phone',{method:'POST',body:{phone:v}});
+        toast('Saved '+r.phone,'success'); loadPhoneAudit(); loadHealth(); }
+      catch(e){ toast(e.message,'error'); }
     }
     async function saveOpsEmail(){
       try{ const r=await api('/admin/ops-alert-email',{method:'POST',body:{email:document.getElementById('opsEmail').value.trim()}});
