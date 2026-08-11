@@ -208,6 +208,15 @@
         <button onclick="loadHealth()" class="btn-ghost text-sm">↻ Refresh</button>
       </div>
       <div id="healthBody" class="grid md:grid-cols-2 gap-3"></div>
+
+      <div class="card p-4 mt-3">
+        <div class="font-semibold text-sm mb-1">Alert email for stopped jobs</div>
+        <p class="text-xs text-slate-500 mb-2">If a background job stops running, we'll email this address once. Leave blank to disable.</p>
+        <div class="flex gap-2 items-end flex-wrap">
+          <input id="opsEmail" class="inp" placeholder="ops@bharatsteels.in" style="max-width:320px">
+          <button onclick="saveOpsEmail()" class="btn text-sm">Save</button>
+        </div>
+      </div>
     </section>
 
     <section id="tab-emp" class="hidden">
@@ -600,7 +609,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED124, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED125, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -775,6 +784,12 @@
         return row(name,!stale, mins<60?mins+'m ago':Math.round(mins/60)+'h ago'); }).join('');
       C.push(card('Background jobs (crons)', cronRows+`<div class="text-[11px] text-slate-400 mt-1">Red = not run in over 3 hours (may be stopped).</div>`));
       document.getElementById('healthBody').innerHTML=C.join('');
+      document.getElementById('opsEmail').value = d.ops_alert_email || '';
+    }
+    async function saveOpsEmail(){
+      try{ const r=await api('/admin/ops-alert-email',{method:'POST',body:{email:document.getElementById('opsEmail').value.trim()}});
+        toast(r.email?'Alert email saved':'Alerts disabled','success'); }
+      catch(e){ toast(e.message,'error'); }
     }
 
     let waDeb;

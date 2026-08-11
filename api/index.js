@@ -287,6 +287,33 @@ async function recordCron(name) {
     ['cron_last_' + name, new Date().toISOString()]); } catch (e) {}
 }
 
+// Watchdog: if a cron hasn't run within its expected window, email an ops address once (deduped until
+// things recover). Runs piggybacked on the frequent crons, so a single stopped job is still caught.
+const CRON_MAX_STALE_MIN = { 'escalate': 45, 'outpass-overdue': 45, 'auto-close': 180, 'trip-nudge': 1560, 'daily-report': 1560 };
+async function checkStaleCrons() {
+  try {
+    const email = (await q(`SELECT value FROM app_settings WHERE key='ops_alert_email'`)).rows[0]?.value;
+    if (!email) return;                                   // no recipient set → nothing to do
+    const last = Object.fromEntries((await q(`SELECT key,value FROM app_settings WHERE key LIKE 'cron_last_%'`)).rows
+      .map(r => [r.key.replace('cron_last_', ''), r.value]));
+    const now = Date.now(); const stale = [];
+    for (const [name, max] of Object.entries(CRON_MAX_STALE_MIN)) {
+      const iso = last[name]; if (!iso) continue;         // never run yet (fresh deploy) → don't cry wolf
+      const mins = (now - new Date(iso)) / 60000;
+      if (mins > max) stale.push(`${name}: last ran ${Math.round(mins)} min ago (limit ${max} min)`);
+    }
+    const flag = (await q(`SELECT value FROM app_settings WHERE key='cron_stale_alerted'`)).rows[0]?.value;
+    if (!stale.length) { if (flag) await q(`DELETE FROM app_settings WHERE key='cron_stale_alerted'`); return; }
+    if (flag) return;                                     // already alerted; wait until recovery
+    const ok = await require('../lib/graph').sendMail({
+      to: email, subject: '⚠ BSC Tickets — a background job looks stopped',
+      html: `<p>These scheduled jobs haven't run recently:</p><ul>${stale.map(s => `<li>${s}</li>`).join('')}</ul>`
+          + `<p>Check the Vercel cron / GitHub Action schedule. The admin <b>Health</b> tab shows live status.</p>`,
+    });
+    if (ok) await q(`INSERT INTO app_settings(key,value) VALUES('cron_stale_alerted',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [new Date().toISOString()]);
+  } catch (e) { console.error('[checkStaleCrons]', e.message); }
+}
+
 app.all('/api/cron/auto-close', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
@@ -429,6 +456,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
   recordCron('escalate');
+  require('../lib/bg').background(checkStaleCrons());
   const wati = require('../lib/wati');
   const { businessMinutesBetween, isWorkingNow, isWorkingClock, elapsedLabel } = require('../lib/util');
 
@@ -577,6 +605,7 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
   recordCron('outpass-overdue');
+  require('../lib/bg').background(checkStaleCrons());
   const { isOutpassWatchClock } = require('../lib/util');
   const startMin = Number(process.env.OUTPASS_WATCH_START_MIN || 8 * 60);
   const endMin = Number(process.env.OUTPASS_WATCH_END_MIN || 20 * 60);

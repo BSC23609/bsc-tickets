@@ -764,6 +764,8 @@ router.get('/health', async (req, res) => {
       accounts_email: !!c.accounts_email, entity_prefixes: Object.keys(c.accounts_email_by_prefix || {}) };
   } catch (e) { expense = { error: e.message }; }
 
+  const opsEmail = (await q(`SELECT value FROM app_settings WHERE key='ops_alert_email'`)).rows[0]?.value || '';
+
   res.json({
     integrations: { wati: wati.configured(), graph: graph.configured() },
     whatsapp_24h: wa,
@@ -775,8 +777,17 @@ router.get('/health', async (req, res) => {
     gate: { location: !!(gate.gate_lat && gate.gate_lng), overdue_hr: !!gate.outpass_hr_emp_id },
     expense,
     crons,
+    ops_alert_email: opsEmail,
     now: new Date().toISOString(),
   });
+});
+
+// Save the email that receives "a cron looks stopped" alerts (empty to disable).
+router.post('/ops-alert-email', async (req, res) => {
+  const email = String((req.body && req.body.email) || '').trim();
+  if (email) await q(`INSERT INTO app_settings(key,value) VALUES('ops_alert_email',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [email]);
+  else await q(`DELETE FROM app_settings WHERE key='ops_alert_email'`);
+  res.json({ ok: true, email });
 });
 
 // WhatsApp delivery log — see every send + outcome (sent / declined / no_phone / error).
@@ -847,7 +858,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED124', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED125', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
