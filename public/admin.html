@@ -355,6 +355,34 @@
         </div>
         <pre id="wtOut" class="hidden text-[11px] bg-slate-900 text-emerald-300 rounded-lg p-3 mt-3 overflow-x-auto whitespace-pre-wrap"></pre>
       </div>
+
+      <div class="card p-5">
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+          <div><div class="eyebrow">WhatsApp delivery log</div>
+            <p class="text-xs text-slate-500 mt-1">Every WATI send and its outcome — so a silent failure is visible here.</p></div>
+          <button onclick="loadWaLog()" class="btn-ghost text-sm">↻ Refresh</button>
+        </div>
+        <div id="waSummary" class="flex gap-2 flex-wrap mt-3 text-xs"></div>
+        <div class="flex gap-2 items-end flex-wrap mt-3">
+          <div><label class="lbl">Result</label>
+            <select id="waResult" class="inp" onchange="loadWaLog()">
+              <option value="">All</option><option value="sent">sent</option><option value="declined">declined</option>
+              <option value="no_phone">no_phone</option><option value="http_error">http_error</option>
+              <option value="error">error</option><option value="skipped">skipped</option>
+            </select></div>
+          <div><label class="lbl">Template</label><input id="waTpl" class="inp" placeholder="e.g. outpass_overdue" oninput="debWaLog()"></div>
+          <div><label class="lbl">Phone</label><input id="waPhone" class="inp" placeholder="digits" oninput="debWaLog()"></div>
+        </div>
+        <div class="overflow-x-auto mt-3">
+          <table class="w-full text-xs">
+            <thead class="text-slate-500 uppercase text-[10px]"><tr>
+              <th class="text-left py-1 pr-3">When</th><th class="text-left py-1 pr-3">Template</th>
+              <th class="text-left py-1 pr-3">Phone</th><th class="text-left py-1 pr-3">Result</th><th class="text-left py-1">Detail</th></tr></thead>
+            <tbody id="waRows"></tbody>
+          </table>
+        </div>
+        <div id="waEmpty" class="hidden text-center text-slate-400 text-sm py-6">No sends logged yet.</div>
+      </div>
     </section>
 
     <!-- CONVEYANCE TRIPS (admin override) -->
@@ -482,7 +510,7 @@
     function openGateTab() {
       if (!document.getElementById('osMonth').value)
         document.getElementById('osMonth').value = new Date().toISOString().slice(0,7);
-      loadGateSettings(); loadCurrentlyOut(); loadOverstay(); loadOtApprovers();
+      loadGateSettings(); loadCurrentlyOut(); loadOverstay(); loadOtApprovers(); loadWaLog();
       clearInterval(gateTimer);
       gateTimer = setInterval(() => { if (!document.getElementById('tab-gate').classList.contains('hidden')) loadCurrentlyOut(); }, 60000);
     }
@@ -562,7 +590,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED122, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED123, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -712,6 +740,25 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    let waDeb;
+    function debWaLog(){ clearTimeout(waDeb); waDeb=setTimeout(loadWaLog,350); }
+    async function loadWaLog(){
+      const qs=new URLSearchParams();
+      const res=document.getElementById('waResult').value; if(res) qs.set('result',res);
+      const tpl=document.getElementById('waTpl').value.trim(); if(tpl) qs.set('template',tpl);
+      const ph=document.getElementById('waPhone').value.trim(); if(ph) qs.set('phone',ph);
+      let d; try{ d=await api('/admin/wa-log?'+qs.toString()); }catch(e){ return; }
+      const RC={sent:'bg-emerald-100 text-emerald-700',declined:'bg-red-100 text-red-700',no_phone:'bg-amber-100 text-amber-700',http_error:'bg-red-100 text-red-700',error:'bg-red-100 text-red-700',skipped:'bg-slate-100 text-slate-600'};
+      document.getElementById('waSummary').innerHTML='<span class="text-slate-400 mr-1">Last 24h:</span>'+
+        (['sent','declined','no_phone','http_error','error','skipped'].map(k=>d.summary[k]?`<span class="px-2 py-0.5 rounded ${RC[k]}">${k}: ${d.summary[k]}</span>`:'').filter(Boolean).join(' ')||'<span class="text-slate-400">nothing yet</span>');
+      const tb=document.getElementById('waRows'); tb.innerHTML=(d.rows||[]).map(r=>
+        `<tr class="border-t border-line"><td class="py-1 pr-3 whitespace-nowrap text-slate-500">${r.at}</td>
+         <td class="py-1 pr-3 mono">${r.template||''}</td><td class="py-1 pr-3 mono">${r.phone||''}</td>
+         <td class="py-1 pr-3"><span class="px-1.5 py-0.5 rounded ${RC[r.result]||'bg-slate-100'}">${r.result}</span></td>
+         <td class="py-1 text-slate-500">${(r.detail||'').replace(/</g,'&lt;')}</td></tr>`).join('');
+      document.getElementById('waEmpty').classList.toggle('hidden',(d.rows||[]).length>0);
+    }
+
     async function loadOtApprovers(){
       let d; try{ d=await api('/admin/ot-approvers'); }catch(e){ return; }
       const opts=(sel)=>['<option value="">— none —</option>'].concat((d.people||[]).map(p=>`<option value="${p.id}" ${sel===p.id?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`)).join('');

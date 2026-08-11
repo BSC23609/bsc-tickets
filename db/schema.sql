@@ -465,3 +465,15 @@ CREATE INDEX IF NOT EXISTS idx_outpass_open ON outpass_requests(returned_at) WHE
 -- existing on-leave toggle). If neither is set, routing falls back to the department-head chain.
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_approver_id        INT REFERENCES employees(id);  -- primary
 ALTER TABLE employees ADD COLUMN IF NOT EXISTS outpass_backup_approver_id INT REFERENCES employees(id);  -- backup (when primary absent)
+
+-- WhatsApp delivery log: every WATI send attempt + outcome, so silent failures are visible.
+CREATE TABLE IF NOT EXISTS wa_log (
+  id         SERIAL PRIMARY KEY,
+  phone      TEXT,
+  template   TEXT,
+  result     TEXT NOT NULL,     -- sent | declined | no_phone | http_error | error | skipped
+  detail     TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_wa_log_created ON wa_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_wa_log_result  ON wa_log(result);

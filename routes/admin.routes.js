@@ -739,6 +739,21 @@ router.post('/ot-approvers', async (req, res) => {
   res.json({ ok: true });
 });
 
+// WhatsApp delivery log — see every send + outcome (sent / declined / no_phone / error).
+router.get('/wa-log', async (req, res) => {
+  const limit = Math.min(300, +req.query.limit || 100);
+  const where = []; const params = [];
+  if (req.query.result) { params.push(req.query.result); where.push(`result=$${params.length}`); }
+  if (req.query.template) { params.push('%' + req.query.template + '%'); where.push(`template ILIKE $${params.length}`); }
+  if (req.query.phone) { params.push('%' + String(req.query.phone).replace(/\D/g, '') + '%'); where.push(`phone ILIKE $${params.length}`); }
+  const rows = (await q(
+    `SELECT id, phone, template, result, detail, to_char(created_at AT TIME ZONE 'Asia/Kolkata','DD Mon HH24:MI') AS at
+     FROM wa_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ${limit}`, params)).rows;
+  const summary = Object.fromEntries((await q(
+    `SELECT result, count(*)::int AS n FROM wa_log WHERE created_at > now() - interval '24 hours' GROUP BY result`)).rows.map(r => [r.result, r.n]));
+  res.json({ rows, summary });
+});
+
 router.get('/gate-settings', async (req, res) => {
   res.json(await readGateSettings(true));
 });
@@ -792,7 +807,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED122', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED123', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
