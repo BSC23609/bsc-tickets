@@ -41,6 +41,7 @@
   <main class="max-w-6xl mx-auto px-4 py-6">
     <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
       <button data-tab="dash" data-active="true" class="tabBtn tab">Dashboard</button>
+      <button data-tab="mgmt" data-active="false" class="tabBtn tab">Dashboards</button>
       <button data-tab="health" data-active="false" class="tabBtn tab">Health</button>
       <button data-tab="emp" data-active="false" class="tabBtn tab">Employees</button>
       <button data-tab="cat" data-active="false" class="tabBtn tab">Categories &amp; routing</button>
@@ -201,6 +202,21 @@
     </section>
 
     <!-- EMPLOYEES -->
+    <section id="tab-mgmt" class="hidden">
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <div><div class="eyebrow">Management dashboards</div>
+          <p class="text-xs text-slate-500 mt-1">OT spend, expense trends and gatepass overstays — last 6 months.</p></div>
+        <button onclick="loadDashboards()" class="btn-ghost text-sm">↻ Refresh</button>
+      </div>
+      <div class="grid md:grid-cols-2 gap-3">
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by month</div><canvas id="chOtMonth" height="150"></canvas></div>
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by department</div><canvas id="chOtDept" height="150"></canvas></div>
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense (approved) by month</div><canvas id="chExpMonth" height="150"></canvas></div>
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense by type</div><canvas id="chExpType" height="150"></canvas></div>
+        <div class="card p-4 md:col-span-2"><div class="font-semibold text-sm mb-2">Gatepasses &amp; overstays by month</div><canvas id="chGate" height="120"></canvas></div>
+      </div>
+    </section>
+
     <section id="tab-health" class="hidden">
       <div class="flex items-center justify-between gap-2 mb-3">
         <div><div class="eyebrow">System health</div>
@@ -618,7 +634,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED127, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED128, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -756,8 +772,9 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['dash','health','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      ['dash','mgmt','health','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'trips') loadAdminTrips();
+      if (tab === 'mgmt') loadDashboards();
       if (tab === 'health') loadHealth();
       if (tab === 'gate') openGateTab();
       if (tab === 'emp') { renderEmployees(); api('/admin/departments').then(d => departments = d).catch(()=>{}); }
@@ -769,6 +786,32 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    let dashCharts = {};
+    function mkChart(id, cfg){ if(dashCharts[id]) dashCharts[id].destroy(); const el=document.getElementById(id); if(el) dashCharts[id]=new Chart(el, cfg); }
+    const BLUE='#1B7BC0', DARK='#0A4566', AMBER='#F59E0B', RED='#dc2626', GREENS=['#0A4566','#1B7BC0','#38bdf8','#7dd3fc','#a855f7','#f59e0b'];
+    const rupee0=v=>'₹'+Math.round(v||0).toLocaleString('en-IN');
+    async function loadDashboards(){
+      let d; try{ d=await api('/admin/dashboards'); }catch(e){ return; }
+      const money={ y:{ ticks:{ callback:v=>'₹'+v } } };
+      // OT by month
+      mkChart('chOtMonth', { type:'bar', data:{ labels:d.ot.monthly.map(r=>r.ym), datasets:[{ label:'OT spend', data:d.ot.monthly.map(r=>r.total), backgroundColor:BLUE }] },
+        options:{ plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>rupee0(c.raw)}} }, scales:money } });
+      // OT by dept
+      mkChart('chOtDept', { type:'bar', data:{ labels:d.ot.by_dept.map(r=>r.dept), datasets:[{ data:d.ot.by_dept.map(r=>r.total), backgroundColor:DARK }] },
+        options:{ indexAxis:'y', plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>rupee0(c.raw)}} }, scales:{ x:{ ticks:{ callback:v=>'₹'+v } } } } });
+      // Expense by month
+      mkChart('chExpMonth', { type:'line', data:{ labels:d.expense.monthly.map(r=>r.ym), datasets:[{ label:'Expense', data:d.expense.monthly.map(r=>r.total), borderColor:BLUE, backgroundColor:'rgba(27,123,192,.12)', fill:true, tension:.3 }] },
+        options:{ plugins:{ legend:{display:false}, tooltip:{callbacks:{label:c=>rupee0(c.raw)}} }, scales:money } });
+      // Expense by type
+      mkChart('chExpType', { type:'doughnut', data:{ labels:d.expense.by_type.map(r=>r.form_type), datasets:[{ data:d.expense.by_type.map(r=>r.total), backgroundColor:GREENS }] },
+        options:{ plugins:{ tooltip:{callbacks:{label:c=>c.label+': '+rupee0(c.raw)}} } } });
+      // Gatepass + overstays
+      mkChart('chGate', { type:'bar', data:{ labels:d.gatepass.monthly.map(r=>r.ym), datasets:[
+        { label:'Gatepasses', data:d.gatepass.monthly.map(r=>r.total), backgroundColor:BLUE },
+        { label:'Overstays', data:d.gatepass.monthly.map(r=>r.overstays), backgroundColor:RED } ] },
+        options:{ plugins:{ legend:{position:'bottom'} }, scales:{ y:{ beginAtZero:true, ticks:{ precision:0 } } } } });
+    }
+
     async function loadHealth(){
       let d; try{ d=await api('/admin/health'); }catch(e){ document.getElementById('healthBody').innerHTML='<div class="text-red-600 text-sm">Failed to load: '+e.message+'</div>'; return; }
       const dot=ok=>ok?'<span style="color:#059669">●</span>':'<span style="color:#dc2626">●</span>';

@@ -782,6 +782,40 @@ router.get('/health', async (req, res) => {
   });
 });
 
+// Management dashboards: OT spend, expense trends, gatepass/overstay — last 6 months.
+router.get('/dashboards', async (req, res) => {
+  const OT_SPEND = ['approved', 'hr_verified', 'mgmt_pending', 'mgmt_approved', 'paid'];
+  const EXP_DONE = ['approved', 'settled_offline'];
+  const d6 = new Date(); d6.setMonth(d6.getMonth() - 5); const sixAgo = d6.toISOString().slice(0, 7);
+
+  const otMonthly = (await q(
+    `SELECT period AS ym, SUM(amount)::float AS total, COUNT(*)::int AS n
+     FROM ot_entries WHERE status = ANY($1) AND period >= $2 GROUP BY period ORDER BY period`, [OT_SPEND, sixAgo])).rows;
+  const otByDept = (await q(
+    `SELECT COALESCE(NULLIF(department,''),'—') AS dept, SUM(amount)::float AS total
+     FROM ot_entries WHERE status = ANY($1) AND period >= $2 GROUP BY department ORDER BY total DESC`, [OT_SPEND, sixAgo])).rows;
+
+  const expMonthly = (await q(
+    `SELECT to_char(COALESCE(final_at, settled_offline_at, submitted_at),'YYYY-MM') AS ym,
+            SUM(total_amount)::float AS total, COUNT(*)::int AS n
+     FROM expense_submissions WHERE status = ANY($1)
+       AND COALESCE(final_at, settled_offline_at, submitted_at) > now() - interval '6 months'
+     GROUP BY ym ORDER BY ym`, [EXP_DONE])).rows;
+  const expByType = (await q(
+    `SELECT form_type, SUM(total_amount)::float AS total, COUNT(*)::int AS n
+     FROM expense_submissions WHERE status = ANY($1)
+       AND COALESCE(final_at, settled_offline_at, submitted_at) > now() - interval '6 months'
+     GROUP BY form_type ORDER BY total DESC`, [EXP_DONE])).rows;
+
+  const gpMonthly = (await q(
+    `SELECT to_char(created_at,'YYYY-MM') AS ym, COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE overdue_alert_at IS NOT NULL)::int AS overstays
+     FROM outpass_requests WHERE type='gatepass' AND created_at > now() - interval '6 months'
+     GROUP BY ym ORDER BY ym`)).rows;
+
+  res.json({ ot: { monthly: otMonthly, by_dept: otByDept }, expense: { monthly: expMonthly, by_type: expByType }, gatepass: { monthly: gpMonthly } });
+});
+
 // Phone audit: active employees whose number is missing or not a valid WhatsApp number.
 router.get('/phone-audit', async (req, res) => {
   const rows = (await q(
@@ -876,7 +910,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED127', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED128', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
