@@ -739,6 +739,46 @@ router.post('/ot-approvers', async (req, res) => {
   res.json({ ok: true });
 });
 
+// System health: one place that shows what's configured and what's silently broken.
+router.get('/health', async (req, res) => {
+  const wati = require('../lib/wati');
+  const graph = require('../lib/graph');
+  const setget = async (keys) => Object.fromEntries((await q(
+    `SELECT key,value FROM app_settings WHERE key = ANY($1)`, [keys])).rows.map(r => [r.key, r.value]));
+
+  const wa = Object.fromEntries((await q(
+    `SELECT result, count(*)::int n FROM wa_log WHERE created_at > now() - interval '24 hours' GROUP BY result`)).rows.map(r => [r.result, r.n]));
+
+  const active = (await q(`SELECT count(*)::int n FROM employees WHERE active=TRUE`)).rows[0].n;
+  const badPhone = (await q(
+    `SELECT count(*)::int n FROM employees WHERE active=TRUE AND (phone IS NULL OR length(regexp_replace(phone,'\\D','','g')) < 10)`)).rows[0].n;
+
+  const ot = await setget(['ot_approver_production', 'ot_approver_dispatch', 'ot_hr_emp_id', 'ot_mgmt_emp_ids', 'ot_accounts_emp_id', 'ot_accounts_email']);
+  const gate = await setget(['gate_lat', 'gate_lng', 'outpass_hr_emp_id']);
+  const crons = Object.fromEntries((await q(
+    `SELECT key, value FROM app_settings WHERE key LIKE 'cron_last_%'`)).rows.map(r => [r.key.replace('cron_last_', ''), r.value]));
+
+  let expense = {};
+  try { const c = await chain.getChain();
+    expense = { hr_approvers: (c.hr_approver_ids || []).length, final_approvers: (c.final_approver_ids || []).length,
+      accounts_email: !!c.accounts_email, entity_prefixes: Object.keys(c.accounts_email_by_prefix || {}) };
+  } catch (e) { expense = { error: e.message }; }
+
+  res.json({
+    integrations: { wati: wati.configured(), graph: graph.configured() },
+    whatsapp_24h: wa,
+    phones: { active, missing_or_bad: badPhone },
+    ot: {
+      production: !!ot.ot_approver_production, dispatch: !!ot.ot_approver_dispatch, hr: !!ot.ot_hr_emp_id,
+      management: !!(ot.ot_mgmt_emp_ids && ot.ot_mgmt_emp_ids.length), accounts_contact: !!ot.ot_accounts_emp_id, accounts_email: !!ot.ot_accounts_email,
+    },
+    gate: { location: !!(gate.gate_lat && gate.gate_lng), overdue_hr: !!gate.outpass_hr_emp_id },
+    expense,
+    crons,
+    now: new Date().toISOString(),
+  });
+});
+
 // WhatsApp delivery log — see every send + outcome (sent / declined / no_phone / error).
 router.get('/wa-log', async (req, res) => {
   const limit = Math.min(300, +req.query.limit || 100);
@@ -807,7 +847,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED123', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED124', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

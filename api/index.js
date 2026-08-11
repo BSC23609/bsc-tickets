@@ -281,11 +281,18 @@ app.get('/dlx/:token', async (req, res) => {
 
 // ---- Cron: 48-hr auto-confirm-close of resolved tickets ----
 // Triggered daily by Vercel Cron (see vercel.json). Protected by CRON_SECRET.
+// Heartbeat: record when each cron last ran, so the admin Health page can flag a stale/stopped cron.
+async function recordCron(name) {
+  try { await q(`INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`,
+    ['cron_last_' + name, new Date().toISOString()]); } catch (e) {}
+}
+
 app.all('/api/cron/auto-close', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
+  recordCron('auto-close');
   // Auto-close scrapped: tickets are NEVER force-closed. Resolved-ticket confirm/reopen nudges now
   // run on the 15-min escalation cron (so they can fire ~hourly). This daily job just keeps the
   // OneDrive Excel log in sync as a safety net.
@@ -397,6 +404,7 @@ app.all('/api/cron/trip-nudge', async (req, res) => {
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
+  recordCron('trip-nudge');
   const { rows } = await q(`SELECT COUNT(*)::int AS n FROM conveyance_trips t
     JOIN employees m ON m.id = t.approver_emp_id
     WHERE t.status='pending' AND t.claim_ref IS NULL AND m.active = TRUE`);
@@ -420,6 +428,7 @@ app.all('/api/cron/escalate', async (req, res) => {
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
+  recordCron('escalate');
   const wati = require('../lib/wati');
   const { businessMinutesBetween, isWorkingNow, isWorkingClock, elapsedLabel } = require('../lib/util');
 
@@ -567,6 +576,7 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
 
+  recordCron('outpass-overdue');
   const { isOutpassWatchClock } = require('../lib/util');
   const startMin = Number(process.env.OUTPASS_WATCH_START_MIN || 8 * 60);
   const endMin = Number(process.env.OUTPASS_WATCH_END_MIN || 20 * 60);
@@ -610,7 +620,8 @@ app.all('/api/cron/daily-report', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
   if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
+
+  recordCron('daily-report');  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '')
     ? req.query.date : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   try {
     const r = await require('../lib/report').dispatchDailyReports(date);

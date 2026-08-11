@@ -41,6 +41,7 @@
   <main class="max-w-6xl mx-auto px-4 py-6">
     <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
       <button data-tab="dash" data-active="true" class="tabBtn tab">Dashboard</button>
+      <button data-tab="health" data-active="false" class="tabBtn tab">Health</button>
       <button data-tab="emp" data-active="false" class="tabBtn tab">Employees</button>
       <button data-tab="cat" data-active="false" class="tabBtn tab">Categories &amp; routing</button>
       <button data-tab="loc" data-active="false" class="tabBtn tab">Locations</button>
@@ -200,6 +201,15 @@
     </section>
 
     <!-- EMPLOYEES -->
+    <section id="tab-health" class="hidden">
+      <div class="flex items-center justify-between gap-2 mb-3">
+        <div><div class="eyebrow">System health</div>
+          <p class="text-xs text-slate-500 mt-1">What's configured and what's silently broken. Green = OK, red = needs attention.</p></div>
+        <button onclick="loadHealth()" class="btn-ghost text-sm">↻ Refresh</button>
+      </div>
+      <div id="healthBody" class="grid md:grid-cols-2 gap-3"></div>
+    </section>
+
     <section id="tab-emp" class="hidden">
       <div class="flex items-center justify-between mb-4">
         <div>
@@ -590,7 +600,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED123, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED124, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -728,8 +738,9 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['dash','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      ['dash','health','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'trips') loadAdminTrips();
+      if (tab === 'health') loadHealth();
       if (tab === 'gate') openGateTab();
       if (tab === 'emp') { renderEmployees(); api('/admin/departments').then(d => departments = d).catch(()=>{}); }
       if (tab === 'cat') renderCategories();
@@ -740,6 +751,32 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    async function loadHealth(){
+      let d; try{ d=await api('/admin/health'); }catch(e){ document.getElementById('healthBody').innerHTML='<div class="text-red-600 text-sm">Failed to load: '+e.message+'</div>'; return; }
+      const dot=ok=>ok?'<span style="color:#059669">●</span>':'<span style="color:#dc2626">●</span>';
+      const row=(label,ok,note)=>`<div class="flex items-center justify-between py-1 text-sm"><span>${dot(ok)} ${label}</span><span class="text-xs ${ok?'text-emerald-700':'text-red-600'}">${note!=null?note:(ok?'OK':'missing')}</span></div>`;
+      const card=(title,inner)=>`<div class="card p-4"><div class="font-semibold text-sm mb-2">${title}</div>${inner}</div>`;
+      const C=[];
+      C.push(card('Integrations', row('WhatsApp (WATI)',d.integrations.wati)+row('Email / OneDrive (Graph)',d.integrations.graph)));
+      const wa=d.whatsapp_24h||{}; const fail=(wa.declined||0)+(wa.http_error||0)+(wa.error||0)+(wa.no_phone||0);
+      C.push(card('WhatsApp — last 24h',
+        `<div class="text-xs text-slate-600 mb-1">${['sent','declined','no_phone','http_error','error','skipped'].map(k=>`${k}: <b>${wa[k]||0}</b>`).join(' · ')}</div>`+
+        row('Failures',fail===0,fail===0?'none':fail+' failed — see WhatsApp log')));
+      C.push(card('Employee phones', row(`${d.phones.missing_or_bad} of ${d.phones.active} active missing/invalid`, d.phones.missing_or_bad===0, d.phones.missing_or_bad===0?'all good':'fix in Employees')));
+      const ot=d.ot; C.push(card('Overtime config',
+        row('Production approver',ot.production)+row('Dispatch approver',ot.dispatch)+row('HR verifier',ot.hr)+row('Management',ot.management)+row('Accounts contact',ot.accounts_contact)+row('Accounts email',ot.accounts_email)));
+      C.push(card('Gatepass / gate', row('Gate location set',d.gate.location)+row('Overdue HR recipient',d.gate.overdue_hr,d.gate.overdue_hr?'set':"HR won't get overdue alerts")));
+      const ex=d.expense||{}; C.push(card('Expense chain',
+        row('HR approvers',(ex.hr_approvers||0)>0,(ex.hr_approvers||0)+' set')+row('Final approvers',(ex.final_approvers||0)>0,(ex.final_approvers||0)+' set')+row('Accounts email',!!ex.accounts_email)+row('Entity prefix emails',(ex.entity_prefixes||[]).length>0,(ex.entity_prefixes||[]).join(', ')||'none set')));
+      const now=new Date(d.now); const CR=['auto-close','trip-nudge','escalate','outpass-overdue','daily-report'];
+      const cronRows=CR.map(name=>{ const iso=(d.crons||{})[name];
+        if(!iso) return row(name,false,'never run');
+        const mins=Math.round((now-new Date(iso))/60000); const stale=mins>180;
+        return row(name,!stale, mins<60?mins+'m ago':Math.round(mins/60)+'h ago'); }).join('');
+      C.push(card('Background jobs (crons)', cronRows+`<div class="text-[11px] text-slate-400 mt-1">Red = not run in over 3 hours (may be stopped).</div>`));
+      document.getElementById('healthBody').innerHTML=C.join('');
+    }
+
     let waDeb;
     function debWaLog(){ clearTimeout(waDeb); waDeb=setTimeout(loadWaLog,350); }
     async function loadWaLog(){
