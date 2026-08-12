@@ -288,9 +288,12 @@ async function recordCron(name) {
     ['cron_last_' + name, new Date().toISOString()]); } catch (e) {}
 }
 
-// Watchdog: if a cron hasn't run within its expected window, email an ops address once (deduped until
-// things recover). Runs piggybacked on the frequent crons, so a single stopped job is still caught.
-const CRON_MAX_STALE_MIN = { 'escalate': 45, 'outpass-overdue': 45, 'auto-close': 180, 'trip-nudge': 1560, 'daily-report': 1560 };
+// Watchdog: if a cron hasn't run within its expected window, email an ops address — but at most once
+// per cooldown window, so GitHub Actions' flaky/late scheduling doesn't cause an email storm.
+// Thresholds are generous on purpose: GitHub throttles scheduled workflows, so a */15 cron routinely
+// runs every 30-60 min. Set them well above the real-world worst case to avoid false positives.
+const CRON_MAX_STALE_MIN = { 'escalate': 90, 'outpass-overdue': 60, 'auto-close': 240, 'trip-nudge': 1560, 'daily-report': 1560 };
+const CRON_ALERT_COOLDOWN_MIN = Number(process.env.CRON_ALERT_COOLDOWN_MIN || 720); // 12h
 async function checkStaleCrons() {
   try {
     const email = (await q(`SELECT value FROM app_settings WHERE key='ops_alert_email'`)).rows[0]?.value;
@@ -303,13 +306,15 @@ async function checkStaleCrons() {
       const mins = (now - new Date(iso)) / 60000;
       if (mins > max) stale.push(`${name}: last ran ${Math.round(mins)} min ago (limit ${max} min)`);
     }
-    const flag = (await q(`SELECT value FROM app_settings WHERE key='cron_stale_alerted'`)).rows[0]?.value;
-    if (!stale.length) { if (flag) await q(`DELETE FROM app_settings WHERE key='cron_stale_alerted'`); return; }
-    if (flag) return;                                     // already alerted; wait until recovery
+    if (!stale.length) return;
+    // Cooldown: only one alert per window, no matter how often a cron flaps around its threshold.
+    const lastAlert = (await q(`SELECT value FROM app_settings WHERE key='cron_stale_alerted'`)).rows[0]?.value;
+    if (lastAlert && (now - new Date(lastAlert)) < CRON_ALERT_COOLDOWN_MIN * 60000) return;
     const ok = await require('../lib/graph').sendMail({
       to: email, subject: '⚠ BSC Tickets — a background job looks stopped',
       html: `<p>These scheduled jobs haven't run recently:</p><ul>${stale.map(s => `<li>${s}</li>`).join('')}</ul>`
-          + `<p>Check the Vercel cron / GitHub Action schedule. The admin <b>Health</b> tab shows live status.</p>`,
+          + `<p>Note: GitHub Actions often delays scheduled runs, so brief lateness can be normal. If it persists, check the Actions runs / Vercel cron. The admin <b>Health</b> tab shows live status.</p>`
+          + `<p style="color:#888">You won't get another of these for at least ${Math.round(CRON_ALERT_COOLDOWN_MIN / 60)} h.</p>`,
     });
     if (ok) await q(`INSERT INTO app_settings(key,value) VALUES('cron_stale_alerted',$1) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [new Date().toISOString()]);
   } catch (e) { console.error('[checkStaleCrons]', e.message); }
