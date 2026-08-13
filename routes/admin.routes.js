@@ -479,6 +479,12 @@ router.post('/wati-test', async (req, res) => {
   } else if (which === 'ot_rejected') {
     template = wati.TEMPLATES.ot_rejected;
     params = { name: 'TEST Employee', date: '05 Aug 2026', amount: '150', stage: 'approver', reason: 'Wrong end time' };
+  } else if (which === 'maint_gate') {
+    template = wati.TEMPLATES.maint_gate;
+    params = { name: 'Mathan', ref: 'TKT/BSC/260813/001', requester: 'TEST Requester', subject: 'AC not cooling', category: 'Maintenance', token: 'testtoken123' };
+  } else if (which === 'maint_rejected') {
+    template = wati.TEMPLATES.maint_rejected;
+    params = { name: 'TEST Requester', ref: 'TKT/BSC/260813/001' };
   } else {
     template = wati.EXPENSE_TPL.cv_request;
     params = { name: 'Manager', requester: 'TEST Employee', date: '28 Jul 2026',
@@ -816,6 +822,23 @@ router.get('/dashboards', async (req, res) => {
   res.json({ ot: { monthly: otMonthly, by_dept: otByDept }, expense: { monthly: expMonthly, by_type: expByType }, gatepass: { monthly: gpMonthly } });
 });
 
+// Maintenance approval gate: which category is gated + who approves it.
+router.get('/maint-gate', async (req, res) => {
+  const s = Object.fromEntries((await q(
+    `SELECT key,value FROM app_settings WHERE key IN ('maint_gate_category_id','maint_gate_approver_id')`)).rows.map(r => [r.key, r.value]));
+  res.json({ category_id: s.maint_gate_category_id ? Number(s.maint_gate_category_id) : null,
+    approver_id: s.maint_gate_approver_id ? Number(s.maint_gate_approver_id) : null });
+});
+router.post('/maint-gate', async (req, res) => {
+  const cat = req.body && req.body.category_id ? Number(req.body.category_id) : null;
+  const appr = req.body && req.body.approver_id ? Number(req.body.approver_id) : null;
+  for (const [k, v] of [['maint_gate_category_id', cat], ['maint_gate_approver_id', appr]]) {
+    if (v) await q(`INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`, [k, String(v)]);
+    else await q(`DELETE FROM app_settings WHERE key=$1`, [k]);
+  }
+  res.json({ ok: true });
+});
+
 // Phone audit: active employees whose number is missing or not a valid WhatsApp number.
 router.get('/phone-audit', async (req, res) => {
   const rows = (await q(
@@ -910,7 +933,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED130', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED131', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

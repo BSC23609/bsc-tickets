@@ -380,6 +380,16 @@
       </div>
 
       <div class="card p-5">
+        <div class="eyebrow">Maintenance approval gate</div>
+        <p class="text-xs text-slate-500 mt-1 mb-3">Tickets in the chosen category go to this person first for a one-tap approve/reject before reaching the maintenance team. Leave the category blank to disable.</p>
+        <div class="flex gap-2 items-end flex-wrap">
+          <div><label class="lbl">Gated category</label><select id="mgCat" class="inp"><option value="">— none (disabled) —</option></select></div>
+          <div><label class="lbl">Approver</label><select id="mgAppr" class="inp"><option value="">— pick —</option></select></div>
+          <button onclick="saveMaintGate()" class="btn text-sm">Save</button>
+        </div>
+      </div>
+
+      <div class="card p-5">
         <div class="eyebrow">WhatsApp template test</div>
         <p class="text-xs text-slate-500 mt-1 mb-3">Sends a real template to a number and shows WATI's raw reply — use this to see why a notification isn't arriving.</p>
         <div class="flex gap-2 items-end flex-wrap max-w-xl">
@@ -392,6 +402,8 @@
               <option value="ot_mgmt">ot_mgmt_approval (OT → Management)</option>
               <option value="ot_accounts">ot_accounts_pay (OT → Accounts)</option>
               <option value="ot_rejected">ot_rejected (OT → Employee)</option>
+              <option value="maint_gate">maint_gate_approval (→ Gatekeeper)</option>
+              <option value="maint_rejected">maint_gate_rejected (→ Requester)</option>
             </select>
           </div>
           <div class="flex-1 min-w-[160px]"><label class="lbl">Phone (with country code)</label><input id="wtPhone" class="inp" placeholder="9198xxxxxxxx"></div>
@@ -554,7 +566,7 @@
     function openGateTab() {
       if (!document.getElementById('osMonth').value)
         document.getElementById('osMonth').value = new Date().toISOString().slice(0,7);
-      loadGateSettings(); loadCurrentlyOut(); loadOverstay(); loadOtApprovers(); loadWaLog();
+      loadGateSettings(); loadCurrentlyOut(); loadOverstay(); loadOtApprovers(); loadWaLog(); loadMaintGate();
       clearInterval(gateTimer);
       gateTimer = setInterval(() => { if (!document.getElementById('tab-gate').classList.contains('hidden')) loadCurrentlyOut(); }, 60000);
     }
@@ -634,7 +646,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED130, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED131, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -865,6 +877,26 @@
 
     let waDeb;
     function debWaLog(){ clearTimeout(waDeb); waDeb=setTimeout(loadWaLog,350); }
+    async function loadMaintGate(){
+      try{
+        if(!employees || !employees.length) employees = await api('/admin/employees');
+        const cats = await api('/admin/categories');
+        const cfg = await api('/admin/maint-gate');
+        const catSel=document.getElementById('mgCat'), apprSel=document.getElementById('mgAppr');
+        catSel.innerHTML='<option value="">— none (disabled) —</option>'+cats.map(c=>`<option value="${c.id}">${c.name}</option>`).join('');
+        apprSel.innerHTML='<option value="">— pick —</option>'+employees.filter(e=>e.active!==false).map(e=>`<option value="${e.id}">${e.name} (${e.emp_no||''})</option>`).join('');
+        if(cfg.category_id) catSel.value=cfg.category_id;
+        if(cfg.approver_id) apprSel.value=cfg.approver_id;
+      }catch(e){}
+    }
+    async function saveMaintGate(){
+      const category_id=document.getElementById('mgCat').value||null;
+      const approver_id=document.getElementById('mgAppr').value||null;
+      if(category_id && !approver_id) return toast('Pick an approver for the gated category','error');
+      try{ await api('/admin/maint-gate',{method:'POST',body:{category_id,approver_id}}); toast(category_id?'Maintenance gate saved':'Maintenance gate disabled','success'); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
     async function loadWaLog(){
       const qs=new URLSearchParams();
       const res=document.getElementById('waResult').value; if(res) qs.set('result',res);

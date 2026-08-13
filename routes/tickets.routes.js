@@ -100,6 +100,17 @@ router.post('/', async (req, res) => {
   // L1 receives it straight away, so stamp the assignment on creation.
   const autoAssign = !!route.l1;
 
+  // Maintenance gate: if this category is gated, hold the ticket (no L1/L2/L3 yet) pending the
+  // gatekeeper's one-tap approval, and notify them instead of L1. Self-tickets skip the gate.
+  const gate = await maintGateConfig();
+  const gated = !isSelf && gate.categoryId && gate.approverId && Number(category_id) === gate.categoryId;
+  const maintGate = gated ? 'pending' : null;
+  const maintToken = gated ? crypto.randomBytes(16).toString('hex') : null;
+  const insL1 = gated ? null : route.l1;
+  const insL2 = gated ? null : route.l2;
+  const insL3 = gated ? null : route.l3;
+  const insAssignedAt = gated ? null : ((isSelf || autoAssign) ? new Date() : null);
+
   const ref = await nextRefNo();
   const client = await pool.connect();
   let t = null, committed = false;
@@ -108,12 +119,13 @@ router.post('/', async (req, res) => {
     const ins = await client.query(
       `INSERT INTO tickets
         (ref_no,requester_id,category_id,trade_id,priority,subject,description,location_id,location_text,
-         status,l1_emp_id,l2_emp_id,l3_emp_id,is_self,requested_by_id,requested_by_label,assigned_at,assigned_by_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16,$17) RETURNING *`,
+         status,l1_emp_id,l2_emp_id,l3_emp_id,is_self,requested_by_id,requested_by_label,assigned_at,assigned_by_id,
+         maint_gate,maint_gate_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'open',$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`,
       [ref, req.user.id, category_id, trade_id || null, pri, subject, description || null,
-       location_id || null, locText, route.l1, route.l2, route.l3,
+       location_id || null, locText, insL1, insL2, insL3,
        isSelf, isSelf ? requestedById : null, requestedByLabel,
-       (isSelf || autoAssign) ? new Date() : null, isSelf ? req.user.id : null]
+       insAssignedAt, isSelf ? req.user.id : null, maintGate, maintToken]
     );
     t = ins.rows[0];
     await client.query(
@@ -139,7 +151,11 @@ router.post('/', async (req, res) => {
 
   background((async () => {
     const enriched = { ...t, category_name: route.category_name, requester_name: req.user.name };
-    if (isSelf) {
+    if (gated) {
+      // Send the maintenance gatekeeper (Mathan) a one-tap approve/reject.
+      const gk = await empById(gate.approverId);
+      if (gk && gk.phone) await wati.notify.maintGate(gk, enriched);
+    } else if (isSelf) {
       // Notify category L2 (oversight), the delegator (CMD/CEO), and the raiser — deduped.
       const seen = new Set();
       for (const id of [route.l2, requestedById, req.user.id]) {
@@ -589,4 +605,39 @@ router.post('/:id/external-hold', async (req, res) => {
   })());
 });
 
+async function maintGateConfig() {
+  const s = Object.fromEntries((await q(
+    `SELECT key,value FROM app_settings WHERE key IN ('maint_gate_category_id','maint_gate_approver_id')`)).rows.map(r => [r.key, r.value]));
+  return {
+    categoryId: s.maint_gate_category_id ? Number(s.maint_gate_category_id) : null,
+    approverId: s.maint_gate_approver_id ? Number(s.maint_gate_approver_id) : null,
+  };
+}
+
+// ---- maintenance-gate one-tap (WhatsApp button -> /mta/:token) ----
+async function loadTicketByMaintToken(token) {
+  if (!token) return null;
+  return (await q(
+    `SELECT t.*, r.name AS requester_name, r.phone AS requester_phone, c.name AS category_name
+     FROM tickets t LEFT JOIN employees r ON r.id=t.requester_id LEFT JOIN categories c ON c.id=t.category_id
+     WHERE t.maint_gate_token=$1`, [token])).rows[0] || null;
+}
+async function applyMaintApprove(t) {
+  const route = await resolveRoute(t.category_id, t.trade_id, t.location_id);
+  await q(`UPDATE tickets SET maint_gate='approved', maint_gate_token=NULL,
+       l1_emp_id=$2, l2_emp_id=$3, l3_emp_id=$4,
+       assigned_at=CASE WHEN $2 IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
+    [t.id, route.l1, route.l2, route.l3]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_approved','Approved at maintenance gate')`, [t.id]);
+  const rec = await empById(route.l1);
+  if (rec && rec.phone) await wati.notify.raised(rec, { ...t, category_name: route.category_name, requester_name: t.requester_name });
+}
+async function applyMaintReject(t) {
+  await q(`UPDATE tickets SET maint_gate='rejected', maint_gate_token=NULL, status='closed', closed_at=now(),
+       resolution_note=$2 WHERE id=$1`, [t.id, 'Rejected at maintenance gate. Please raise it through the Opmaint app.']);
+  await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_rejected','Rejected at maintenance gate')`, [t.id]);
+  if (t.requester_phone) await wati.notify.maintRejected({ name: t.requester_name, phone: t.requester_phone }, t);
+}
+
 module.exports = router;
+module.exports._internal = { loadTicketByMaintToken, applyMaintApprove, applyMaintReject };

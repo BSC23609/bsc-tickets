@@ -114,6 +114,76 @@ function rejectPage(token, t) {
   </div></body></html>`;
 }
 
+// --- Maintenance-gate one-tap (WhatsApp button -> /mta/:token) ---
+function maintApprovePage(token, t) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Maintenance request</title></head>
+  <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9">
+  <div style="max-width:460px;margin:6vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:26px 22px">
+    <div style="font-size:42px;line-height:1;text-align:center">\ud83d\udd27</div>
+    <h2 style="color:#112532;margin:.4em 0 .2em;text-align:center">Maintenance request</h2>
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;color:#334155;font-size:14px">
+      <div style="font-weight:700">${t.ref_no}${t.category_name ? ' \u00b7 ' + t.category_name : ''}</div>
+      <div style="margin-top:4px">${t.subject || ''}</div>
+      <div style="color:#64748b;margin-top:4px">Raised by ${t.requester_name || '\u2014'}</div>
+    </div>
+    <form method="POST" action="/mta/${token}/approve">
+      <button type="submit" style="width:100%;background:#059669;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\u2713 Approve \u2014 send to maintenance</button>
+    </form>
+    <a href="/mta/${token}/reject" style="display:block;text-align:center;margin-top:12px;color:#dc2626;font-weight:600;font-size:14px;text-decoration:none">Reject</a>
+  </div></body></html>`;
+}
+function maintDone(emoji, title, msg) { return actionPage(emoji, title, msg); }
+app.get('/mta/:token', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    res.send(maintApprovePage(req.params.token, t));
+  } catch (e) { console.error('mta-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.post('/mta/:token/approve', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    await tk.applyMaintApprove(t);
+    res.send(actionPage('\u2705', 'Approved', `${t.ref_no} has been approved and sent to the maintenance team.`));
+  } catch (e) { console.error('mta-approve', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.get('/mta/:token/reject', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    res.send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reject request</title></head>
+    <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9">
+    <div style="max-width:460px;margin:8vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:26px 22px">
+      <div style="font-size:42px;line-height:1;text-align:center">\ud83d\udeab</div>
+      <h2 style="color:#112532;margin:.4em 0 .2em;text-align:center">Reject this request?</h2>
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px;margin:14px 0;color:#334155;font-size:14px">
+        <div style="font-weight:700">${t.ref_no}</div><div>${t.subject || ''}</div>
+      </div>
+      <p style="font-size:13px;color:#64748b">The requester will be asked to raise it through the Opmaint app.</p>
+      <form method="POST" action="/mta/${req.params.token}/reject">
+        <button type="submit" style="width:100%;margin-top:8px;background:#dc2626;color:#fff;border:0;border-radius:10px;padding:13px;font-size:15px;font-weight:600">Confirm rejection</button>
+      </form>
+    </div></body></html>`);
+  } catch (e) { console.error('mta-reject-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.post('/mta/:token/reject', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    await tk.applyMaintReject(t);
+    res.send(actionPage('\u26d4', 'Rejected', `${t.ref_no} was rejected. The requester has been asked to use the Opmaint app.`));
+  } catch (e) { console.error('mta-reject-post', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+
 // --- OT one-tap approval (WhatsApp button -> /ota/:token) ---
 function otApprovePage(token, o) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve overtime</title></head>

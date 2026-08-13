@@ -477,3 +477,7 @@ CREATE TABLE IF NOT EXISTS wa_log (
 );
 CREATE INDEX IF NOT EXISTS idx_wa_log_created ON wa_log(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_wa_log_result  ON wa_log(result);
+
+-- Maintenance approval gate: maintenance tickets pause for a gatekeeper (Mathan) before routing.
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS maint_gate       TEXT;   -- null | pending | approved | rejected
+ALTER TABLE tickets ADD COLUMN IF NOT EXISTS maint_gate_token TEXT;
