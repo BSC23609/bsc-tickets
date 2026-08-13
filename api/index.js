@@ -184,6 +184,29 @@ app.post('/mta/:token/reject', async (req, res) => {
   } catch (e) { console.error('mta-reject-post', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
 });
 
+// Two-button style: token at the END of the URL (Meta requires the dynamic var last).
+// A tapped WhatsApp button is a GET, so these act directly. Single-use token guards double-taps.
+app.get('/mta/approve/:token', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    await tk.applyMaintApprove(t);
+    res.send(actionPage('\u2705', 'Approved', `${t.ref_no} has been approved and sent to the maintenance team.`));
+  } catch (e) { console.error('mta-approve-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+app.get('/mta/reject/:token', async (req, res) => {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '\u2705' : '\u26d4', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    await tk.applyMaintReject(t);
+    res.send(actionPage('\u26d4', 'Rejected', `${t.ref_no} was rejected. The requester has been asked to use the Opmaint app.`));
+  } catch (e) { console.error('mta-reject-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
+});
+
 // --- OT one-tap approval (WhatsApp button -> /ota/:token) ---
 function otApprovePage(token, o) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve overtime</title></head>
