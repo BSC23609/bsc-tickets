@@ -634,7 +634,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED129, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED130, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -830,11 +830,12 @@
       const ex=d.expense||{}; C.push(card('Expense chain',
         row('HR approvers',(ex.hr_approvers||0)>0,(ex.hr_approvers||0)+' set')+row('Final approvers',(ex.final_approvers||0)>0,(ex.final_approvers||0)+' set')+row('Accounts email',!!ex.accounts_email)+row('Entity prefix emails',(ex.entity_prefixes||[]).length>0,(ex.entity_prefixes||[]).join(', ')||'none set')));
       const now=new Date(d.now); const CR=['auto-close','trip-nudge','escalate','outpass-overdue','daily-report'];
+      const CRON_LIMIT={ 'escalate':90,'outpass-overdue':60,'auto-close':1560,'daily-report':1560,'trip-nudge':3000 };
       const cronRows=CR.map(name=>{ const iso=(d.crons||{})[name];
         if(!iso) return row(name,false,'never run');
-        const mins=Math.round((now-new Date(iso))/60000); const stale=mins>180;
+        const mins=Math.round((now-new Date(iso))/60000); const stale=mins>(CRON_LIMIT[name]||180);
         return row(name,!stale, mins<60?mins+'m ago':Math.round(mins/60)+'h ago'); }).join('');
-      C.push(card('Background jobs (crons)', cronRows+`<div class="text-[11px] text-slate-400 mt-1">Red = not run in over 3 hours (may be stopped).</div>`));
+      C.push(card('Background jobs (crons)', cronRows+`<div class="text-[11px] text-slate-400 mt-1">Daily jobs (auto-close, daily-report, trip-nudge) are meant to run once a day.</div>`));
       document.getElementById('healthBody').innerHTML=C.join('');
       document.getElementById('opsEmail').value = d.ops_alert_email || '';
       loadPhoneAudit();

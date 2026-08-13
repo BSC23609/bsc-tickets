@@ -290,9 +290,11 @@ async function recordCron(name) {
 
 // Watchdog: if a cron hasn't run within its expected window, email an ops address — but at most once
 // per cooldown window, so GitHub Actions' flaky/late scheduling doesn't cause an email storm.
-// Thresholds are generous on purpose: GitHub throttles scheduled workflows, so a */15 cron routinely
-// runs every 30-60 min. Set them well above the real-world worst case to avoid false positives.
-const CRON_MAX_STALE_MIN = { 'escalate': 90, 'outpass-overdue': 60, 'auto-close': 240, 'trip-nudge': 1560, 'daily-report': 1560 };
+// Thresholds match each job's REAL cadence, not a flat number:
+//   escalate */15 and outpass-overdue */5 (GitHub, often delayed) → 90 / 60 min
+//   auto-close & daily-report run once a day (Vercel cron) → ~26 h
+//   trip-nudge runs Mon-Sat → allow the ~48 h Sunday gap
+const CRON_MAX_STALE_MIN = { 'escalate': 90, 'outpass-overdue': 60, 'auto-close': 1560, 'daily-report': 1560, 'trip-nudge': 3000 };
 const CRON_ALERT_COOLDOWN_MIN = Number(process.env.CRON_ALERT_COOLDOWN_MIN || 720); // 12h
 async function checkStaleCrons() {
   try {
