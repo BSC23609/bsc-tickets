@@ -646,7 +646,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED133, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED134, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1172,10 +1172,12 @@
       const rows=await api('/admin/ticket-list?'+qs.toString());
       const canResolve = t => ['open','in_progress','reopened'].includes(t.status);
       document.getElementById('recentTable').innerHTML = table(
-        ['Ref','Subject','Category','Requester','Assigned To','Status','Priority','Raised','Downtime','Reminders',''],
+        ['Ref','Subject','Category','Requester','Assigned To','Status','Priority','Raised','Closed','Time to resolve','Downtime','Reminders',''],
         rows.map(t => [t.ref_no, t.subject, t.category_name, t.requester_name,
           (t.assigned_to ? t.assigned_to + (t.was_forwarded ? ' <span title="Forwarded/reassigned from another user" class="text-purple-600 font-bold">*</span>' : '') : '<span class="text-slate-400">—</span>'),
           STATUS_STYLE[tStatusKey(t)]?.[1]||t.status, t.priority, fmtDateTime(t.raised_at),
+          t.closed_at?fmtDateTime(t.closed_at):'<span class="text-slate-400">—</span>',
+          (['resolved','closed'].includes(t.status))?fmtDuration(t.resolve_mins):'<span class="text-slate-400">—</span>',
           t.status==='closed'?fmtDuration(t.downtime_mins):'—',
           (t.reminders_off
             ? `<button onclick="muteTicket(${t.id},false)" class="text-emerald-600 hover:underline text-xs font-semibold">🔕 Muted — turn on</button>`

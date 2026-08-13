@@ -361,7 +361,7 @@ router.get('/ticket-list', async (req, res) => {
     where += ` AND (lower(t.ref_no) LIKE $${params.length} OR lower(t.subject) LIKE $${params.length})`;
   }
   const rows = (await q(
-    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.closed_at,t.external_hold,
+    `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.resolved_at,t.closed_at,t.external_hold,
             COALESCE(t.reminders_off,false) AS reminders_off,
             c.name AS category_name, r.name AS requester_name,
             l1.name AS assigned_to,
@@ -370,7 +370,12 @@ router.get('/ticket-list', async (req, res) => {
      LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
      WHERE ${where}
      ORDER BY t.raised_at DESC LIMIT 300`, params)).rows;
-  res.json(rows.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })));
+  res.json(rows.map((t) => ({
+    ...t,
+    downtime_mins: downtimeMins(t),
+    // Time from raised to when it was marked resolved (handler's resolve time). Falls back to closed.
+    resolve_mins: t.resolved_at ? Math.round((new Date(t.resolved_at) - new Date(t.raised_at)) / 60000) : downtimeMins(t),
+  })));
 });
 
 router.get('/outpass-list', async (req, res) => {
@@ -933,7 +938,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED133', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED134', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
