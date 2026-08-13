@@ -484,7 +484,7 @@ router.post('/wati-test', async (req, res) => {
     params = { name: 'Mathan', ref: 'TKT/BSC/260813/001', requester: 'TEST Requester', subject: 'AC not cooling', category: 'Maintenance', token: 'testtoken123' };
   } else if (which === 'maint_rejected') {
     template = wati.TEMPLATES.maint_rejected;
-    params = { name: 'TEST Requester', ref: 'TKT/BSC/260813/001' };
+    params = { name: 'TEST Requester', ref: 'TKT/BSC/260813/001', subject: 'AC not cooling' };
   } else {
     template = wati.EXPENSE_TPL.cv_request;
     params = { name: 'Manager', requester: 'TEST Employee', date: '28 Jul 2026',
@@ -933,7 +933,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED132', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED133', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
