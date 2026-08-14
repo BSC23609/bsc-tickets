@@ -387,7 +387,7 @@ async function recordCron(name) {
 //   escalate */15 and outpass-overdue */5 (GitHub, often delayed) → 90 / 60 min
 //   auto-close & daily-report run once a day (Vercel cron) → ~26 h
 //   trip-nudge runs Mon-Sat → allow the ~48 h Sunday gap
-const CRON_MAX_STALE_MIN = { 'escalate': 90, 'outpass-overdue': 60, 'auto-close': 1560, 'daily-report': 1560, 'trip-nudge': 3000 };
+const CRON_MAX_STALE_MIN = { 'escalate': 180, 'outpass-overdue': 120, 'auto-close': 1560, 'daily-report': 1560, 'trip-nudge': 3000 };
 const CRON_ALERT_COOLDOWN_MIN = Number(process.env.CRON_ALERT_COOLDOWN_MIN || 720); // 12h
 async function checkStaleCrons() {
   try {
