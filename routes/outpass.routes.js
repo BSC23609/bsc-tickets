@@ -431,8 +431,23 @@ async function markApproverAlerted(id) {
 async function markHrAlerted(id) {
   await q(`UPDATE outpass_requests SET hr_alert_at=now() WHERE id=$1`, [id]);
 }
+// Legacy heal: older gatepasses were approved before expected_back_at was computed, so the watcher
+// couldn't see them. Recompute it from the stored in_time. Idempotent — only touches NULL rows.
+async function backfillExpectedBack() {
+  const { istClockToMs } = require('../lib/util');
+  const rows = (await q(
+    `SELECT id, req_date, in_time FROM outpass_requests
+     WHERE type='gatepass' AND status='approved' AND returned_at IS NULL
+       AND expected_back_at IS NULL AND in_time IS NOT NULL AND in_time <> ''`)).rows;
+  let fixed = 0;
+  for (const r of rows) {
+    const ms = istClockToMs(r.req_date, r.in_time);
+    if (ms) { await q(`UPDATE outpass_requests SET expected_back_at=$2 WHERE id=$1`, [r.id, new Date(ms)]); fixed++; }
+  }
+  return { scanned: rows.length, fixed };
+}
 // kept for back-compat (marks the approver stamp)
 async function markOverdueAlerted(id) { await markApproverAlerted(id); }
 
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markOverdueAlerted, decorateOpen };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markOverdueAlerted, backfillExpectedBack, decorateOpen };

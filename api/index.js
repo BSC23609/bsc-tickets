@@ -706,12 +706,14 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
 
   recordCron('outpass-overdue');
   require('../lib/bg').background(checkStaleCrons());
+  const op = require('../routes/outpass.routes')._internal;
+  // Heal legacy gatepasses that have no expected-return time, so the watcher can see them.
+  const backfill = await op.backfillExpectedBack();
   const { isOutpassWatchClock } = require('../lib/util');
   const startMin = Number(process.env.OUTPASS_WATCH_START_MIN || 8 * 60);
   const endMin = Number(process.env.OUTPASS_WATCH_END_MIN || 20 * 60);
-  if (!isOutpassWatchClock(startMin, endMin)) return res.json({ ok: true, skipped: 'outside watch window' });
+  if (!isOutpassWatchClock(startMin, endMin)) return res.json({ ok: true, skipped: 'outside watch window', backfill });
 
-  const op = require('../routes/outpass.routes')._internal;
   const cfg = await op.gateConfig();
   const overdue = await op.findOverdue(cfg.overdueMin);
   // Resolve HR up-front so we can report it (this is the usual reason HR doesn't get the alert).
@@ -732,6 +734,7 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
     hr_resolved: !!hr,                        // false = that person is missing/inactive
     hr_has_phone: !!(hr && hr.phone),         // false = HR has no phone on their record
     watch_window: '08:00-20:00 IST (Mon-Sat)',
+    backfill,                                 // legacy gatepasses healed this run
     diagnostics: diag,                        // where the open passes actually sit
   });
   if (!overdue.length) return;
