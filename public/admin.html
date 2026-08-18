@@ -23,17 +23,15 @@
     .inp{width:100%;border-radius:11px;border:1px solid var(--line);font-size:.85rem;padding:.5rem .7rem;color:var(--ink)}
     .inp:focus{outline:none;border-color:var(--steel);box-shadow:0 0 0 3px rgba(27,123,192,.16)}</style>
 </head>
-<body class="min-h-screen bg-white text-ink">
-  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
-    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
-      <div class="flex items-center gap-4 text-sm">
-        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
-        <a href="/app.html" class="text-brand-600 font-semibold hover:text-brand-700">Raise / my tickets</a>
-        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
-        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
-      </div>
-      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-6xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <a href="/app.html" class="deck-accent">Raise / my tickets</a>
+      <span id="who" class="hidden sm:inline deck-who"></span>
+      <button onclick="logout()" class="deck-out">Sign out</button>
     </div>
     <div class="seam"></div>
   </header>
@@ -646,7 +644,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED136, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED137, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

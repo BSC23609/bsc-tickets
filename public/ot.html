@@ -14,15 +14,13 @@
   .ot-tab{padding:.5rem .9rem;border-radius:.6rem;font-size:.85rem;font-weight:600;color:#64748b;cursor:pointer;white-space:nowrap}
   .ot-tab.on{background:#0A4566;color:#fff}</style>
 </head>
-<body class="min-h-screen bg-white text-ink">
-  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
-    <div class="max-w-3xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
-      <div class="flex items-center gap-4 text-sm">
-        <a href="/home.html" class="text-slate-500 hover:text-ink font-medium">Home</a>
-        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
-      </div>
-      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-3xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <button onclick="logout()" class="deck-out">Sign out</button>
     </div>
     <div class="seam"></div>
   </header>
