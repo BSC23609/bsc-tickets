@@ -644,7 +644,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED137, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED138, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1270,9 +1270,9 @@
         options:{ plugins:{legend:{position:'bottom'}} } });
     }
     function table(head, rows) {
-      if (!rows.length) return '<div class="text-sm text-slate-400 py-6 text-center">No data.</div>';
-      return `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">${head.map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead>
-        <tbody>${rows.map(r=>`<tr class="border-b border-slate-100">${r.map(c=>`<td class="py-2 pr-3">${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+      if (!rows.length) return '<div class="text-sm text-slate-400 py-8 text-center">No data.</div>';
+      return `<div class="tablewrap"><table class="dtable"><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead>`
+        + `<tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     }
 
     // ---------- EMPLOYEES ----------

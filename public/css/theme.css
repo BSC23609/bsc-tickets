@@ -119,3 +119,17 @@ input[type="date"].field{ min-width:8.75rem; padding-left:.55rem; padding-right:
 
 /* fieldlabel is display:block for form labels — but as a table header it must stay a cell */
 th.fieldlabel{ display:table-cell; margin:0; }
+
+/* ---- data tables (admin / dense lists) ---- */
+.dtable{ width:100%; border-collapse:separate; border-spacing:0; font-size:.85rem; }
+.dtable thead th{ text-align:left; font-family:'Space Mono',ui-monospace,monospace; font-size:.62rem; font-weight:700;
+  text-transform:uppercase; letter-spacing:.1em; color:var(--ink-mute); padding:.55rem .7rem;
+  border-bottom:1.5px solid var(--line); white-space:nowrap; background:#fbfdfe; }
+.dtable thead th:first-child{ border-top-left-radius:10px; }
+.dtable thead th:last-child{ border-top-right-radius:10px; }
+.dtable tbody td{ padding:.6rem .7rem; border-bottom:1px solid #EEF3F7; color:var(--ink); vertical-align:middle; }
+.dtable tbody tr{ transition:background .12s; }
+.dtable tbody tr:hover td{ background:#F4F9FC; }
+.dtable tbody tr:last-child td{ border-bottom:none; }
+.dtable .num{ font-family:'Space Mono',ui-monospace,monospace; text-align:right; white-space:nowrap; }
+.tablewrap{ overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:#fff; }
