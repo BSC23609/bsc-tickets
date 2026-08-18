@@ -338,7 +338,6 @@ app.use('/api/expense', require('../routes/expense.routes'));
 app.use('/api/ot', require('../routes/ot.routes'));
 app.use('/api/inbox', require('../routes/inbox.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
-app.use('/api/genset', require('../routes/genset.routes'));
 
 // Public, no-login download of an expense PDF (token from the portal / email).
 app.get('/rx/:token', async (req, res) => {

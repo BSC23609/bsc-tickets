@@ -1,0 +1,113 @@
+/* ============================================================================
+   BSG Console — shared design system (v2)
+   Engineering-grade / refined-industrial. Dark front-door bands, light work
+   surfaces on a steel-tinted canvas, steel-blue as the single live accent.
+   Fonts (loaded by the page): Space Grotesk (display), Inter (body), Space Mono.
+   ============================================================================ */
+:root{
+  --ink:#0E1620; --graphite:#2A3542; --steel:#5B6B7C; --steel-300:#93A0AE; --steel-200:#B7C1CB;
+  --line:#E1E7EC; --line-2:#EEF2F5; --canvas:#EAEFF3; --surface:#FFFFFF;
+  --brand:#1B7BC0; --brand-bright:#3AA0E6; --brand-deep:#0A4566; --brand-tint:#EAF3FA;
+  --ok:#33CC85; --warn:#E8833A; --danger:#D64545;
+  --r:15px; --r-sm:11px; --r-xs:8px;
+  --sh:0 1px 2px rgba(14,22,32,.04),0 10px 26px -14px rgba(14,22,32,.28);
+  --sh-hi:0 6px 14px -6px rgba(10,69,102,.5),0 26px 50px -18px rgba(10,69,102,.55);
+  --dark:#0A0F16;
+}
+*{box-sizing:border-box}
+html,body{margin:0;max-width:100%;overflow-x:hidden}
+body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif;background:var(--canvas);color:var(--ink);
+  -webkit-font-smoothing:antialiased;line-height:1.5}
+.mono{font-family:'Space Mono',ui-monospace,monospace}
+.display{font-family:'Space Grotesk',sans-serif}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1140px;margin:0 auto;padding:0 28px}
+.hidden{display:none !important}
+
+/* ---- dark front-door band ---- */
+.hero{position:relative;background:var(--dark);color:#EAEEF3;overflow:hidden;border-bottom:2px solid var(--brand-deep)}
+.hero .atmos{position:absolute;inset:0;pointer-events:none}
+.hero .glow{position:absolute;top:-160px;right:-100px;width:640px;height:640px;border-radius:50%;
+  background:radial-gradient(circle,rgba(27,123,192,.5),transparent 62%);filter:blur(24px);opacity:.6}
+.hero .glow2{position:absolute;bottom:-300px;left:-120px;width:520px;height:520px;border-radius:50%;
+  background:radial-gradient(circle,rgba(10,69,102,.6),transparent 65%);filter:blur(24px);opacity:.55}
+.hero .grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:30px 30px;
+  mask-image:radial-gradient(circle at 72% 20%,#000,transparent 78%)}
+.hero .sheen{position:absolute;inset:0;background:linear-gradient(115deg,transparent 42%,rgba(255,255,255,.02) 50%,transparent 58%)}
+.crop{position:absolute;width:14px;height:14px;border-color:rgba(255,255,255,.16);z-index:3;pointer-events:none}
+.crop.tl{top:14px;left:14px;border-left:1.5px solid;border-top:1.5px solid}
+.crop.tr{top:14px;right:14px;border-right:1.5px solid;border-top:1.5px solid}
+
+.rail{height:64px;display:flex;align-items:center;gap:16px;position:relative;z-index:2}
+.plate{background:#fff;border-radius:9px;padding:7px 12px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(0,0,0,.35)}
+.plate img{height:26px;display:block}
+.spacer{flex:1}
+.chip{font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.05em;color:#93A0AE;border:1px solid rgba(255,255,255,.1);
+  border-radius:100px;padding:6px 12px;display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,.03)}
+.chip.plain{border:none;background:transparent}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px rgba(51,204,133,.18)}
+.hbtn{font-size:12px;color:#0A2C40;font-weight:700;padding:7px 12px;border-radius:8px;background:#fff;transition:.15s}
+.hbtn:hover{background:#e6eef4}
+.ghost{font-size:13px;color:#93A0AE;font-weight:500;padding:7px 12px;border-radius:8px;transition:.15s;background:none;border:none;cursor:pointer;font-family:inherit}
+.ghost:hover{color:#fff;background:rgba(255,255,255,.06)}
+
+.hero-body{padding:38px 0 46px;position:relative;z-index:2;display:flex;justify-content:space-between;align-items:flex-end;gap:30px;flex-wrap:wrap}
+.hero h1{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:40px;line-height:1.04;letter-spacing:-.015em;margin:0 0 8px;
+  background:linear-gradient(180deg,#fff,#c7d2dd);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero .sub{color:#93A0AE;font-size:14px}
+.coords{font-family:'Space Mono',monospace;font-size:11px;color:#5C6A79;margin-top:16px;letter-spacing:.08em}
+
+/* live-action panel */
+.action{min-width:240px;border-radius:var(--r);padding:20px 22px;position:relative;overflow:hidden;
+  background:linear-gradient(155deg,#12455f,#0A2C40);border:1px solid rgba(58,160,230,.35);
+  box-shadow:0 20px 40px -14px rgba(27,123,192,.55),inset 0 1px 0 rgba(255,255,255,.08);transition:transform .18s ease}
+.action:hover{transform:translateY(-3px)}
+.action::after{content:"";position:absolute;right:-40px;top:-40px;width:150px;height:150px;border-radius:50%;
+  background:radial-gradient(circle,rgba(58,160,230,.55),transparent 68%);filter:blur(6px)}
+.action .lab{font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#8fc4e8;position:relative}
+.action .lab.dim{color:#7fb4d8}
+.action .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:52px;line-height:1;margin:5px 0 2px;color:#fff;
+  text-shadow:0 0 24px rgba(58,160,230,.5);position:relative}
+.action .go{font-size:12px;color:#bfe0f5;margin-top:12px;display:inline-flex;gap:6px;align-items:center;font-weight:600;position:relative}
+
+/* ---- light content ---- */
+main{position:relative;padding-bottom:76px}
+.section{margin-top:40px}
+.section:first-child{margin-top:34px}
+.section-h{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.section-h .no{font-family:'Space Mono',monospace;font-size:11px;color:var(--brand);font-weight:700}
+.section-h .nm{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--graphite)}
+.section-h .ln{flex:1;height:1px;background:var(--line)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:880px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.grid{grid-template-columns:1fr}}
+
+/* machined tile — fills full blue on hover */
+.tile{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:22px;
+  box-shadow:var(--sh);display:block;overflow:hidden;
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease,background .18s ease;
+  opacity:0;transform:translateY(10px);animation:rise .5s forwards}
+.tile:hover{transform:translateY(-4px);box-shadow:var(--sh-hi);border-color:transparent;
+  background:linear-gradient(155deg,var(--brand),var(--brand-deep))}
+.tile:hover h3{color:#fff}
+.tile:hover p{color:rgba(255,255,255,.82)}
+.tile:hover .ref{color:rgba(255,255,255,.5)}
+.tile:hover .arrow{color:#fff;transform:translateX(4px)}
+.tile:hover .icon{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.28)}
+.tile:hover .icon svg{stroke:#fff}
+@keyframes rise{to{opacity:1;transform:none}}
+.icon{width:44px;height:44px;border-radius:var(--r-sm);display:grid;place-items:center;background:var(--brand-tint);
+  border:1px solid #d7e7f3;margin-bottom:16px;transition:.18s}
+.icon svg{stroke:var(--brand-deep);transition:.18s}
+.ref{position:absolute;top:16px;right:16px;font-family:'Space Mono',monospace;font-size:10px;letter-spacing:.1em;color:var(--steel-200);transition:.18s}
+.tile h3{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:16.5px;margin:0 0 5px;letter-spacing:-.01em;color:var(--ink);transition:.18s}
+.tile p{font-size:13px;color:var(--steel);margin:0;line-height:1.5;transition:.18s}
+.arrow{margin-top:15px;font-family:'Space Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--steel-300);font-weight:700;display:inline-flex;align-items:center;gap:7px;transition:.18s}
+
+footer{color:var(--steel-200);font-size:11px;font-family:'Space Mono',monospace;letter-spacing:.06em;
+  border-top:1px solid var(--line);padding:26px 0;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+
+@media(prefers-reduced-motion:reduce){.tile{animation:none;opacity:1;transform:none}}
+.d1{animation-delay:.03s}.d2{animation-delay:.08s}.d3{animation-delay:.13s}

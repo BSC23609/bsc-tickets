@@ -3,180 +3,133 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BSC Portal</title>
-  <link rel="stylesheet" href="/css/bsc.css">
+  <title>The Bharat Steel Group — Console</title>
   <link rel="icon" href="/favicon.ico" sizes="any">
   <link rel="icon" type="image/png" href="/favicon-32.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#0A4566">
+  <meta name="theme-color" content="#0A0F16">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="BSC Portal">
+  <meta name="apple-mobile-web-app-title" content="BSG Console">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" media="print" onload="this.media='all'">
-  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap"></noscript>
-  <link rel="stylesheet" href="/css/theme.css">
-
-  <style>*{box-sizing:border-box}html,body{margin:0;max-width:100%;overflow-x:hidden}body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}[x-cloak]{display:none}</style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/console.css?v=2">
 </head>
-<body class="min-h-screen bg-white text-ink">
-      <div id="bscSplash" data-splash="home" style="position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;z-index:2147483000;background:#ffffff;transition:opacity .4s ease"><img src="data:image/png;base64,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" alt="Bharat Steel (Chennai)" width="320" height="89" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:260px;max-width:78%;height:auto;display:block"></div>
-
-  <!-- Header -->
-  <header class="bg-white/90 backdrop-blur border-b border-line sticky top-0 z-30">
-    <div class="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
-      <img src="/img/group-logo.png" alt="The Bharat Steel Group" class="h-7 shrink-0" />
-      <div class="flex items-center gap-4 text-sm">
-        <span id="who" class="hidden sm:inline text-slate-400 mono text-xs"></span>
-        <button id="installBtn" onclick="installApp()" class="hidden text-white font-semibold px-3 py-1.5 rounded-lg bg-[#0A4566] hover:opacity-90 transition text-xs">⤓ Install app</button>
-        <button onclick="logout()" class="text-slate-500 hover:text-ink font-medium">Sign out</button>
+<body>
+  <div class="hero">
+    <div class="atmos"><div class="glow"></div><div class="glow2"></div><div class="grid"></div><div class="sheen"></div></div>
+    <span class="crop tl"></span><span class="crop tr"></span>
+    <div class="wrap rail">
+      <span class="plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group"/></span>
+      <span class="spacer"></span>
+      <span class="chip"><span class="dot"></span>ALL SYSTEMS OK</span>
+      <span id="who" class="chip plain"></span>
+      <button id="installBtn" onclick="installApp()" class="hbtn hidden">Install app</button>
+      <button onclick="logout()" class="ghost">Sign out</button>
+    </div>
+    <div class="wrap hero-body">
+      <div>
+        <h1 id="greeting">Welcome.</h1>
+        <div class="sub">Everything you run, in one console.</div>
+        <div id="coords" class="coords"></div>
       </div>
-      <img src="/img/bsc-logo.png" alt="Bharat Steel (Chennai)" class="h-7 shrink-0" />
-    </div>
-    <div class="seam"></div>
-  </header>
-
-  <main class="max-w-5xl mx-auto px-4 py-10">
-    <div class="in mb-8">
-      <div class="eyebrow">BSC Internal Portal</div>
-      <h1 class="font-display text-3xl font-bold text-ink mt-1">Hi<span id="firstName"></span> — what do you need?</h1>
-      <p class="text-slate-500 text-sm mt-1">Choose a service to get started.</p>
-    </div>
-
-    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-      <!-- Waiting for me (aggregated) -->
-      <a href="/inbox.html" class="card lift in p-6 block group relative">
-        <span id="inboxBadge" class="hidden absolute top-4 right-4 text-xs font-bold px-2 py-0.5 rounded-full bg-red-600 text-white"></span>
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#0A4566,#062b40)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Waiting for me</h2>
-        <p class="text-sm text-slate-500 mt-1">Everything across the apps that needs your action, in one place.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Ticket Management (live) -->
-      <a href="/app.html" class="card lift in p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Ticket Management</h2>
-        <p class="text-sm text-slate-500 mt-1">Raise and track IT, maintenance, SAP and HR support requests.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Record gate return (in-app; same GPS geofence as the QR) -->
-      <a href="/gate.html" class="card lift in in-2 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#0F9D58,#0A6B3C)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">I'm back — record return</h2>
-        <p class="text-sm text-slate-500 mt-1">Returning from an outpass? Tap here at the gate to log your return by GPS.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Record return →</div>
-      </a>
-
-      <!-- Outpass / Gate Pass (live) -->
-      <a href="/outpass.html" class="card lift in in-2 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Outpass / Gate Pass</h2>
-        <p class="text-sm text-slate-500 mt-1">Request, approve and log gate passes for leaving the premises.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Expense Reimbursement (live) -->
-      <a href="/expense.html" class="card lift in in-3 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Expense Reimbursement</h2>
-        <p class="text-sm text-slate-500 mt-1">Submit conveyance and expense claims with bills for approval.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Overtime (Production & Dispatch only) -->
-      <a id="otTile" href="/ot.html" class="hidden card lift in in-3 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#0A4566,#1B7BC0)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Overtime</h2>
-        <p class="text-sm text-slate-500 mt-1">Log OT, approve, verify and final-approve — all in one place.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      
-
-      
-
-      
-
-      <!-- Quality / QMS (separate app, one-click SSO) -->
-      <a href="/sso/go?to=qms" data-app="qms" class="hidden card lift in in-4 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Quality (QMS)</h2>
-        <p class="text-sm text-slate-500 mt-1">Coil inward, CTL &amp; shearing checks, and sales/purchase quality complaints.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Dispatch / Weighbridge (separate app, own login) -->
-      <a href="https://dispatch.bharatsteels.in" target="_blank" rel="noopener" data-app="dispatch" class="hidden card lift in in-4 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Dispatch / Weighbridge</h2>
-        <p class="text-sm text-slate-500 mt-1">Live vehicle movement and weighbridge tracking from SAP.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open ↗</div>
-      </a>
-
-      <!-- Genset Log (BSC Chennai) -->
-      <a href="/genset.html" data-app="genset" class="hidden card lift in in-4 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4" style="background:linear-gradient(135deg,#1B7BC0,#0A4566)">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Genset Log</h2>
-        <p class="text-sm text-slate-500 mt-1">Daily DG running logs — hours, fuel, load and oil checks.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
-      </a>
-
-      <!-- Admin (admins only) -->
-      <a id="adminTile" href="/admin.html" class="hidden card lift in in-4 p-6 block group">
-        <div class="w-12 h-12 rounded-xl grid place-items-center mb-4 bg-ink">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>
-        </div>
-        <h2 class="font-display font-bold text-lg text-ink">Admin</h2>
-        <p class="text-sm text-slate-500 mt-1">Dashboard, employees, routing, locations and the full Excel log.</p>
-        <div class="mt-4 text-sm font-semibold text-brand-600 group-hover:text-brand-700">Open →</div>
+      <a class="action" href="/inbox.html">
+        <div class="lab">Waiting for me</div>
+        <div class="num" id="inboxCount">&mdash;</div>
+        <div class="lab dim" id="inboxSub">approvals &amp; tasks</div>
+        <div class="go">Open queue &rarr;</div>
       </a>
     </div>
+  </div>
+
+  <main class="wrap">
+    <section class="section" id="sec-work">
+      <div class="section-h"><span class="no mono">01</span><span class="nm">Your work</span><span class="ln"></span></div>
+      <div class="grid">
+        <a href="/app.html" class="tile d1"><span class="ref">TKT</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2M13 11v2M13 17v2"/></svg></div>
+          <h3>Ticket Management</h3><p>Raise and track IT, maintenance, SAP and HR requests.</p><span class="arrow">Open &rarr;</span></a>
+        <a id="otTile" href="/ot.html" class="tile d2 hidden"><span class="ref">OT</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
+          <h3>Overtime</h3><p>Log OT, approve, verify and final-approve &mdash; end to end.</p><span class="arrow">Open &rarr;</span></a>
+      </div>
+    </section>
+
+    <section class="section" id="sec-req">
+      <div class="section-h"><span class="no mono">02</span><span class="nm">Requests &amp; passes</span><span class="ln"></span></div>
+      <div class="grid">
+        <a href="/outpass.html" class="tile d1"><span class="ref">GP</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg></div>
+          <h3>Outpass / Gate Pass</h3><p>Request, approve and log passes for leaving the premises.</p><span class="arrow">Open &rarr;</span></a>
+        <a href="/gate.html" class="tile d2"><span class="ref">RET</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg></div>
+          <h3>I'm back &mdash; record return</h3><p>Returning from an outpass? Log your return by GPS at the gate.</p><span class="arrow">Record &rarr;</span></a>
+        <a href="/expense.html" class="tile d3"><span class="ref">EXP</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg></div>
+          <h3>Expense Reimbursement</h3><p>Submit conveyance and expense claims with bills for approval.</p><span class="arrow">Open &rarr;</span></a>
+      </div>
+    </section>
+
+    <section class="section hidden" id="sec-ops">
+      <div class="section-h"><span class="no mono">03</span><span class="nm">Operations</span><span class="ln"></span></div>
+      <div class="grid">
+        <a href="/sso/go?to=qms" data-app="qms" class="tile d1 hidden"><span class="ref">QMS</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
+          <h3>Quality (QMS)</h3><p>Inward, CTL &amp; shearing checks, and quality complaints.</p><span class="arrow">Open &rarr;</span></a>
+        <a href="https://dispatch.bharatsteels.in" target="_blank" rel="noopener" data-app="dispatch" class="tile d2 hidden"><span class="ref">WB</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>
+          <h3>Dispatch / Weighbridge</h3><p>Live vehicle movement and weighbridge tracking from SAP.</p><span class="arrow">Open &#8599;</span></a>
+      </div>
+    </section>
+
+    <section class="section hidden" id="sec-admin">
+      <div class="section-h"><span class="no mono">04</span><span class="nm">Administration</span><span class="ln"></span></div>
+      <div class="grid">
+        <a id="adminTile" href="/admin.html" class="tile d1"><span class="ref">ADM</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+          <h3>Admin console</h3><p>Dashboards, employees, routing, health and the full log.</p><span class="arrow">Open &rarr;</span></a>
+      </div>
+    </section>
   </main>
 
-  <script src="/js/common.js?v=88"></script>
+  <footer class="wrap"><span>THE BHARAT STEEL GROUP &middot; INTERNAL OPERATIONS CONSOLE</span><span>BSC &middot; METFRAA &middot; CRAYON &middot; G2</span></footer>
+
+  <script src="/js/common.js?v=89"></script>
   <script>
-    async function init() {
-      const me = await api('/me');
-      document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
-      const first = (me.name || '').split(' ')[0];
-      document.getElementById('firstName').textContent = first ? (', ' + first) : '';
-      if (me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
-      // Overtime is for Production & Dispatch staff.
-      // One Overtime tile — opens a hub with sub-tabs for whatever OT roles this person has.
-      const otDept = ['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
-      if (otDept || me.ot_approver || me.ot_hr || me.ot_mgmt || me.is_admin)
-        document.getElementById('otTile').classList.remove('hidden');
-      // Reveal restricted app tiles only where this person has access.
-      document.querySelectorAll('[data-app]').forEach(el => {
-        if (me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden');
+    function stamp(){
+      const now=new Date();
+      const D=['SUN','MON','TUE','WED','THU','FRI','SAT'], M=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+      const hh=String(now.getHours()).padStart(2,'0'), mm=String(now.getMinutes()).padStart(2,'0');
+      document.getElementById('coords').textContent=`${D[now.getDay()]} \u00b7 ${now.getDate()} ${M[now.getMonth()]} ${now.getFullYear()} \u00b7 ${hh}:${mm}`;
+      const h=now.getHours(); return h<12?'Good morning':h<17?'Good afternoon':'Good evening';
+    }
+    function hideEmptySections(){
+      ['sec-work','sec-req','sec-ops','sec-admin'].forEach(id=>{
+        const s=document.getElementById(id); if(!s) return;
+        const anyVisible=[...s.querySelectorAll('.tile')].some(t=>!t.classList.contains('hidden'));
+        s.classList.toggle('hidden', !anyVisible);
       });
     }
+    async function init(){
+      const greet=stamp();
+      const me=await api('/me');
+      const first=(me.name||'').split(' ')[0];
+      document.getElementById('greeting').textContent=`${greet}${first?', '+first:''}.`;
+      document.getElementById('who').textContent=`${me.name} \u00b7 ${me.emp_no}`;
+      if(me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
+      const otDept=['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
+      if(otDept||me.ot_approver||me.ot_hr||me.ot_mgmt||me.is_admin) document.getElementById('otTile').classList.remove('hidden');
+      document.querySelectorAll('[data-app]').forEach(el=>{ if(me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden'); });
+      hideEmptySections();
+    }
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
-    // Live count for the "Waiting for me" tile.
-    api('/inbox').then(d=>{ if(d && d.total>0){ const b=document.getElementById('inboxBadge'); b.textContent=d.total; b.classList.remove('hidden'); } }).catch(()=>{});
-    init().catch(e => { console.error(e); location.href='/'; });
+    api('/inbox').then(d=>{
+      const n=(d&&d.total)||0;
+      document.getElementById('inboxCount').textContent=n;
+      document.getElementById('inboxSub').textContent = n===0 ? "you're all caught up" : 'approvals & tasks';
+    }).catch(()=>{ document.getElementById('inboxCount').textContent='0'; });
+    init().catch(e=>{ console.error(e); location.href='/'; });
   </script>
 </body>
 </html>
