@@ -387,6 +387,7 @@ router.get('/outpass-list', async (req, res) => {
   if (req.query.status) { params.push(req.query.status); where += ` AND o.status=$${params.length}`; }
   const rows = (await q(
     `SELECT o.id, o.ref_no, o.type, o.req_date, o.status, o.purpose,
+            o.out_time, o.in_time, o.returned_at,
             r.name AS requester_name
      FROM outpass_requests o LEFT JOIN employees r ON r.id=o.requester_id
      WHERE ${where}
@@ -399,6 +400,27 @@ router.delete('/outpass/:id', async (req, res) => {
   const r = await q('DELETE FROM outpass_requests WHERE id=$1 RETURNING ref_no', [req.params.id]);
   if (!r.rows.length) return res.status(404).json({ error: 'Entry not found' });
   res.json({ ok: true, ref_no: r.rows[0].ref_no });
+});
+
+// Recent OT entries (for review + cleanup of test entries).
+router.get('/ot-list', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-12-31';
+  const params = [from, to];
+  let where = 'e.ot_date BETWEEN $1 AND $2';
+  if (req.query.status) { params.push(req.query.status); where += ` AND e.status=$${params.length}`; }
+  const rows = (await q(
+    `SELECT e.id, e.ot_date, e.end_time, e.hours, e.amount, e.status, e.department,
+            emp.name AS employee_name, emp.emp_no
+     FROM ot_entries e LEFT JOIN employees emp ON emp.id=e.employee_id
+     WHERE ${where}
+     ORDER BY e.id DESC LIMIT 300`, params)).rows;
+  res.json(rows);
+});
+router.delete('/ot/:id', async (req, res) => {
+  const r = await q('DELETE FROM ot_entries WHERE id=$1 RETURNING id', [req.params.id]);
+  if (!r.rows.length) return res.status(404).json({ error: 'Entry not found' });
+  res.json({ ok: true });
 });
 
 // Recent expense submissions (for review + cleanup of test entries).
@@ -938,7 +960,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED139', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED140', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

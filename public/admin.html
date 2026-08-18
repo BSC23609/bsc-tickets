@@ -159,65 +159,61 @@
           <div id="recentTable" class="overflow-x-auto"></div>
         </div>
 
-        <!-- Outpass / Gatepass -->
-        <div class="mt-5 pt-4 border-t border-slate-100">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Outpass / Gatepass</h4>
-            <div class="flex items-center gap-2">
-              <select id="cl_o_type" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
-                <option value="">All types</option>
-                <option value="outpass">Outpass</option>
-                <option value="gatepass">Gatepass</option>
-              </select>
-              <select id="cl_o_status" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
-                <option value="">All statuses</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-          </div>
-          <div id="outpassTable" class="overflow-x-auto"></div>
-        </div>
-
-        <!-- Expense -->
-        <div class="mt-5 pt-4 border-t border-slate-100">
-          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
-            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Expense</h4>
-            <div class="flex items-center gap-2">
-              <select id="cl_e_type" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
-                <option value="">All types</option>
-                <option value="conveyance">Local Conveyance</option>
-                <option value="outstation">Outstation</option>
-                <option value="misc">Miscellaneous</option>
-              </select>
-              <select id="cl_e_status" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
-                <option value="">All statuses</option>
-                <option value="pending_hr">Pending HR</option>
-                <option value="pending_final">Pending final</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-              </select>
-            </div>
-          </div>
-          <div id="expenseTable" class="overflow-x-auto"></div>
-        </div>
       </div>
     </div>  <!-- /#sub-tickets -->
 
       <div id="sub-gatepass" class="hidden">
         <div class="card p-4"><div class="font-semibold text-sm mb-2">Gatepasses &amp; overstays by month</div><canvas id="chGate" height="140"></canvas></div>
+        <div class="card p-4 mt-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Outpass / Gatepass entries</h4>
+            <div class="flex items-center gap-2">
+              <select id="cl_o_type" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
+                <option value="">All types</option><option value="outpass">Outpass</option><option value="gatepass">Gatepass</option>
+              </select>
+              <select id="cl_o_status" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
+                <option value="">All statuses</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div id="outpassTable" class="overflow-x-auto"></div>
+        </div>
       </div>
       <div id="sub-expense" class="hidden">
         <div class="grid md:grid-cols-2 gap-3">
           <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense (approved) by month</div><canvas id="chExpMonth" height="160"></canvas></div>
           <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense by type</div><canvas id="chExpType" height="160"></canvas></div>
         </div>
+        <div class="card p-4 mt-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Expense entries</h4>
+            <div class="flex items-center gap-2">
+              <select id="cl_e_type" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
+                <option value="">All types</option><option value="conveyance">Local Conveyance</option><option value="outstation">Outstation</option><option value="misc">Miscellaneous</option>
+              </select>
+              <select id="cl_e_status" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
+                <option value="">All statuses</option><option value="pending_hr">Pending HR</option><option value="pending_final">Pending final</option><option value="approved">Approved</option><option value="rejected">Rejected</option>
+              </select>
+            </div>
+          </div>
+          <div id="expenseTable" class="overflow-x-auto"></div>
+        </div>
       </div>
       <div id="sub-ot" class="hidden">
         <div class="grid md:grid-cols-2 gap-3">
           <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by month</div><canvas id="chOtMonth" height="160"></canvas></div>
           <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by department</div><canvas id="chOtDept" height="160"></canvas></div>
+        </div>
+        <div class="card p-4 mt-3">
+          <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">OT entries</h4>
+            <select id="cl_ot_status" class="inp !py-1 !text-xs" onchange="loadCleanupOT()">
+              <option value="">All statuses</option>
+              <option value="draft">Draft</option><option value="pending">Pending</option><option value="approved">Approved</option>
+              <option value="rejected">Rejected</option><option value="hr_verified">HR verified</option><option value="mgmt_approved">Mgmt approved</option><option value="paid">Paid</option>
+            </select>
+          </div>
+          <div id="otTable" class="overflow-x-auto"></div>
         </div>
       </div>
     </section>
@@ -653,7 +649,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED139, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED140, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -810,6 +806,9 @@
       document.querySelectorAll('.subBtn').forEach(b => b.setAttribute('data-active', b.dataset.sub === sub));
       ['tickets','gatepass','expense','ot'].forEach(s => document.getElementById('sub-'+s).classList.toggle('hidden', s !== sub));
       if (sub !== 'tickets') loadDashboards();
+      if (sub === 'gatepass') loadCleanupOutpass();
+      else if (sub === 'expense') loadCleanupExpense();
+      else if (sub === 'ot') loadCleanupOT();
     }
 
     let dashCharts = {};
@@ -1220,8 +1219,9 @@
       const st=document.getElementById('cl_o_status').value; if(st) qs.set('status',st);
       const ops=await api('/admin/outpass-list?'+qs.toString());
       document.getElementById('outpassTable').innerHTML = table(
-        ['Ref','Type','Requester','Date','Purpose','Status',''],
+        ['Ref','Type','Requester','Date','Out time','In time','Recorded in','Purpose','Status',''],
         ops.map(o => [o.ref_no, (o.type||'outpass'), o.requester_name||'—', (o.req_date||'').slice(0,10),
+          o.out_time||'—', o.in_time||'—', (o.returned_at?fmtDateTime(o.returned_at):'—'),
           o.purpose||'—', STATUS_STYLE[o.status]?.[1]||o.status,
           `<button onclick="delOutpass(${o.id}, ${jsArg(o.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
     }
@@ -1270,7 +1270,28 @@
       try{ const r=await api('/expense/'+id+'/send-cmd',{method:'POST'}); toast('Sent to '+(r.to||'CMD')+' on WhatsApp','success'); }
       catch(e){ toast(e.message,'error'); }
     }
-    function loadCleanup(){ loadCleanupTickets(); loadCleanupOutpass(); loadCleanupExpense(); }
+    async function loadCleanupOT(){
+      const {from,to}=cleanupRange();
+      const qs=new URLSearchParams({from,to});
+      const st=document.getElementById('cl_ot_status')?.value; if(st) qs.set('status',st);
+      const rows=await api('/admin/ot-list?'+qs.toString());
+      document.getElementById('otTable').innerHTML = table(
+        ['Employee','Dept','Date','End','Hours','Amount','Status',''],
+        rows.map(o => [
+          (o.employee_name||'—') + (o.emp_no?` <span class="text-slate-400 mono text-[11px]">${o.emp_no}</span>`:''),
+          o.department||'—', (o.ot_date||'').slice(0,10), o.end_time||'—',
+          Number(o.hours||0).toFixed(1),
+          '₹'+Number(o.amount||0).toLocaleString('en-IN'),
+          STATUS_STYLE[o.status]?.[1]||o.status,
+          `<button onclick="delOT(${o.id})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
+    }
+    async function delOT(id){
+      if(!confirm('Delete this OT entry?\n\nThis permanently removes the entry. Use only for test entries.')) return;
+      try{ await api(`/admin/ot/${id}`,{method:'DELETE'}); toast('OT entry deleted','info'); loadCleanupOT(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    function loadCleanup(){ loadCleanupTickets(); loadCleanupOutpass(); loadCleanupExpense(); loadCleanupOT(); }
     let _tkDeb; function debouncedTickets(){ clearTimeout(_tkDeb); _tkDeb=setTimeout(loadCleanupTickets, 350); }
 
     function drawBar(id, labels, data) {
