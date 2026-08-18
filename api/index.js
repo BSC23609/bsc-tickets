@@ -715,7 +715,7 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   if (!isOutpassWatchClock(startMin, endMin)) return res.json({ ok: true, skipped: 'outside watch window', backfill });
 
   const cfg = await op.gateConfig();
-  const overdue = await op.findOverdue(cfg.overdueMin);
+  const overdue = await op.findOverdue(cfg.overdueMin, cfg.multidayHours);
   // Resolve HR up-front so we can report it (this is the usual reason HR doesn't get the alert).
   let hr = null;
   if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
@@ -725,9 +725,10 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
        COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL) AS open_gatepasses,
        COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at IS NULL) AS gp_no_expected_time,
        COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at > now()) AS gp_not_due_yet,
+       COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at < (now() - ($1||' hours')::interval)) AS gp_likely_multiday,
        COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at < now() AND hr_alert_at IS NOT NULL) AS gp_hr_already_alerted,
        COUNT(*) FILTER (WHERE type='outpass'  AND status='approved' AND returned_at IS NULL) AS open_outpasses_not_watched
-     FROM outpass_requests`)).rows[0];
+     FROM outpass_requests`, [String(cfg.multidayHours)])).rows[0];
   res.json({
     ok: true, overdue: overdue.length,
     hr_emp_id: cfg.hrEmpId || null,          // null = "HR (also receives overdue alerts)" not set in Gate settings

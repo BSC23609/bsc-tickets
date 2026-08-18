@@ -936,13 +936,13 @@ router.get('/gate-settings', async (req, res) => {
 });
 router.put('/gate-settings', async (req, res) => {
   const b = req.body || {};
-  const keys = ['lat', 'lng', 'radius_m', 'overdue_min', 'hr_emp_id'];
+  const keys = ['lat', 'lng', 'radius_m', 'overdue_min', 'hr_emp_id', 'multiday_hours'];
   const present = keys.filter((k) => k in b);
   if (!present.length) return res.status(400).json({ error: 'No settings received — the form sent an empty request. Hard-refresh (Ctrl+Shift+R) and try again.' });
   const set = async (k, v) => q(
     `INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`,
     [k, v == null || v === '' ? null : String(v)]);
-  const map = { lat: 'gate_lat', lng: 'gate_lng', radius_m: 'gate_radius_m', overdue_min: 'outpass_overdue_min', hr_emp_id: 'outpass_hr_emp_id' };
+  const map = { lat: 'gate_lat', lng: 'gate_lng', radius_m: 'gate_radius_m', overdue_min: 'outpass_overdue_min', hr_emp_id: 'outpass_hr_emp_id', multiday_hours: 'outpass_multiday_hours' };
   try {
     for (const k of present) await set(map[k], b[k]);
   } catch (e) {
@@ -964,7 +964,7 @@ router.put('/gate-settings', async (req, res) => {
 // Shared reader. withEmployees=true also returns the HR dropdown list.
 async function readGateSettings(withEmployees) {
   const rows = (await q(`SELECT key, value FROM app_settings WHERE key IN
-    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id')`)).rows;
+    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id','outpass_multiday_hours')`)).rows;
   const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   const out = {
     lat: m.gate_lat != null ? Number(m.gate_lat) : null,
@@ -972,6 +972,7 @@ async function readGateSettings(withEmployees) {
     radius_m: m.gate_radius_m != null ? Number(m.gate_radius_m) : 150,
     overdue_min: m.outpass_overdue_min != null ? Number(m.outpass_overdue_min) : 5,
     hr_emp_id: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : null,
+    multiday_hours: m.outpass_multiday_hours != null ? Number(m.outpass_multiday_hours) : 16,
   };
   if (withEmployees) out.employees = (await q(`SELECT id, name, emp_no FROM employees WHERE active=TRUE ORDER BY name`)).rows;
   return out;
@@ -984,7 +985,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED146', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED148', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

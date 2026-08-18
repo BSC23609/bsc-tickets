@@ -385,7 +385,9 @@
           <div><label class="lbl">Gate longitude</label><input id="gsLng" class="inp" placeholder="e.g. 80.1548"></div>
           <div><label class="lbl">Radius (metres)</label><input id="gsRadius" type="number" class="inp" placeholder="150"></div>
           <div><label class="lbl">Overdue after (minutes)</label><input id="gsOverdue" type="number" class="inp" placeholder="5"></div>
+          <div><label class="lbl">Treat as multi-day after (hours)</label><input id="gsMultiday" type="number" class="inp" placeholder="16"></div>
           <div class="sm:col-span-2"><label class="lbl">HR (also receives overdue alerts)</label><select id="gsHr" class="inp"></select></div>
+          <p class="sm:col-span-2 text-[11px] text-slate-500 -mt-1">Passes overdue beyond this many hours are treated as multi-day / vehicle trips — flagged separately and <b>not</b> sent to HR as overdue.</p>
         </div>
         <div class="flex gap-2 mt-4">
           <button onclick="captureGate()" class="btn-ghost text-sm">📍 Capture my location</button>
@@ -610,18 +612,25 @@
       gateTimer = setInterval(() => { if (!document.getElementById('tab-gate').classList.contains('hidden')) loadCurrentlyOut(); }, 60000);
     }
     const mins = (n) => { n = Math.max(0, n|0); const h = Math.floor(n/60), m = n%60; return h ? h+'h '+m+'m' : m+'m'; };
+    // "18 Aug" from a YYYY-MM-DD date or an ISO timestamp (IST). Empty for null.
+    function shortDate(d){
+      if(!d) return '';
+      const dt = new Date(String(d).length<=10 ? d+'T00:00:00' : d);
+      if(isNaN(dt)) return '';
+      return dt.toLocaleDateString('en-GB',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short'});
+    }
     async function loadCurrentlyOut() {
       const el = document.getElementById('outBoard');
       let d; try { d = await api('/outpass/currently-out'); } catch (e) { el.innerHTML = '<div class="text-sm text-red-600">'+e.message+'</div>'; return; }
-      document.getElementById('gateAuto').textContent = `${d.total} out · ${d.overdue} overdue · auto-refresh 60s`;
+      document.getElementById('gateAuto').textContent = `${d.total} out · ${d.overdue} overdue · ${d.multiday||0} multi-day · auto-refresh 60s`;
       if (!d.out.length) { el.innerHTML = '<div class="text-sm text-slate-400 py-8 text-center">Nobody is currently out on a gatepass. ✅</div>'; return; }
       el.innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-line">
         <th class="py-2">Employee</th><th>Out</th><th>Expected back</th><th>Status</th><th>Approver</th><th></th></tr></thead><tbody>` +
-        d.out.map(o => `<tr class="border-b border-line/50 ${o.overdue?'bg-red-50':''}">
+        d.out.map(o => `<tr class="border-b border-line/50 ${o.likely_multiday?'bg-slate-50':(o.overdue?'bg-red-50':'')}">
           <td class="py-2"><div class="font-semibold text-ink">${o.requester} ${o.on_duty?'<span class="pill bg-emerald-100 text-emerald-700 text-[10px]">On duty</span>':''}</div><div class="text-[11px] text-slate-400">${o.emp_no||''} · ${o.purpose||''}</div></td>
-          <td>${o.out_time||'—'}</td>
-          <td>${o.expected_in||'—'}</td>
-          <td>${o.overdue ? '<span class="text-red-600 font-semibold">Overdue '+mins(o.overdue_min)+'</span>' : '<span class="text-emerald-600">On time</span>'}</td>
+          <td><div class="text-[11px] text-slate-400">${shortDate(o.req_date)}</div>${o.out_time||'—'}</td>
+          <td><div class="text-[11px] text-slate-400">${shortDate(o.expected_back_at)}</div>${o.expected_in||'—'}</td>
+          <td>${o.likely_multiday ? '<span class="pill bg-slate-200 text-slate-600 text-[10px]">Multi-day · '+mins(o.overdue_min)+'</span>' : (o.overdue ? '<span class="text-red-600 font-semibold">Overdue '+mins(o.overdue_min)+'</span>' : '<span class="text-emerald-600">On time</span>')}</td>
           <td class="text-slate-500">${o.approver||'—'}</td>
           <td class="text-right whitespace-nowrap"><button onclick="sendOverdue(${o.id})" class="pill bg-amber-100 text-amber-700 hover:bg-amber-200 mr-1">Send alert</button><button onclick="markReturned(${o.id},'${(o.requester||'').replace(/'/g,"\\'")}')" class="pill bg-blue-100 text-blue-700 hover:bg-blue-200">Mark returned</button></td>
         </tr>`).join('') + '</tbody></table>';
@@ -671,6 +680,7 @@
       document.getElementById('gsLng').value = d.lng ?? '';
       document.getElementById('gsRadius').value = d.radius_m ?? 150;
       document.getElementById('gsOverdue').value = d.overdue_min ?? 5;
+      document.getElementById('gsMultiday').value = d.multiday_hours ?? 16;
       const sel = document.getElementById('gsHr');
       sel.innerHTML = '<option value="">— none —</option>' + d.employees.map(e => `<option value="${e.id}" ${e.id===d.hr_emp_id?'selected':''}>${e.name} (${e.emp_no||''})</option>`).join('');
       const st2 = document.getElementById('gsStatus');
@@ -695,7 +705,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED146, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED148, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -721,6 +731,7 @@
         lng: parseFloat(document.getElementById('gsLng').value) || null,
         radius_m: parseInt(document.getElementById('gsRadius').value) || 150,
         overdue_min: parseInt(document.getElementById('gsOverdue').value) || 5,
+        multiday_hours: parseInt(document.getElementById('gsMultiday').value) || 16,
         hr_emp_id: document.getElementById('gsHr').value || null,
       };
       const st = document.getElementById('gsStatus');

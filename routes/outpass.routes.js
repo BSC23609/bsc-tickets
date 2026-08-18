@@ -273,7 +273,7 @@ router.post('/:id/reject', async (req, res) => {
 // Geofence config lives in app_settings so admin can move/resize it without a deploy.
 async function gateConfig() {
   const rows = (await q(`SELECT key, value FROM app_settings WHERE key IN
-    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id')`)).rows;
+    ('gate_lat','gate_lng','gate_radius_m','outpass_overdue_min','outpass_hr_emp_id','outpass_multiday_hours')`)).rows;
   const m = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   return {
     lat: m.gate_lat != null ? Number(m.gate_lat) : (process.env.GATE_LAT ? Number(process.env.GATE_LAT) : null),
@@ -281,6 +281,7 @@ async function gateConfig() {
     radius: Number(m.gate_radius_m || process.env.GATE_RADIUS_M || 150),
     overdueMin: Number(m.outpass_overdue_min || process.env.OUTPASS_OVERDUE_MIN || 5),
     hrEmpId: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : (process.env.OUTPASS_HR_EMP_ID ? Number(process.env.OUTPASS_HR_EMP_ID) : null),
+    multidayHours: Number(m.outpass_multiday_hours || process.env.OUTPASS_MULTIDAY_HOURS || 16),
   };
 }
 
@@ -295,6 +296,7 @@ function decorateOpen(o) {
   return {
     id: o.id, ref_no: o.ref_no, requester: o.req_name, emp_no: o.req_code,
     department: o.department || '', purpose: o.purpose || '', out_time: o.out_time,
+    req_date: o.req_date,
     expected_in: o.in_time, approver: o.actioned_by_name || o.approver_label || '',
     expected_back_at: o.expected_back_at, overdue_min: Math.max(0, overdueMin),
     overdue: overdueMin > 0, on_duty: !!o.on_duty,
@@ -330,8 +332,19 @@ router.get('/monitor-meta', async (req, res) => {
 // --- live "Currently Out" board (monitors only) ---
 router.get('/currently-out', async (req, res) => {
   if (!(await isOutpassMonitor(req.user))) return res.status(403).json({ error: 'Not allowed' });
+  const cfg = await gateConfig();
   const rows = (await q(openBoardSql)).rows.map(decorateOpen);
-  res.json({ out: rows, overdue: rows.filter((r) => r.overdue).length, total: rows.length });
+  // A pass overdue by more than the multi-day threshold is almost certainly a multi-day / vehicle
+  // trip, not a same-day overstay — flag it so it reads differently and is excluded from HR alerts.
+  const maxMin = cfg.multidayHours * 60;
+  rows.forEach((r) => { r.likely_multiday = r.overdue && r.overdue_min > maxMin; });
+  res.json({
+    out: rows,
+    overdue: rows.filter((r) => r.overdue && !r.likely_multiday).length,
+    multiday: rows.filter((r) => r.likely_multiday).length,
+    total: rows.length,
+    multiday_hours: cfg.multidayHours,
+  });
 });
 
 // --- the current user's OWN open gatepass(es) — powers the /gate self-return page ---
@@ -410,7 +423,7 @@ router.get('/overstay-report', async (req, res) => {
 
 
 // --- overdue watcher, driven by the cron. Returns rows to alert on; caller sends the WATI. ---
-async function findOverdue(overdueMin) {
+async function findOverdue(overdueMin, maxHours = 16) {
   return (await q(
     `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
             o.overdue_alert_at, o.hr_alert_at,
@@ -421,9 +434,9 @@ async function findOverdue(overdueMin) {
      LEFT JOIN employees ap ON ap.id=o.approver_id
      WHERE ${OPEN_WHERE}
        AND o.expected_back_at < (now() - ($1 || ' minutes')::interval)
-       AND o.expected_back_at > (now() - interval '2 days')
+       AND o.expected_back_at > (now() - ($2 || ' hours')::interval)
        AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL)
-     ORDER BY o.expected_back_at ASC`, [String(overdueMin)])).rows;
+     ORDER BY o.expected_back_at ASC`, [String(overdueMin), String(maxHours)])).rows;
 }
 async function markApproverAlerted(id) {
   await q(`UPDATE outpass_requests SET overdue_alert_at=now() WHERE id=$1`, [id]);
@@ -444,7 +457,22 @@ async function backfillExpectedBack() {
     const ms = istClockToMs(r.req_date, r.in_time);
     if (ms) { await q(`UPDATE outpass_requests SET expected_back_at=$2 WHERE id=$1`, [r.id, new Date(ms)]); fixed++; }
   }
-  return { scanned: rows.length, fixed };
+  // One-time: acknowledge the pre-existing overdue backlog so the multi-day upgrade does NOT
+  // re-fire alerts for passes already handled. Runs once (guarded by a flag); afterwards only
+  // genuinely NEW overdue passes alert. This is intentional — the current backlog is "done".
+  let acknowledged = 0;
+  const ackFlag = (await q(`SELECT value FROM app_settings WHERE key='overdue_backlog_ack_v1'`)).rows[0];
+  if (!ackFlag) {
+    const a = await q(
+      `UPDATE outpass_requests
+         SET hr_alert_at = COALESCE(hr_alert_at, now()),
+             overdue_alert_at = COALESCE(overdue_alert_at, now())
+       WHERE type='gatepass' AND status='approved' AND returned_at IS NULL
+         AND expected_back_at IS NOT NULL AND expected_back_at < now()`);
+    acknowledged = a.rowCount || 0;
+    await q(`INSERT INTO app_settings(key,value) VALUES('overdue_backlog_ack_v1', now()::text) ON CONFLICT(key) DO NOTHING`);
+  }
+  return { scanned: rows.length, fixed, acknowledged };
 }
 // kept for back-compat (marks the approver stamp)
 async function markOverdueAlerted(id) { await markApproverAlerted(id); }
