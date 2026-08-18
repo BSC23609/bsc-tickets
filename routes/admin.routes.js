@@ -402,6 +402,30 @@ router.delete('/outpass/:id', async (req, res) => {
   res.json({ ok: true, ref_no: r.rows[0].ref_no });
 });
 
+// Manually fire the overdue WhatsApp for one pass, to HR + the approver, right now.
+// Uses the real notify path (same as the cron) so it also verifies delivery end-to-end.
+router.post('/outpass/:id/send-overdue', async (req, res) => {
+  const op = require('../routes/outpass.routes')._internal;
+  const wati = require('../lib/wati');
+  const o = (await q(
+    `SELECT o.*, r.name AS req_name, ap.name AS approver_name, ap.phone AS approver_phone
+     FROM outpass_requests o JOIN employees r ON r.id=o.requester_id
+     LEFT JOIN employees ap ON ap.id=o.approver_id WHERE o.id=$1`, [req.params.id])).rows[0];
+  if (!o) return res.status(404).json({ error: 'Pass not found' });
+  const cfg = await op.gateConfig();
+  let hr = null;
+  if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
+  const mins = o.expected_back_at ? Math.max(0, Math.floor((Date.now() - +new Date(o.expected_back_at)) / 60000)) : 0;
+  const payload = { employee: o.req_name, ref: o.ref_no, out_time: o.out_time, expected: o.in_time,
+    overdue_min: mins, purpose: o.purpose, duty: o.on_duty ? 'On duty (official)' : 'Personal' };
+  const results = {};
+  if (o.approver_phone) results.approver = await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload);
+  else results.approver_note = 'approver has no phone';
+  if (hr && hr.phone) { results.hr = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload); if (results.hr) await op.markHrAlerted(o.id); }
+  else results.hr_note = cfg.hrEmpId ? 'HR has no phone' : 'HR not configured';
+  res.json({ ok: true, ref_no: o.ref_no, hr_name: (hr && hr.name) || null, results });
+});
+
 // Recent OT entries (for review + cleanup of test entries).
 router.get('/ot-list', async (req, res) => {
   const from = req.query.from || '2000-01-01';
@@ -960,7 +984,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED145', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED146', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

@@ -623,8 +623,18 @@
           <td>${o.expected_in||'—'}</td>
           <td>${o.overdue ? '<span class="text-red-600 font-semibold">Overdue '+mins(o.overdue_min)+'</span>' : '<span class="text-emerald-600">On time</span>'}</td>
           <td class="text-slate-500">${o.approver||'—'}</td>
-          <td class="text-right"><button onclick="markReturned(${o.id},'${(o.requester||'').replace(/'/g,"\\'")}')" class="pill bg-blue-100 text-blue-700 hover:bg-blue-200">Mark returned</button></td>
+          <td class="text-right whitespace-nowrap"><button onclick="sendOverdue(${o.id})" class="pill bg-amber-100 text-amber-700 hover:bg-amber-200 mr-1">Send alert</button><button onclick="markReturned(${o.id},'${(o.requester||'').replace(/'/g,"\\'")}')" class="pill bg-blue-100 text-blue-700 hover:bg-blue-200">Mark returned</button></td>
         </tr>`).join('') + '</tbody></table>';
+    }
+    async function sendOverdue(id){
+      if(!confirm('Send the overdue WhatsApp now to HR and the approver for this pass?')) return;
+      try{
+        const r=await api('/admin/outpass/'+id+'/send-overdue',{method:'POST'});
+        const parts=[];
+        if(r.results.hr===true) parts.push('HR ✓'); else if(r.results.hr===false) parts.push('HR failed — check WhatsApp log'); else if(r.results.hr_note) parts.push(r.results.hr_note);
+        if(r.results.approver===true) parts.push('approver ✓'); else if(r.results.approver===false) parts.push('approver failed'); else if(r.results.approver_note) parts.push(r.results.approver_note);
+        toast('Alert: '+parts.join(' · '), (r.results.hr===true?'success':'info'));
+      }catch(e){ toast(e.message,'error'); }
     }
     async function markReturned(id, name) {
       if (!confirm('Mark '+name+' as returned now? Use this only if they physically came back but didn\'t scan.')) return;
@@ -685,7 +695,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED145, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED146, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
