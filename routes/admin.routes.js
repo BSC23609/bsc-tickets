@@ -520,7 +520,7 @@ router.post('/wati-test', async (req, res) => {
   } else if (which === 'return_reminder') {
     template = wati.OUTPASS_TPL.returnReminder;
     params = { name: 'TEST Employee', ref: 'GP-TEST-01',
-      out_time: '02:15 PM', expected: '03:15 PM', overdue_min: '25', purpose: 'Bank work' };
+      out_time: '02:15 PM', expected: '03:15 PM', overdue_min: '25' };
   } else if (which === 'ot_approval') {
     template = wati.TEMPLATES.ot_approval;
     params = { name: 'Kannan', employee: 'TEST Employee', date: '05 Aug 2026', hours: '1.50', amount: '150', pending: '3' };
@@ -991,7 +991,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED149', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED150', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
