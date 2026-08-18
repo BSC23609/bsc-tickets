@@ -288,7 +288,13 @@
           <div class="eyebrow">Directory</div>
           <p class="text-xs text-slate-500 mt-1">Add a new joiner with their full profile, or edit anyone below.</p>
         </div>
-        <button onclick="addEmp()" class="btn text-sm">+ Add employee</button>
+        <div class="flex items-center gap-3">
+          <label class="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer select-none">
+            <input type="checkbox" id="empShowInactive" onchange="renderEmployees()" class="rounded border-slate-300 text-brand-600 focus:ring-brand-500">
+            Show inactive (left) staff <span id="empInactiveCount" class="text-slate-400"></span>
+          </label>
+          <button onclick="addEmp()" class="btn text-sm">+ Add employee</button>
+        </div>
       </div>
       <div class="card p-4"><div id="empTable" class="overflow-x-auto"></div></div>
     </section>
@@ -707,7 +713,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED150, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED151, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1379,9 +1385,14 @@
     }
     async function renderEmployees() {
       employees = await api('/admin/employees');
+      const showInactive = document.getElementById('empShowInactive')?.checked;
+      const inactiveCount = employees.filter(e=>!e.active).length;
+      const cntEl = document.getElementById('empInactiveCount');
+      if (cntEl) cntEl.textContent = inactiveCount ? `(${inactiveCount} inactive)` : '';
+      const list = showInactive ? employees : employees.filter(e=>e.active);
       document.getElementById('empTable').innerHTML = `<table class="w-full text-sm"><thead><tr class="text-left border-b border-slate-200">
         ${['Emp No','Name','Designation','Dept','Mobile','Admin','Expense','Status','Actions'].map(h=>`<th class="py-2 pr-3 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
-        ${employees.map(e=>`<tr class="border-b border-slate-100">
+        ${list.map(e=>`<tr class="border-b border-slate-100">
           <td class="py-2 pr-3 font-mono text-xs">${esc(e.emp_no)}</td><td class="py-2 pr-3">${esc(e.name)}</td>
           <td class="py-2 pr-3 text-slate-500">${esc(e.job_title)}</td>
           <td class="py-2 pr-3 text-slate-500">${esc(e.department)}</td><td class="py-2 pr-3 text-slate-500">${esc(e.phone)}</td>
