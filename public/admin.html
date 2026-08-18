@@ -437,6 +437,7 @@
             <select id="wtWhich" class="inp">
               <option value="conveyance">conveyance_request (trip approval)</option>
               <option value="overdue">outpass_overdue (gatepass overdue → HR)</option>
+              <option value="return_reminder">gatepass_return_reminder (→ requester)</option>
               <option value="ot_approval">ot_approval (OT → Kannan/Kumar)</option>
               <option value="ot_hr">ot_hr_verify (OT → HR)</option>
               <option value="ot_mgmt">ot_mgmt_approval (OT → Management)</option>
@@ -642,6 +643,7 @@
         const parts=[];
         if(r.results.hr===true) parts.push('HR ✓'); else if(r.results.hr===false) parts.push('HR failed — check WhatsApp log'); else if(r.results.hr_note) parts.push(r.results.hr_note);
         if(r.results.approver===true) parts.push('approver ✓'); else if(r.results.approver===false) parts.push('approver failed'); else if(r.results.approver_note) parts.push(r.results.approver_note);
+        if(r.results.requester===true) parts.push('requester ✓'); else if(r.results.requester===false) parts.push('requester failed'); else if(r.results.requester_note) parts.push(r.results.requester_note);
         toast('Alert: '+parts.join(' · '), (r.results.hr===true?'success':'info'));
       }catch(e){ toast(e.message,'error'); }
     }
@@ -705,7 +707,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED148, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED149, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

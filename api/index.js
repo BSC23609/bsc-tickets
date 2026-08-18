@@ -768,6 +768,15 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
             await op.markHrAlerted(o.id);   // no HR configured — nothing to retry
           }
         }
+        // Requester: remind the person themselves to log their return — once.
+        if (!o.requester_reminder_at) {
+          if (o.req_phone) {
+            const ok = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
+            if (ok) await op.markRequesterReminded(o.id);
+          } else {
+            await op.markRequesterReminded(o.id);   // no phone on record — nothing to retry
+          }
+        }
       } catch (e) { console.error('[outpass-overdue] alert failed for', o.ref_no, e.message); }
     }
   })());

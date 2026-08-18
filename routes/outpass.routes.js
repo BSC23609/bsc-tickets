@@ -426,8 +426,8 @@ router.get('/overstay-report', async (req, res) => {
 async function findOverdue(overdueMin, maxHours = 16) {
   return (await q(
     `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
-            o.overdue_alert_at, o.hr_alert_at,
-            r.name AS req_name, r.department,
+            o.overdue_alert_at, o.hr_alert_at, o.requester_reminder_at,
+            r.name AS req_name, r.department, r.phone AS req_phone,
             ap.name AS approver_name, ap.phone AS approver_phone
      FROM outpass_requests o
      JOIN employees r ON r.id=o.requester_id
@@ -435,7 +435,7 @@ async function findOverdue(overdueMin, maxHours = 16) {
      WHERE ${OPEN_WHERE}
        AND o.expected_back_at < (now() - ($1 || ' minutes')::interval)
        AND o.expected_back_at > (now() - ($2 || ' hours')::interval)
-       AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL)
+       AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL OR o.requester_reminder_at IS NULL)
      ORDER BY o.expected_back_at ASC`, [String(overdueMin), String(maxHours)])).rows;
 }
 async function markApproverAlerted(id) {
@@ -443,6 +443,9 @@ async function markApproverAlerted(id) {
 }
 async function markHrAlerted(id) {
   await q(`UPDATE outpass_requests SET hr_alert_at=now() WHERE id=$1`, [id]);
+}
+async function markRequesterReminded(id) {
+  await q(`UPDATE outpass_requests SET requester_reminder_at=now() WHERE id=$1`, [id]);
 }
 // Legacy heal: older gatepasses were approved before expected_back_at was computed, so the watcher
 // couldn't see them. Recompute it from the stored in_time. Idempotent — only touches NULL rows.
@@ -461,16 +464,17 @@ async function backfillExpectedBack() {
   // re-fire alerts for passes already handled. Runs once (guarded by a flag); afterwards only
   // genuinely NEW overdue passes alert. This is intentional — the current backlog is "done".
   let acknowledged = 0;
-  const ackFlag = (await q(`SELECT value FROM app_settings WHERE key='overdue_backlog_ack_v1'`)).rows[0];
+  const ackFlag = (await q(`SELECT value FROM app_settings WHERE key='overdue_backlog_ack_v2'`)).rows[0];
   if (!ackFlag) {
     const a = await q(
       `UPDATE outpass_requests
          SET hr_alert_at = COALESCE(hr_alert_at, now()),
-             overdue_alert_at = COALESCE(overdue_alert_at, now())
+             overdue_alert_at = COALESCE(overdue_alert_at, now()),
+             requester_reminder_at = COALESCE(requester_reminder_at, now())
        WHERE type='gatepass' AND status='approved' AND returned_at IS NULL
          AND expected_back_at IS NOT NULL AND expected_back_at < now()`);
     acknowledged = a.rowCount || 0;
-    await q(`INSERT INTO app_settings(key,value) VALUES('overdue_backlog_ack_v1', now()::text) ON CONFLICT(key) DO NOTHING`);
+    await q(`INSERT INTO app_settings(key,value) VALUES('overdue_backlog_ack_v2', now()::text) ON CONFLICT(key) DO NOTHING`);
   }
   return { scanned: rows.length, fixed, acknowledged };
 }
@@ -478,4 +482,4 @@ async function backfillExpectedBack() {
 async function markOverdueAlerted(id) { await markApproverAlerted(id); }
 
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markOverdueAlerted, backfillExpectedBack, decorateOpen };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markRequesterReminded, markOverdueAlerted, backfillExpectedBack, decorateOpen };
