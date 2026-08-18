@@ -39,7 +39,6 @@
   <main class="max-w-6xl mx-auto px-4 py-6">
     <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
       <button data-tab="dash" data-active="true" class="tabBtn tab">Dashboard</button>
-      <button data-tab="mgmt" data-active="false" class="tabBtn tab">Dashboards</button>
       <button data-tab="health" data-active="false" class="tabBtn tab">Health</button>
       <button data-tab="emp" data-active="false" class="tabBtn tab">Employees</button>
       <button data-tab="cat" data-active="false" class="tabBtn tab">Categories &amp; routing</button>
@@ -52,6 +51,13 @@
 
     <!-- DASHBOARD -->
     <section id="tab-dash">
+      <div class="flex gap-1 border-b border-line mb-5">
+        <button data-sub="tickets" data-active="true" class="subBtn tab">Tickets</button>
+        <button data-sub="gatepass" data-active="false" class="subBtn tab">Gatepass</button>
+        <button data-sub="expense" data-active="false" class="subBtn tab">Expense</button>
+        <button data-sub="ot" data-active="false" class="subBtn tab">OT entries</button>
+      </div>
+      <div id="sub-tickets">
       <div class="flex items-end gap-2 mb-4">
         <div><label class="lbl">From</label><input id="d_from" type="date" class="inp" /></div>
         <div><label class="lbl">To</label><input id="d_to" type="date" class="inp" /></div>
@@ -197,23 +203,25 @@
           <div id="expenseTable" class="overflow-x-auto"></div>
         </div>
       </div>
+    </div>  <!-- /#sub-tickets -->
+
+      <div id="sub-gatepass" class="hidden">
+        <div class="card p-4"><div class="font-semibold text-sm mb-2">Gatepasses &amp; overstays by month</div><canvas id="chGate" height="140"></canvas></div>
+      </div>
+      <div id="sub-expense" class="hidden">
+        <div class="grid md:grid-cols-2 gap-3">
+          <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense (approved) by month</div><canvas id="chExpMonth" height="160"></canvas></div>
+          <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense by type</div><canvas id="chExpType" height="160"></canvas></div>
+        </div>
+      </div>
+      <div id="sub-ot" class="hidden">
+        <div class="grid md:grid-cols-2 gap-3">
+          <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by month</div><canvas id="chOtMonth" height="160"></canvas></div>
+          <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by department</div><canvas id="chOtDept" height="160"></canvas></div>
+        </div>
+      </div>
     </section>
 
-    <!-- EMPLOYEES -->
-    <section id="tab-mgmt" class="hidden">
-      <div class="flex items-center justify-between gap-2 mb-3">
-        <div><div class="eyebrow">Management dashboards</div>
-          <p class="text-xs text-slate-500 mt-1">OT spend, expense trends and gatepass overstays — last 6 months.</p></div>
-        <button onclick="loadDashboards()" class="btn-ghost text-sm">↻ Refresh</button>
-      </div>
-      <div class="grid md:grid-cols-2 gap-3">
-        <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by month</div><canvas id="chOtMonth" height="150"></canvas></div>
-        <div class="card p-4"><div class="font-semibold text-sm mb-2">Overtime spend by department</div><canvas id="chOtDept" height="150"></canvas></div>
-        <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense (approved) by month</div><canvas id="chExpMonth" height="150"></canvas></div>
-        <div class="card p-4"><div class="font-semibold text-sm mb-2">Expense by type</div><canvas id="chExpType" height="150"></canvas></div>
-        <div class="card p-4 md:col-span-2"><div class="font-semibold text-sm mb-2">Gatepasses &amp; overstays by month</div><canvas id="chGate" height="120"></canvas></div>
-      </div>
-    </section>
 
     <section id="tab-health" class="hidden">
       <div class="flex items-center justify-between gap-2 mb-3">
@@ -554,6 +562,7 @@
       document.getElementById('d_from').value = first.toISOString().slice(0,10);
       document.getElementById('d_to').value = today.toISOString().slice(0,10);
       document.querySelectorAll('.tabBtn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+      document.querySelectorAll('.subBtn').forEach(b => b.addEventListener('click', () => switchDashSub(b.dataset.sub)));
       employees = await api('/admin/employees');
       loadDash();
       setCleanupRange(3);
@@ -644,7 +653,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED138, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED139, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -782,9 +791,8 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['dash','mgmt','health','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
+      ['dash','health','emp','cat','loc','ogappr','trips','gate','exp'].forEach(t => document.getElementById('tab-'+t).classList.toggle('hidden', t !== tab));
       if (tab === 'trips') loadAdminTrips();
-      if (tab === 'mgmt') loadDashboards();
       if (tab === 'health') loadHealth();
       if (tab === 'gate') openGateTab();
       if (tab === 'emp') { renderEmployees(); api('/admin/departments').then(d => departments = d).catch(()=>{}); }
@@ -796,6 +804,14 @@
 
     // ---------- DASHBOARD ----------
     let _remOn = true;
+    // Dashboard sub-tabs: Tickets (default) + Gatepass / Expense / OT charts.
+    // Un-hide the target BEFORE rendering so Chart.js sizes canvases correctly.
+    function switchDashSub(sub){
+      document.querySelectorAll('.subBtn').forEach(b => b.setAttribute('data-active', b.dataset.sub === sub));
+      ['tickets','gatepass','expense','ot'].forEach(s => document.getElementById('sub-'+s).classList.toggle('hidden', s !== sub));
+      if (sub !== 'tickets') loadDashboards();
+    }
+
     let dashCharts = {};
     function mkChart(id, cfg){ if(dashCharts[id]) dashCharts[id].destroy(); const el=document.getElementById(id); if(el) dashCharts[id]=new Chart(el, cfg); }
     const BLUE='#1B7BC0', DARK='#0A4566', AMBER='#F59E0B', RED='#dc2626', GREENS=['#0A4566','#1B7BC0','#38bdf8','#7dd3fc','#a855f7','#f59e0b'];
