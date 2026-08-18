@@ -717,11 +717,22 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   // Resolve HR up-front so we can report it (this is the usual reason HR doesn't get the alert).
   let hr = null;
   if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
+  // Diagnostic breakdown — tells you exactly why overdue may be 0 (the usual real reasons).
+  const diag = (await q(
+    `SELECT
+       COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL) AS open_gatepasses,
+       COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at IS NULL) AS gp_no_expected_time,
+       COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at > now()) AS gp_not_due_yet,
+       COUNT(*) FILTER (WHERE type='gatepass' AND status='approved' AND returned_at IS NULL AND expected_back_at < now() AND hr_alert_at IS NOT NULL) AS gp_hr_already_alerted,
+       COUNT(*) FILTER (WHERE type='outpass'  AND status='approved' AND returned_at IS NULL) AS open_outpasses_not_watched
+     FROM outpass_requests`)).rows[0];
   res.json({
     ok: true, overdue: overdue.length,
     hr_emp_id: cfg.hrEmpId || null,          // null = "HR (also receives overdue alerts)" not set in Gate settings
     hr_resolved: !!hr,                        // false = that person is missing/inactive
     hr_has_phone: !!(hr && hr.phone),         // false = HR has no phone on their record
+    watch_window: '08:00-20:00 IST (Mon-Sat)',
+    diagnostics: diag,                        // where the open passes actually sit
   });
   if (!overdue.length) return;
 
@@ -736,9 +747,23 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
         expected: o.in_time, overdue_min: mins, purpose: o.purpose,
         duty: o.on_duty ? 'On duty (official)' : 'Personal' };
       try {
-        if (o.approver_phone) await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload);
-        if (hr && hr.phone) await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
-        await op.markOverdueAlerted(o.id);   // mark only after a send attempt, so a crash re-tries
+        // Approver: alert once. Mark done only on real delivery (or if there's no phone to try).
+        if (!o.overdue_alert_at) {
+          const ok = o.approver_phone
+            ? await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload)
+            : false;
+          if (ok || !o.approver_phone) await op.markApproverAlerted(o.id);
+        }
+        // HR: retry every run until WATI actually delivers. A decline/failure leaves hr_alert_at
+        // NULL so the next run tries again — this is the fix for "HR never got the message".
+        if (!o.hr_alert_at) {
+          if (hr && hr.phone) {
+            const ok = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
+            if (ok) await op.markHrAlerted(o.id);
+          } else {
+            await op.markHrAlerted(o.id);   // no HR configured — nothing to retry
+          }
+        }
       } catch (e) { console.error('[outpass-overdue] alert failed for', o.ref_no, e.message); }
     }
   })());

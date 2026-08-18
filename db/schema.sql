@@ -447,6 +447,7 @@ ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_by_name TEXT;
 -- Gatepasses declare an expected return (in_time) but nothing recorded the ACTUAL return, so
 -- overstays and never-logged returns were both invisible. These columns close that gap.
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_at       TIMESTAMPTZ;                 -- actual return (server clock)
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS hr_alert_at       TIMESTAMPTZ;                 -- HR overdue alert delivered (separate from approver)
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_via      TEXT;                        -- 'gps' | 'admin' | 'approver'
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS returned_by_id    INT REFERENCES employees(id);-- who marked it (admin/approver override)
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS return_verified   BOOLEAN DEFAULT FALSE;       -- TRUE only if inside the geofence

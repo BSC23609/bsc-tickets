@@ -125,16 +125,14 @@
           <h3 class="font-bold text-sm">Data &amp; cleanup <span class="font-normal text-slate-400">— review &amp; remove test entries</span></h3>
           <div class="flex items-center gap-2 flex-wrap text-sm">
             <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
-            <div class="flex gap-1">
-              <button data-d="3"  onclick="setCleanupRange(3)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">3d</button>
-              <button data-d="7"  onclick="setCleanupRange(7)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">7d</button>
-              <button data-d="30" onclick="setCleanupRange(30)" class="cl-range px-2.5 py-1 rounded-md border border-slate-200">30d</button>
-              <button data-d="0"  onclick="setCleanupRange(0)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">Custom</button>
-            </div>
-            <span id="clCustom" class="hidden items-center gap-1.5">
-              <input type="date" id="cl_from" class="inp !py-1 !text-xs" onchange="loadCleanup()">
+            <button data-scope="tickets" data-d="3"  onclick="setCleanupRange('tickets',3)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">3d</button>
+            <button data-scope="tickets" data-d="7"  onclick="setCleanupRange('tickets',7)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">7d</button>
+            <button data-scope="tickets" data-d="30" onclick="setCleanupRange('tickets',30)" class="cl-range px-2.5 py-1 rounded-md border border-slate-200">30d</button>
+            <button data-scope="tickets" data-d="0"  onclick="setCleanupRange('tickets',0)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">Custom</button>
+            <span id="clCustom_tickets" class="hidden items-center gap-1.5">
+              <input type="date" id="cl_tickets_from" class="inp !py-1 !text-xs" onchange="loadCleanupTickets()">
               <span class="text-slate-400">→</span>
-              <input type="date" id="cl_to" class="inp !py-1 !text-xs" onchange="loadCleanup()">
+              <input type="date" id="cl_tickets_to" class="inp !py-1 !text-xs" onchange="loadCleanupTickets()">
             </span>
           </div>
         </div>
@@ -167,7 +165,19 @@
         <div class="card p-4 mt-3">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Outpass / Gatepass entries</h4>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-1.5 flex-wrap text-xs">
+              <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
+              <button data-scope="gatepass" data-d="3"  onclick="setCleanupRange('gatepass',3)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">3d</button>
+              <button data-scope="gatepass" data-d="7"  onclick="setCleanupRange('gatepass',7)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">7d</button>
+              <button data-scope="gatepass" data-d="30" onclick="setCleanupRange('gatepass',30)" class="cl-range px-2 py-0.5 rounded-md border border-slate-200">30d</button>
+              <button data-scope="gatepass" data-d="0"  onclick="setCleanupRange('gatepass',0)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">Custom</button>
+              <span id="clCustom_gatepass" class="hidden items-center gap-1">
+                <input type="date" id="cl_gatepass_from" class="inp !py-0.5 !text-xs" onchange="loadCleanupOutpass()">
+                <span class="text-slate-400">→</span>
+                <input type="date" id="cl_gatepass_to" class="inp !py-0.5 !text-xs" onchange="loadCleanupOutpass()">
+              </span>
+            </div>
               <select id="cl_o_type" class="inp !py-1 !text-xs" onchange="loadCleanupOutpass()">
                 <option value="">All types</option><option value="outpass">Outpass</option><option value="gatepass">Gatepass</option>
               </select>
@@ -187,7 +197,19 @@
         <div class="card p-4 mt-3">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">Expense entries</h4>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-1.5 flex-wrap text-xs">
+              <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
+              <button data-scope="expense" data-d="3"  onclick="setCleanupRange('expense',3)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">3d</button>
+              <button data-scope="expense" data-d="7"  onclick="setCleanupRange('expense',7)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">7d</button>
+              <button data-scope="expense" data-d="30" onclick="setCleanupRange('expense',30)" class="cl-range px-2 py-0.5 rounded-md border border-slate-200">30d</button>
+              <button data-scope="expense" data-d="0"  onclick="setCleanupRange('expense',0)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">Custom</button>
+              <span id="clCustom_expense" class="hidden items-center gap-1">
+                <input type="date" id="cl_expense_from" class="inp !py-0.5 !text-xs" onchange="loadCleanupExpense()">
+                <span class="text-slate-400">→</span>
+                <input type="date" id="cl_expense_to" class="inp !py-0.5 !text-xs" onchange="loadCleanupExpense()">
+              </span>
+            </div>
               <select id="cl_e_type" class="inp !py-1 !text-xs" onchange="loadCleanupExpense()">
                 <option value="">All types</option><option value="conveyance">Local Conveyance</option><option value="outstation">Outstation</option><option value="misc">Miscellaneous</option>
               </select>
@@ -207,11 +229,25 @@
         <div class="card p-4 mt-3">
           <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
             <h4 class="font-semibold text-xs uppercase tracking-wider text-slate-500">OT entries</h4>
+            <div class="flex items-center gap-2 flex-wrap">
+              <div class="flex items-center gap-1.5 flex-wrap text-xs">
+              <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
+              <button data-scope="ot" data-d="3"  onclick="setCleanupRange('ot',3)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">3d</button>
+              <button data-scope="ot" data-d="7"  onclick="setCleanupRange('ot',7)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">7d</button>
+              <button data-scope="ot" data-d="30" onclick="setCleanupRange('ot',30)" class="cl-range px-2 py-0.5 rounded-md border border-slate-200">30d</button>
+              <button data-scope="ot" data-d="0"  onclick="setCleanupRange('ot',0)"  class="cl-range px-2 py-0.5 rounded-md border border-slate-200">Custom</button>
+              <span id="clCustom_ot" class="hidden items-center gap-1">
+                <input type="date" id="cl_ot_from" class="inp !py-0.5 !text-xs" onchange="loadCleanupOT()">
+                <span class="text-slate-400">→</span>
+                <input type="date" id="cl_ot_to" class="inp !py-0.5 !text-xs" onchange="loadCleanupOT()">
+              </span>
+            </div>
             <select id="cl_ot_status" class="inp !py-1 !text-xs" onchange="loadCleanupOT()">
               <option value="">All statuses</option>
               <option value="draft">Draft</option><option value="pending">Pending</option><option value="approved">Approved</option>
               <option value="rejected">Rejected</option><option value="hr_verified">HR verified</option><option value="mgmt_approved">Mgmt approved</option><option value="paid">Paid</option>
             </select>
+            </div>
           </div>
           <div id="otTable" class="overflow-x-auto"></div>
         </div>
@@ -561,7 +597,7 @@
       document.querySelectorAll('.subBtn').forEach(b => b.addEventListener('click', () => switchDashSub(b.dataset.sub)));
       employees = await api('/admin/employees');
       loadDash();
-      setCleanupRange(3);
+      ['tickets','gatepass','expense','ot'].forEach(sc=>setCleanupRange(sc,3));
     }
 
     // ===================== GATE MONITOR (outpass return tracking) =====================
@@ -649,7 +685,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED140, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED142, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1147,38 +1183,39 @@
       catch(e){ toast(e.message,'error'); }
     }
     // ===== Data & cleanup: short window (default 3 days) + per-type filters =====
-    let cleanupDays = 3;
+    const clDays = { tickets:3, gatepass:3, expense:3, ot:3 };
+    const clLoader = { tickets:()=>loadCleanupTickets(), gatepass:()=>loadCleanupOutpass(), expense:()=>loadCleanupExpense(), ot:()=>loadCleanupOT() };
     function istToday(){ return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}); }
     function isoDaysAgo(n){ const d=new Date(istToday()+'T00:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
-    function cleanupRange(){
-      if (cleanupDays === 0){
-        const f=document.getElementById('cl_from').value||isoDaysAgo(2);
-        const t=document.getElementById('cl_to').value||istToday();
+    function cleanupRange(scope='tickets'){
+      const days=clDays[scope];
+      if (days === 0){
+        const f=document.getElementById('cl_'+scope+'_from')?.value||isoDaysAgo(2);
+        const t=document.getElementById('cl_'+scope+'_to')?.value||istToday();
         return { from:f, to:t };
       }
-      return { from: isoDaysAgo(cleanupDays-1), to: istToday() };
+      return { from: isoDaysAgo(days-1), to: istToday() };
     }
-    function setCleanupRange(days){
-      cleanupDays = days;
-      document.querySelectorAll('.cl-range').forEach(b=>{
+    function setCleanupRange(scope, days){
+      clDays[scope]=days;
+      document.querySelectorAll('.cl-range[data-scope="'+scope+'"]').forEach(b=>{
         const on = Number(b.dataset.d)===days;
-        b.classList.toggle('bg-ink', on);
-        b.classList.toggle('text-white', on);
-        b.classList.toggle('border-ink', on);
+        b.classList.toggle('bg-ink', on); b.classList.toggle('text-white', on); b.classList.toggle('border-ink', on);
       });
-      const custom=document.getElementById('clCustom');
-      if (days===0){
-        custom.classList.remove('hidden'); custom.classList.add('flex');
-        if(!document.getElementById('cl_from').value) document.getElementById('cl_from').value=isoDaysAgo(2);
-        if(!document.getElementById('cl_to').value)   document.getElementById('cl_to').value=istToday();
-      } else {
-        custom.classList.add('hidden'); custom.classList.remove('flex');
+      const custom=document.getElementById('clCustom_'+scope);
+      if (custom){
+        if (days===0){
+          custom.classList.remove('hidden'); custom.classList.add('inline-flex');
+          const f=document.getElementById('cl_'+scope+'_from'), t=document.getElementById('cl_'+scope+'_to');
+          if(f && !f.value) f.value=isoDaysAgo(2);
+          if(t && !t.value) t.value=istToday();
+        } else { custom.classList.add('hidden'); custom.classList.remove('inline-flex'); }
       }
-      loadCleanup();
+      (clLoader[scope]||(()=>{}))();
     }
 
     async function loadCleanupTickets(){
-      const {from,to}=cleanupRange();
+      const {from,to}=cleanupRange('tickets');
       const qs=new URLSearchParams({from,to});
       const st=document.getElementById('cl_t_status').value; if(st) qs.set('status',st);
       const qv=document.getElementById('cl_t_q').value.trim(); if(qv) qs.set('q',qv);
@@ -1213,7 +1250,7 @@
       catch(e){ alert('Could not update: '+e.message); }
     }
     async function loadCleanupOutpass(){
-      const {from,to}=cleanupRange();
+      const {from,to}=cleanupRange('gatepass');
       const qs=new URLSearchParams({from,to});
       const ty=document.getElementById('cl_o_type').value;   if(ty) qs.set('type',ty);
       const st=document.getElementById('cl_o_status').value; if(st) qs.set('status',st);
@@ -1227,7 +1264,7 @@
     }
     const FORML = { conveyance:'Local Conveyance', outstation:'Outstation', misc:'Miscellaneous' };
     async function loadCleanupExpense(){
-      const {from,to}=cleanupRange();
+      const {from,to}=cleanupRange('expense');
       const qs=new URLSearchParams({from,to});
       const ty=document.getElementById('cl_e_type').value;   if(ty) qs.set('form_type',ty);
       const st=document.getElementById('cl_e_status').value; if(st) qs.set('status',st);
@@ -1271,7 +1308,7 @@
       catch(e){ toast(e.message,'error'); }
     }
     async function loadCleanupOT(){
-      const {from,to}=cleanupRange();
+      const {from,to}=cleanupRange('ot');
       const qs=new URLSearchParams({from,to});
       const st=document.getElementById('cl_ot_status')?.value; if(st) qs.set('status',st);
       const rows=await api('/admin/ot-list?'+qs.toString());

@@ -413,6 +413,7 @@ router.get('/overstay-report', async (req, res) => {
 async function findOverdue(overdueMin) {
   return (await q(
     `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
+            o.overdue_alert_at, o.hr_alert_at,
             r.name AS req_name, r.department,
             ap.name AS approver_name, ap.phone AS approver_phone
      FROM outpass_requests o
@@ -420,12 +421,18 @@ async function findOverdue(overdueMin) {
      LEFT JOIN employees ap ON ap.id=o.approver_id
      WHERE ${OPEN_WHERE}
        AND o.expected_back_at < (now() - ($1 || ' minutes')::interval)
-       AND o.overdue_alert_at IS NULL
+       AND o.expected_back_at > (now() - interval '2 days')
+       AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL)
      ORDER BY o.expected_back_at ASC`, [String(overdueMin)])).rows;
 }
-async function markOverdueAlerted(id) {
+async function markApproverAlerted(id) {
   await q(`UPDATE outpass_requests SET overdue_alert_at=now() WHERE id=$1`, [id]);
 }
+async function markHrAlerted(id) {
+  await q(`UPDATE outpass_requests SET hr_alert_at=now() WHERE id=$1`, [id]);
+}
+// kept for back-compat (marks the approver stamp)
+async function markOverdueAlerted(id) { await markApproverAlerted(id); }
 
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markOverdueAlerted, decorateOpen };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markOverdueAlerted, decorateOpen };
