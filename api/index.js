@@ -210,6 +210,8 @@ app.get('/mta/reject/:token', async (req, res) => {
 // --- requester one-tap "I'm Back" from the WhatsApp return reminder (no app / no scan) ---
 app.get('/gpr/:token', async (req, res) => {
   try {
+    if (req.params.token === 'test-token')
+      return res.send(actionPage('\u2705', 'Button works!', 'This is the test link — the "I\'m Back" button is wired up correctly. A real reminder will log the actual return.'));
     const op = require('../routes/outpass.routes')._internal;
     const r = await op.markReturnByToken(req.params.token, 'self_whatsapp');
     if (r.status === 'notfound') return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This return link is not recognised or has expired.'));
