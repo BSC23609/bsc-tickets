@@ -443,7 +443,7 @@
             <select id="wtWhich" class="inp">
               <option value="conveyance">conveyance_request (trip approval)</option>
               <option value="overdue">outpass_overdue (gatepass overdue → HR)</option>
-              <option value="return_reminder">gatepass_return_reminder (→ requester)</option>
+              <option value="return_reminder">gatepass_return_reminder2 (→ requester, I'm Back button)</option>
               <option value="ot_approval">ot_approval (OT → Kannan/Kumar)</option>
               <option value="ot_hr">ot_hr_verify (OT → HR)</option>
               <option value="ot_mgmt">ot_mgmt_approval (OT → Management)</option>
@@ -713,7 +713,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED152, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED154, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

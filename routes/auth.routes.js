@@ -1,7 +1,54 @@
 const express = require('express');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
+const wati = require('../lib/wati');
 const router = express.Router();
+
+const OTP_TTL_MIN = 10, OTP_MAX_ATTEMPTS = 5, OTP_RESEND_SEC = 45;
+const maskPhone = (p) => { const s = String(p || '').replace(/\D/g, ''); return s.length >= 4 ? '\u2022\u2022' + s.slice(-4) : '\u2022\u2022\u2022\u2022'; };
+
+// POST /api/forgot  { emp_no }  — send a 6-digit reset code to the employee's WhatsApp.
+router.post('/forgot', async (req, res) => {
+  const emp_no = String((req.body || {}).emp_no || '').trim();
+  if (!emp_no) return res.status(400).json({ error: 'Employee number required' });
+  const emp = (await q('SELECT * FROM employees WHERE emp_no=$1', [emp_no])).rows[0];
+  // Don't reveal whether an account exists — generic reply when not found/inactive.
+  const generic = { ok: true, message: 'If this employee number is registered, a reset code has been sent to the WhatsApp number on file.' };
+  if (!emp || !emp.active) return res.json(generic);
+  if (!emp.phone) return res.json({ ok: true, no_phone: true, message: 'No WhatsApp number is on file for this account. Please contact HR to reset your password.' });
+  // Resend throttle: one live code per 45s.
+  const recent = (await q(`SELECT created_at FROM password_otps WHERE employee_id=$1 AND used=FALSE AND expires_at>now() ORDER BY id DESC LIMIT 1`, [emp.id])).rows[0];
+  if (recent && (Date.now() - new Date(recent.created_at)) < OTP_RESEND_SEC * 1000)
+    return res.status(429).json({ error: 'A code was just sent — please wait a moment before requesting another.' });
+  const otp = String(Math.floor(100000 + Math.random() * 900000));
+  const otp_hash = await auth.hashPw(otp);
+  await q(`UPDATE password_otps SET used=TRUE WHERE employee_id=$1 AND used=FALSE`, [emp.id]);   // invalidate older codes
+  await q(`INSERT INTO password_otps(employee_id, otp_hash, expires_at) VALUES ($1,$2, now() + ($3 || ' minutes')::interval)`, [emp.id, otp_hash, String(OTP_TTL_MIN)]);
+  try { await wati.notify.passwordOtp({ name: emp.name, phone: emp.phone }, otp); }
+  catch (e) { console.error('[otp] send failed', e.message); }
+  res.json({ ok: true, phone_hint: maskPhone(emp.phone), message: `A 6-digit code was sent to your WhatsApp (${maskPhone(emp.phone)}). It expires in ${OTP_TTL_MIN} minutes.` });
+});
+
+// POST /api/reset-with-otp  { emp_no, otp, new_password }  — verify code and set a new password.
+router.post('/reset-with-otp', async (req, res) => {
+  const emp_no = String((req.body || {}).emp_no || '').trim();
+  const otp = String((req.body || {}).otp || '').trim();
+  const new_password = String((req.body || {}).new_password || '');
+  if (!emp_no || !otp || !new_password) return res.status(400).json({ error: 'Employee number, code and new password are required' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const emp = (await q('SELECT * FROM employees WHERE emp_no=$1', [emp_no])).rows[0];
+  const bad = () => res.status(400).json({ error: 'Invalid or expired code. Please request a new one.' });
+  if (!emp || !emp.active) return bad();
+  const row = (await q(`SELECT * FROM password_otps WHERE employee_id=$1 AND used=FALSE AND expires_at>now() ORDER BY id DESC LIMIT 1`, [emp.id])).rows[0];
+  if (!row) return bad();
+  if (row.attempts >= OTP_MAX_ATTEMPTS) { await q(`UPDATE password_otps SET used=TRUE WHERE id=$1`, [row.id]); return res.status(429).json({ error: 'Too many attempts. Please request a new code.' }); }
+  const ok = await auth.checkPw(otp, row.otp_hash);
+  if (!ok) { await q(`UPDATE password_otps SET attempts=attempts+1 WHERE id=$1`, [row.id]); return res.status(400).json({ error: 'Incorrect code. Please try again.' }); }
+  const hash = await auth.hashPw(new_password);
+  await q(`UPDATE employees SET password_hash=$1, must_reset=FALSE WHERE id=$2`, [hash, emp.id]);
+  await q(`UPDATE password_otps SET used=TRUE WHERE id=$1`, [row.id]);
+  res.json({ ok: true, message: 'Password updated. You can now sign in with your new password.' });
+});
 
 // POST /api/login  { emp_no, password }
 router.post('/login', async (req, res) => {

@@ -484,3 +484,15 @@ CREATE INDEX IF NOT EXISTS idx_wa_log_result  ON wa_log(result);
 -- Maintenance approval gate: maintenance tickets pause for a gatekeeper (Mathan) before routing.
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS maint_gate       TEXT;   -- null | pending | approved | rejected
 ALTER TABLE tickets ADD COLUMN IF NOT EXISTS maint_gate_token TEXT;
+
+-- Password reset via WhatsApp OTP (people forget their passwords; this lets them self-serve).
+CREATE TABLE IF NOT EXISTS password_otps (
+  id          SERIAL PRIMARY KEY,
+  employee_id INT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  otp_hash    TEXT NOT NULL,
+  expires_at  TIMESTAMPTZ NOT NULL,
+  attempts    INT NOT NULL DEFAULT 0,
+  used        BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_password_otps_emp ON password_otps(employee_id, used, expires_at);
