@@ -207,6 +207,18 @@ app.get('/mta/reject/:token', async (req, res) => {
   } catch (e) { console.error('mta-reject-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
 });
 
+// --- requester one-tap "I'm Back" from the WhatsApp return reminder (no app / no scan) ---
+app.get('/gpr/:token', async (req, res) => {
+  try {
+    const op = require('../routes/outpass.routes')._internal;
+    const r = await op.markReturnByToken(req.params.token, 'self_whatsapp');
+    if (r.status === 'notfound') return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This return link is not recognised or has expired.'));
+    if (r.status === 'already') return res.send(actionPage('\u2705', 'Already logged', `Your return for ${r.ref} was already recorded. Thank you!`));
+    if (r.status === 'invalid') return res.send(actionPage('\u26d4', 'Not applicable', 'This pass can no longer be marked returned.'));
+    res.send(actionPage('\u2705', 'Return logged', `Thanks! Your return for ${r.ref} is recorded. You didn't need to scan or open the app.`));
+  } catch (e) { console.error('gpr', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again in a moment.')); }
+});
+
 // --- OT one-tap approval (WhatsApp button -> /ota/:token) ---
 function otApprovePage(token, o) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve overtime</title></head>
@@ -746,35 +758,39 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
     const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
     for (const o of overdue) {
       if (Date.now() > DEADLINE) { console.warn('[outpass-overdue] budget spent, rest deferred'); break; }
-      const mins = Math.max(cfg.overdueMin, Math.floor((Date.now() - +new Date(o.expected_back_at)) / 60000));
+      const mins = Math.floor((Date.now() - +new Date(o.expected_back_at)) / 60000);
+      const token = o.return_token || await op.ensureReturnToken(o.id);
       const payload = { employee: o.req_name, ref: o.ref_no, out_time: o.out_time,
-        expected: o.in_time, overdue_min: mins, purpose: o.purpose,
-        duty: o.on_duty ? 'On duty (official)' : 'Personal' };
+        expected: o.in_time, overdue_min: Math.max(0, mins), purpose: o.purpose,
+        duty: o.on_duty ? 'On duty (official)' : 'Personal', token };
       try {
-        // Approver: alert once. Mark done only on real delivery (or if there's no phone to try).
-        if (!o.overdue_alert_at) {
-          const ok = o.approver_phone
-            ? await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload)
-            : false;
-          if (ok || !o.approver_phone) await op.markApproverAlerted(o.id);
-        }
-        // HR: retry every run until WATI actually delivers. A decline/failure leaves hr_alert_at
-        // NULL so the next run tries again — this is the fix for "HR never got the message".
-        if (!o.hr_alert_at) {
-          if (hr && hr.phone) {
-            const ok = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
-            if (ok) await op.markHrAlerted(o.id);
-          } else {
-            await op.markHrAlerted(o.id);   // no HR configured — nothing to retry
-          }
-        }
-        // Requester: remind the person themselves to log their return — once.
+        // Requester: nudge right at their expected return time (once) — so someone already
+        // back but who forgot to log can tap "I'm Back" straight away.
         if (!o.requester_reminder_at) {
           if (o.req_phone) {
             const ok = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
             if (ok) await op.markRequesterReminded(o.id);
           } else {
             await op.markRequesterReminded(o.id);   // no phone on record — nothing to retry
+          }
+        }
+        // HR + approver: escalate only once genuinely overdue past the threshold.
+        if (mins >= cfg.overdueMin) {
+          // Approver: alert once. Mark done only on real delivery (or if there's no phone to try).
+          if (!o.overdue_alert_at) {
+            const ok = o.approver_phone
+              ? await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload)
+              : false;
+            if (ok || !o.approver_phone) await op.markApproverAlerted(o.id);
+          }
+          // HR: retry every run until WATI actually delivers.
+          if (!o.hr_alert_at) {
+            if (hr && hr.phone) {
+              const ok = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
+              if (ok) await op.markHrAlerted(o.id);
+            } else {
+              await op.markHrAlerted(o.id);   // no HR configured — nothing to retry
+            }
           }
         }
       } catch (e) { console.error('[outpass-overdue] alert failed for', o.ref_no, e.message); }

@@ -424,19 +424,37 @@ router.get('/overstay-report', async (req, res) => {
 
 // --- overdue watcher, driven by the cron. Returns rows to alert on; caller sends the WATI. ---
 async function findOverdue(overdueMin, maxHours = 16) {
+  // Return every open gatepass that has reached its expected return time (and is not yet
+  // multi-day). The caller decides who to notify: the requester is nudged right at their time,
+  // HR/approver only once past the overdue threshold.
   return (await q(
     `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
-            o.overdue_alert_at, o.hr_alert_at, o.requester_reminder_at,
+            o.overdue_alert_at, o.hr_alert_at, o.requester_reminder_at, o.return_token,
             r.name AS req_name, r.department, r.phone AS req_phone,
             ap.name AS approver_name, ap.phone AS approver_phone
      FROM outpass_requests o
      JOIN employees r ON r.id=o.requester_id
      LEFT JOIN employees ap ON ap.id=o.approver_id
      WHERE ${OPEN_WHERE}
-       AND o.expected_back_at < (now() - ($1 || ' minutes')::interval)
-       AND o.expected_back_at > (now() - ($2 || ' hours')::interval)
+       AND o.expected_back_at < now()
+       AND o.expected_back_at > (now() - ($1 || ' hours')::interval)
        AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL OR o.requester_reminder_at IS NULL)
-     ORDER BY o.expected_back_at ASC`, [String(overdueMin), String(maxHours)])).rows;
+     ORDER BY o.expected_back_at ASC`, [String(maxHours)])).rows;
+}
+async function ensureReturnToken(id) {
+  const r = (await q(`SELECT return_token FROM outpass_requests WHERE id=$1`, [id])).rows[0];
+  if (r && r.return_token) return r.return_token;
+  const tok = crypto.randomBytes(16).toString('hex');
+  await q(`UPDATE outpass_requests SET return_token=$2 WHERE id=$1`, [id, tok]);
+  return tok;
+}
+async function markReturnByToken(token, via = 'self_whatsapp') {
+  const o = (await q(`SELECT * FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
+  if (!o) return { status: 'notfound' };
+  if (o.returned_at) return { status: 'already', ref: o.ref_no };
+  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE WHERE id=$1`, [o.id, via]);
+  return { status: 'ok', ref: o.ref_no };
 }
 async function markApproverAlerted(id) {
   await q(`UPDATE outpass_requests SET overdue_alert_at=now() WHERE id=$1`, [id]);
@@ -482,4 +500,4 @@ async function backfillExpectedBack() {
 async function markOverdueAlerted(id) { await markApproverAlerted(id); }
 
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markRequesterReminded, markOverdueAlerted, backfillExpectedBack, decorateOpen };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markRequesterReminded, markOverdueAlerted, backfillExpectedBack, ensureReturnToken, markReturnByToken, decorateOpen };

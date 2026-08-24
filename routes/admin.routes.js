@@ -423,8 +423,11 @@ router.post('/outpass/:id/send-overdue', async (req, res) => {
   else results.approver_note = 'approver has no phone';
   if (hr && hr.phone) { results.hr = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload); if (results.hr) await op.markHrAlerted(o.id); }
   else results.hr_note = cfg.hrEmpId ? 'HR has no phone' : 'HR not configured';
-  if (o.req_phone) { results.requester = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload); if (results.requester) await op.markRequesterReminded(o.id); }
-  else results.requester_note = 'requester has no phone';
+  if (o.req_phone) {
+    const token = o.return_token || await op.ensureReturnToken(o.id);
+    results.requester = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, { ...payload, token });
+    if (results.requester) await op.markRequesterReminded(o.id);
+  } else results.requester_note = 'requester has no phone';
   res.json({ ok: true, ref_no: o.ref_no, hr_name: (hr && hr.name) || null, results });
 });
 
@@ -520,7 +523,7 @@ router.post('/wati-test', async (req, res) => {
   } else if (which === 'return_reminder') {
     template = wati.OUTPASS_TPL.returnReminder;
     params = { name: 'TEST Employee', ref: 'GP-TEST-01',
-      out_time: '02:15 PM', expected: '03:15 PM', overdue_min: '25' };
+      out_time: '02:15 PM', expected: '03:15 PM', overdue_min: '25', token: 'test-token' };
   } else if (which === 'ot_approval') {
     template = wati.TEMPLATES.ot_approval;
     params = { name: 'Kannan', employee: 'TEST Employee', date: '05 Aug 2026', hours: '1.50', amount: '150', pending: '3' };
@@ -991,7 +994,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED151', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED152', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
