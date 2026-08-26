@@ -16,7 +16,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/theme.css?v=2">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
     .lbl{display:block;font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-mute);margin-bottom:.25rem}
@@ -713,7 +713,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED156, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED157, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

@@ -133,3 +133,37 @@ th.fieldlabel{ display:table-cell; margin:0; }
 .dtable tbody tr:last-child td{ border-bottom:none; }
 .dtable .num{ font-family:'Space Mono',ui-monospace,monospace; text-align:right; white-space:nowrap; }
 .tablewrap{ overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:#fff; }
+
+/* ============================================================
+   Mobile-friendly pop-out dialogs
+   On short screens a vertically-centred modal clips its top/bottom
+   fields off-screen. Make every modal overlay scroll and pin its
+   dialog to the top, and let the dialog scroll its own content so
+   nothing is ever unreachable.
+   Targets the shared overlay pattern: fixed + inset-0 + justify-center.
+   ============================================================ */
+@media (max-width: 768px) {
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] {
+    align-items: flex-start !important;
+    overflow-y: auto !important;
+    padding: 0.75rem !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* The dialog card (direct child of the overlay): cap to the screen and
+     scroll internally. dvh handles mobile browser chrome correctly. */
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] > * {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: calc(100vh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+    overflow-y: auto !important;
+    margin-top: 0.5rem !important;
+    margin-bottom: 0.5rem !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  /* Comfortable tap targets + no cramped 2-col grids inside dialogs. */
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] .grid.grid-cols-2 { grid-template-columns: 1fr; }
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] input,
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] select,
+  div[class*="fixed"][class*="inset-0"][class*="justify-center"] textarea { font-size: 16px; }
+}
