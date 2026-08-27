@@ -57,6 +57,41 @@ function actionPage(emoji, title, msg) {
     <p style="color:#64748b;font-size:15px;margin:0">${msg}</p>
   </div></body></html>`;
 }
+// The "I'm Back" page: asks for the phone's location and only logs the return if at the gate.
+function gprPage(token, ref) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Log your return</title></head>
+  <body style="margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9">
+  <div style="max-width:440px;margin:10vh auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px 22px;text-align:center">
+    <div style="font-size:52px;line-height:1">📍</div>
+    <h2 style="color:#112532;margin:.4em 0 .2em">Log your return</h2>
+    <p id="msg" style="color:#64748b;font-size:15px;margin:0 0 18px">Gatepass <b>${ref}</b>. Tap below and allow location — we'll confirm you're at the gate, then record your return.</p>
+    <button id="btn" style="width:100%;padding:14px;border:0;border-radius:12px;background:#0A4566;color:#fff;font-size:16px;font-weight:600;cursor:pointer">I'm at the gate — log my return</button>
+    <p id="hint" style="color:#94a3b8;font-size:12px;margin:14px 0 0">Your location is used only to verify you're at the gate.</p>
+  </div>
+  <script>
+    var token=${JSON.stringify(token)}, btn=document.getElementById('btn'), msg=document.getElementById('msg'), hint=document.getElementById('hint');
+    function ok(t,h){ document.querySelector('div').innerHTML='<div style="font-size:52px">✅</div><h2 style="color:#112532;margin:.4em 0 .2em">'+t+'</h2><p style="color:#64748b;font-size:15px">'+h+'</p>'; }
+    function fail(t,h,retry){ msg.innerHTML='<span style="color:#b91c1c">'+t+'</span><br>'+h; btn.disabled=false; btn.textContent = retry||"Try again"; }
+    function getPos(){ return new Promise(function(res,rej){ if(!navigator.geolocation) return rej({m:'Location is not supported on this device.'});
+      navigator.geolocation.getCurrentPosition(function(p){res(p.coords);}, function(e){ rej({m: e.code===1?'Location permission denied. Please allow location for this page and try again.':'Could not get your location. Step into open sky at the gate and retry.'}); }, {enableHighAccuracy:true,timeout:15000,maximumAge:0}); }); }
+    btn.onclick=async function(){
+      btn.disabled=true; btn.textContent='Getting your location…';
+      try{
+        var c=await getPos();
+        btn.textContent='Recording return…';
+        var r=await fetch('/gpr/'+encodeURIComponent(token)+'/confirm',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:c.latitude,lng:c.longitude,accuracy:c.accuracy})});
+        var d=await r.json();
+        if(d.status==='ok') return ok('Return logged','Thanks! Your return'+(d.ref?' for '+d.ref:'')+' is recorded'+(d.dist!=null?' · '+d.dist+' m from the gate':'')+'. You can close this page.');
+        if(d.status==='far') return fail('You appear to be '+d.dist+' m from the gate.','Please come to the gate and tap again to log your return.','Try again at the gate');
+        if(d.status==='already') return ok('Already logged','Your return was already recorded. Thank you!');
+        if(d.status==='nogate') return fail('Gate location isn\\'t set up yet.','Please ask the admin to set the gate location, or use the QR at the gate.');
+        if(d.status==='noloc') return fail('Location not received.','Please allow location access and try again.');
+        return fail('This link is no longer valid.','Please use the QR at the gate or ask the guard to mark your return.');
+      }catch(e){ fail('Location needed',(e&&e.m)||'Please allow location and try again.'); }
+    };
+  </script>
+  </body></html>`;
+}
 async function loadByToken(token) {
   return (await q(
     `SELECT o.*, ap.name AS approver_name, r.name AS req_name
@@ -211,14 +246,25 @@ app.get('/mta/reject/:token', async (req, res) => {
 app.get('/gpr/:token', async (req, res) => {
   try {
     if (req.params.token === 'test-token')
-      return res.send(actionPage('\u2705', 'Button works!', 'This is the test link — the "I\'m Back" button is wired up correctly. A real reminder will log the actual return.'));
+      return res.send(gprPage('test-token', 'GP-TEST-01'));
     const op = require('../routes/outpass.routes')._internal;
-    const r = await op.markReturnByToken(req.params.token, 'self_whatsapp');
+    const r = await op.peekReturnToken(req.params.token);
     if (r.status === 'notfound') return res.status(404).send(actionPage('\u26d4', 'Link not valid', 'This return link is not recognised or has expired.'));
     if (r.status === 'already') return res.send(actionPage('\u2705', 'Already logged', `Your return for ${r.ref} was already recorded. Thank you!`));
     if (r.status === 'invalid') return res.send(actionPage('\u26d4', 'Not applicable', 'This pass can no longer be marked returned.'));
-    res.send(actionPage('\u2705', 'Return logged', `Thanks! Your return for ${r.ref} is recorded. You didn't need to scan or open the app.`));
+    res.send(gprPage(req.params.token, r.ref));   // ask for location, then verify
   } catch (e) { console.error('gpr', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again in a moment.')); }
+});
+// The page posts the phone's GPS here; we only log the return if inside the gate radius.
+app.post('/gpr/:token/confirm', async (req, res) => {
+  try {
+    if (req.params.token === 'test-token') return res.json({ status: 'ok', ref: 'GP-TEST-01', dist: 0, test: true });
+    const { lat, lng, accuracy } = req.body || {};
+    const op = require('../routes/outpass.routes')._internal;
+    const r = await op.markReturnByTokenGps(req.params.token, Number(lat), Number(lng), accuracy);
+    const code = { ok: 200, far: 422, noloc: 400, nogate: 503, already: 409, invalid: 409, notfound: 404 }[r.status] || 400;
+    res.status(code).json(r);
+  } catch (e) { console.error('gpr confirm', e); res.status(500).json({ status: 'error' }); }
 });
 
 // --- OT one-tap approval (WhatsApp button -> /ota/:token) ---

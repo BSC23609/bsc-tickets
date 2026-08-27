@@ -456,6 +456,31 @@ async function markReturnByToken(token, via = 'self_whatsapp') {
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE WHERE id=$1`, [o.id, via]);
   return { status: 'ok', ref: o.ref_no };
 }
+// Read-only check so the "I'm Back" page knows what to render before asking for location.
+async function peekReturnToken(token) {
+  const o = (await q(`SELECT ref_no, status, type, returned_at FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
+  if (!o) return { status: 'notfound' };
+  if (o.returned_at) return { status: 'already', ref: o.ref_no };
+  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  return { status: 'ok', ref: o.ref_no };
+}
+// GPS-verified self-return from the WhatsApp button — same geofence rule as the QR scan.
+async function markReturnByTokenGps(token, lat, lng, accuracy) {
+  const o = (await q(`SELECT * FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
+  if (!o) return { status: 'notfound' };
+  if (o.returned_at) return { status: 'already', ref: o.ref_no };
+  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return { status: 'noloc', ref: o.ref_no };
+  const cfg = await gateConfig();
+  if (cfg.lat == null || cfg.lng == null) return { status: 'nogate', ref: o.ref_no };
+  const dist = Math.round(haversineMeters(lat, lng, cfg.lat, cfg.lng));
+  const allow = cfg.radius + Math.min(Number(accuracy) || 0, 100);   // pad by the reading's own accuracy
+  if (dist > allow) return { status: 'far', ref: o.ref_no, dist, radius: cfg.radius };
+  await q(`UPDATE outpass_requests SET returned_at=now(), returned_via='self_whatsapp', return_verified=TRUE,
+           return_lat=$2, return_lng=$3, return_accuracy_m=$4, return_distance_m=$5 WHERE id=$1`,
+          [o.id, lat, lng, Number(accuracy) || null, dist]);
+  return { status: 'ok', ref: o.ref_no, dist };
+}
 async function markApproverAlerted(id) {
   await q(`UPDATE outpass_requests SET overdue_alert_at=now() WHERE id=$1`, [id]);
 }
@@ -500,4 +525,4 @@ async function backfillExpectedBack() {
 async function markOverdueAlerted(id) { await markApproverAlerted(id); }
 
 module.exports = router;
-module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markRequesterReminded, markOverdueAlerted, backfillExpectedBack, ensureReturnToken, markReturnByToken, decorateOpen };
+module.exports._internal = { applyApprove, applyReject, gateConfig, findOverdue, markApproverAlerted, markHrAlerted, markRequesterReminded, markOverdueAlerted, backfillExpectedBack, ensureReturnToken, markReturnByToken, peekReturnToken, markReturnByTokenGps, decorateOpen };
