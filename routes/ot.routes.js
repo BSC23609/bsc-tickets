@@ -159,6 +159,28 @@ router.post('/entry', async (req, res) => {
   res.json({ ok: true, id: row.id, amount: calc.amount, hours: calc.hours, is_late: late });
 });
 
+// Edit a DRAFT entry's date and/or end time (e.g. logged on the wrong day). Draft-only.
+router.post('/entry/:id/edit', async (req, res) => {
+  if (!isEligible(req.user)) return res.status(403).json({ error: 'OT logging is only for Production and Dispatch staff.' });
+  const otDate = String((req.body && req.body.ot_date) || '').slice(0, 10);
+  const endTime = String((req.body && req.body.end_time) || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(otDate)) return res.status(400).json({ error: 'Pick a valid date' });
+  if (otDate > new Date().toISOString().slice(0, 10)) return res.status(400).json({ error: 'Cannot log OT for a future date' });
+  const calc = computeOt(endTime);
+  if (!calc.valid) return res.status(400).json({ error: calc.error });
+  const e = (await q('SELECT * FROM ot_entries WHERE id=$1 AND employee_id=$2', [req.params.id, req.user.id])).rows[0];
+  if (!e) return res.status(404).json({ error: 'Entry not found' });
+  if (e.status !== 'draft') return res.status(400).json({ error: `This entry is already ${e.status} and can't be edited.` });
+  // One entry per person per day — make sure the new date isn't taken by a different entry.
+  const clash = (await q('SELECT id FROM ot_entries WHERE employee_id=$1 AND ot_date=$2 AND id<>$3', [req.user.id, otDate, e.id])).rows[0];
+  if (clash) return res.status(400).json({ error: 'You already have an OT entry on that date. Edit or remove that one instead.' });
+  const period = periodOf(otDate);
+  const late = isLate(otDate);
+  await q(`UPDATE ot_entries SET ot_date=$2, end_time=$3, ot_minutes=$4, hours=$5, amount=$6, is_late=$7, period=$8, updated_at=now() WHERE id=$1`,
+    [e.id, otDate, endTime, calc.ot_minutes, calc.hours, calc.amount, late, period]);
+  res.json({ ok: true, id: e.id, amount: calc.amount, hours: calc.hours, is_late: late });
+});
+
 // Remove a still-draft entry.
 // Revert an entry back to draft so the employee can fix and resubmit — allowed until HR verifies it
 // (i.e. while pending / approved / rejected). Clears any approval/rejection so it starts fresh.

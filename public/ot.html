@@ -44,6 +44,7 @@
         <div id="calcHint" class="text-xs text-slate-500 mt-2"></div>
         <div id="lateHint" class="hidden text-xs text-amber-700 mt-1 font-semibold">&#9888; Logging more than 24 h after the OT day &mdash; it will be flagged as a late entry.</div>
         <button id="saveBtn" onclick="saveEntry()" class="mt-3 text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">Save OT entry</button>
+        <button id="cancelEditBtn" onclick="cancelEdit()" class="hidden mt-3 ml-2 text-slate-600 text-sm font-semibold px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50">Cancel edit</button>
       </div>
       <div class="flex items-center justify-between mb-2">
         <div class="eyebrow">This month</div>
@@ -174,13 +175,30 @@
       const shiftEnd=new Date(d+'T19:00:00+05:30');
       document.getElementById('lateHint').classList.toggle('hidden', Date.now() <= shiftEnd.getTime()+24*3600*1000);
     }
+    let editingId = null;
     async function saveEntry(){
       const ot_date=document.getElementById('otDate').value, end_time=document.getElementById('endTime').value;
       if(!ot_date) return toast('Pick the OT date','error');
       const btn=document.getElementById('saveBtn'); btn.disabled=true;
-      try{ const r=await api('/ot/entry',{method:'POST',body:{ot_date,end_time}});
-        toast('Saved '+rupee(r.amount)+(r.is_late?' (late)':''),'success'); await entryLoad(); }
+      try{ const url = editingId ? '/ot/entry/'+editingId+'/edit' : '/ot/entry';
+        const r=await api(url,{method:'POST',body:{ot_date,end_time}});
+        toast((editingId?'Updated ':'Saved ')+rupee(r.amount)+(r.is_late?' (late)':''),'success');
+        cancelEdit(); await entryLoad(); }
       catch(e){ toast(e.message,'error'); } finally{ btn.disabled=false; }
+    }
+    function editEntry(id, date, end){
+      editingId = id;
+      document.getElementById('otDate').value = date;
+      document.getElementById('endTime').value = end;
+      preview(); checkLate();
+      document.getElementById('saveBtn').textContent = 'Update OT entry';
+      document.getElementById('cancelEditBtn').classList.remove('hidden');
+      document.getElementById('otDate').scrollIntoView({behavior:'smooth', block:'center'});
+    }
+    function cancelEdit(){
+      editingId = null;
+      document.getElementById('saveBtn').textContent = 'Save OT entry';
+      document.getElementById('cancelEditBtn').classList.add('hidden');
     }
     async function delEntry(id){ if(!confirm('Remove this OT entry?')) return;
       try{ await api('/ot/entry/'+id,{method:'DELETE'}); toast('Removed','info'); await entryLoad(); }catch(e){ toast(e.message,'error'); } }
@@ -209,7 +227,7 @@
           '<td class="px-4 py-2 mono">'+e.end_time+'</td><td class="px-4 py-2 text-right mono">'+Number(e.hours).toFixed(2)+'</td>'+
           '<td class="px-4 py-2 text-right mono font-semibold">'+rupee(e.amount)+'</td>'+
           '<td class="px-4 py-2"><span class="text-[11px] font-semibold px-2 py-0.5 rounded '+st[1]+'">'+st[0]+'</span>'+(e.status==='rejected'&&e.reject_reason?'<div class="text-[10px] text-red-500 mt-0.5">'+e.reject_reason+'</div>':'')+'</td>'+
-          '<td class="px-4 py-2 text-right">'+(e.status==='draft'?'<button onclick="submitDay(\''+e.ot_date+'\')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry('+e.id+')" class="text-red-600 text-xs hover:underline">Remove</button>':(['pending','approved','rejected'].includes(e.status)?'<button onclick="revertEntry('+e.id+')" class="text-amber-700 text-xs font-semibold hover:underline">Revert to draft</button>':''))+'</td>';
+          '<td class="px-4 py-2 text-right">'+(e.status==='draft'?'<button onclick="editEntry('+e.id+',\''+e.ot_date+'\',\''+e.end_time+'\')" class="text-brand-600 text-xs font-semibold hover:underline mr-2">Edit</button><button onclick="submitDay(\''+e.ot_date+'\')" class="text-emerald-700 text-xs font-semibold hover:underline mr-2">Submit</button><button onclick="delEntry('+e.id+')" class="text-red-600 text-xs hover:underline">Remove</button>':(['pending','approved','rejected'].includes(e.status)?'<button onclick="revertEntry('+e.id+')" class="text-amber-700 text-xs font-semibold hover:underline">Revert to draft</button>':''))+'</td>';
         tb.appendChild(tr); });
       document.getElementById('entryTotal').textContent=rupee(total);
       document.getElementById('entryEmpty').classList.toggle('hidden',(m.entries||[]).length>0);
