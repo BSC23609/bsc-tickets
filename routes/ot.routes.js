@@ -249,6 +249,45 @@ router.post('/submit', async (req, res) => {
   })());
 });
 
+// Submit ALL draft OT entries for a month in one go (same rules as per-day submit).
+router.post('/submit-all', async (req, res) => {
+  if (!isEligible(req.user)) return res.status(403).json({ error: 'OT is only for Production and Dispatch staff.' });
+  const period = String((req.body && req.body.period) || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(period)) return res.status(400).json({ error: 'Bad period' });
+  const drafts = (await q(`SELECT * FROM ot_entries WHERE employee_id=$1 AND period=$2 AND status='draft' ORDER BY ot_date`, [req.user.id, period])).rows;
+  if (!drafts.length) return res.status(400).json({ error: 'No draft OT entries to submit for this month.' });
+
+  const approverId = await otApproverId(req.user.department);
+  if (!approverId) return res.status(400).json({ error: `No OT approver set for ${req.user.department}. Ask admin to configure it.` });
+
+  // Self-approver logging their own OT → approve them all, straight to HR.
+  if (approverId === req.user.id) {
+    await q(`UPDATE ot_entries SET status='approved', approver_emp_id=$1, approver_name=$2, reviewed_at=now(), updated_at=now()
+             WHERE employee_id=$1 AND period=$3 AND status='draft'`, [req.user.id, req.user.name, period]);
+    res.json({ ok: true, self_approved: true, count: drafts.length });
+    background((async () => { await pingHr(); })());
+    return;
+  }
+
+  // Otherwise set them all pending with their own one-tap tokens, then notify the approver.
+  for (const e of drafts) {
+    const token = crypto.randomBytes(16).toString('hex');
+    await q(`UPDATE ot_entries SET status='pending', approver_emp_id=$2, action_token=$3, updated_at=now() WHERE id=$1`, [e.id, approverId, token]);
+    e._token = token;
+  }
+  res.json({ ok: true, pending: true, count: drafts.length });
+
+  background((async () => {
+    const appr = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [approverId])).rows[0];
+    if (!appr || !appr.phone) return;
+    for (const e of drafts) {
+      const pend = +(await q(`SELECT count(*) FROM ot_entries WHERE approver_emp_id=$1 AND status='pending'`, [approverId])).rows[0].count;
+      try { await wati.notify.ot.approval(appr, { employee: req.user.name, date: e.ot_date, hours: (+e.hours).toFixed(2), amount: e.amount, pending: pend, token: e._token }); }
+      catch (err) { console.error('[ot submit-all notify]', err.message); }
+    }
+  })());
+});
+
 // ---- Approver side (Kannan / Kumar) ----
 router.get('/approvals', async (req, res) => {
   const admin = !!req.user.is_admin;

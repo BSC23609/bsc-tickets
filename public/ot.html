@@ -46,9 +46,12 @@
         <button id="saveBtn" onclick="saveEntry()" class="mt-3 text-white text-sm font-semibold px-5 py-2.5 rounded-xl" style="background:#0A4566">Save OT entry</button>
         <button id="cancelEditBtn" onclick="cancelEdit()" class="hidden mt-3 ml-2 text-slate-600 text-sm font-semibold px-4 py-2.5 rounded-xl border border-slate-300 hover:bg-slate-50">Cancel edit</button>
       </div>
-      <div class="flex items-center justify-between mb-2">
+      <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <div class="eyebrow">This month</div>
-        <input id="period" type="month" class="field !w-auto text-sm" onchange="entryLoad()">
+        <div class="flex items-center gap-2">
+          <button id="submitAllBtn" onclick="submitAll()" class="hidden text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566">Submit all drafts</button>
+          <input id="period" type="month" class="field !w-auto text-sm" onchange="entryLoad()">
+        </div>
       </div>
       <div class="card p-0 overflow-hidden">
         <table class="w-full text-sm">
@@ -231,6 +234,18 @@
         tb.appendChild(tr); });
       document.getElementById('entryTotal').textContent=rupee(total);
       document.getElementById('entryEmpty').classList.toggle('hidden',(m.entries||[]).length>0);
+      const drafts=(m.entries||[]).filter(e=>e.status==='draft').length;
+      const sab=document.getElementById('submitAllBtn');
+      sab.classList.toggle('hidden', drafts<2);
+      sab.textContent='Submit all drafts ('+drafts+')';
+    }
+    async function submitAll(){
+      const period=document.getElementById('period').value || new Date().toISOString().slice(0,7);
+      if(!confirm('Submit ALL draft OT entries for this month for approval? You won\'t be able to edit them after.')) return;
+      const btn=document.getElementById('submitAllBtn'); btn.disabled=true;
+      try{ const r=await api('/ot/submit-all',{method:'POST',body:{period}});
+        toast((r.self_approved?'Submitted '+r.count+' (auto-approved)':'Submitted '+r.count+' for approval'),'success'); await entryLoad(); }
+      catch(e){ toast(e.message,'error'); } finally{ btn.disabled=false; }
     }
 
     let apprData = [];
