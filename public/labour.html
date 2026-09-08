@@ -163,14 +163,15 @@
     }
 
     /* ---------- OT add grid ---------- */
-    function otAddRow(n){ for(let k=0;k<(n||1);k++) otRows.push({name:'',hours:''}); otRender(); }
+    function otAddRow(n){ for(let k=0;k<(n||1);k++) otRows.push({code:'',name:'',hours:''}); otRender(); }
     function otUpd(i,k,v){ otRows[i][k]=v; if(k==='hours'){ const el=document.getElementById('ot_amt_'+i); if(el) el.textContent=rupee(otAmt(v)); otTot(); } }
     function otDelRow(i){ otRows.splice(i,1); otRender(); }
     function otTot(){ document.getElementById('otNewTotal').textContent=rupee(otRows.reduce((s,r)=>s+otAmt(r.hours),0)); }
     function otRender(){
       document.getElementById('otRows').innerHTML = otRows.length ? otRows.map((r,i)=>`
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
-          <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Emp code</label><input value="${esc(r.code)}" oninput="otUpd(${i},'code',this.value)" placeholder="code" class="field !py-1.5 text-xs w-24"></div>
+          <div class="flex-1 min-w-[140px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Hours</label><input type="number" min="0" step="0.5" value="${r.hours||''}" oninput="otUpd(${i},'hours',this.value)" placeholder="2.5" class="field !py-1.5 text-xs w-24"></div>
           <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold" id="ot_amt_${i}">${rupee(otAmt(r.hours))}</div></div>
           <button onclick="otDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
@@ -178,7 +179,7 @@
       otTot();
     }
     async function otSaveAll(){
-      const entries=otRows.filter(r=>r.name.trim()&&parseFloat(r.hours)>0).map(r=>({labour_name:r.name.trim(),hours:parseFloat(r.hours)}));
+      const entries=otRows.filter(r=>r.name.trim()&&parseFloat(r.hours)>0).map(r=>({labour_code:(r.code||'').trim(),labour_name:r.name.trim(),hours:parseFloat(r.hours)}));
       if(!entries.length) return toast('Add name and hours','error');
       try{ const res=await api('/labour/ot/bulk',{method:'POST',body:{company:CO,month:month(),entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); otRows=[]; otRender(); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
@@ -188,29 +189,31 @@
       if(!OV.ot.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No OT posted yet this month.</div>'; return; }
       const locked=OV.locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
-        ${['Name','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
-        ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+        ${['Code','Name','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
           :`<tr class="border-b border-line/60" data-id="${r.id}">
+            <td class="px-2 py-1"><input data-f="labour_code" value="${esc(r.labour_code||'')}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs"></td>
             <td class="px-2 py-1"><input data-f="hours" type="number" min="0" step="0.5" value="${r.hours}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
             <td class="px-2 py-1 text-right"><button onclick="delOt(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
-        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="2">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.ot_total)}</td><td></td></tr>
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="3">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.ot_total)}</td><td></td></tr>
         </tbody></table></div>`;
     }
     async function editOt(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
-      try{ await api('/labour/ot/'+id,{method:'PUT',body:{labour_name:g('labour_name'),hours:g('hours')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+      try{ await api('/labour/ot/'+id,{method:'PUT',body:{labour_code:g('labour_code'),labour_name:g('labour_name'),hours:g('hours')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
     async function delOt(id){ if(!confirm('Remove this OT entry?'))return; try{ await api('/labour/ot/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- Shearing add grid ---------- */
-    function shAddRow(n){ for(let k=0;k<(n||1);k++) shRows.push({name:'',days:''}); shRender(); }
+    function shAddRow(n){ for(let k=0;k<(n||1);k++) shRows.push({code:'',name:'',days:''}); shRender(); }
     function shUpd(i,k,v){ shRows[i][k]=v; if(k==='days'){ const el=document.getElementById('sh_amt_'+i); if(el) el.textContent=rupee(shAmt(v)); shTot(); } }
     function shDelRow(i){ shRows.splice(i,1); shRender(); }
     function shTot(){ document.getElementById('shNewTotal').textContent=rupee(shRows.reduce((s,r)=>s+shAmt(r.days),0)); }
     function shRender(){
       document.getElementById('shRows').innerHTML = shRows.length ? shRows.map((r,i)=>`
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
-          <div class="flex-1 min-w-[150px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Emp code</label><input value="${esc(r.code)}" oninput="shUpd(${i},'code',this.value)" placeholder="code" class="field !py-1.5 text-xs w-24"></div>
+          <div class="flex-1 min-w-[130px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Days</label><input type="number" min="0" step="1" value="${r.days||''}" oninput="shUpd(${i},'days',this.value)" placeholder="e.g. 6" class="field !py-1.5 text-xs w-24"></div>
           <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold" id="sh_amt_${i}">${rupee(shAmt(r.days))}</div></div>
           <button onclick="shDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
@@ -218,7 +221,7 @@
       shTot();
     }
     async function shSaveAll(){
-      const entries=shRows.filter(r=>r.name.trim()&&parseFloat(r.days)>0).map(r=>({labour_name:r.name.trim(),days:parseFloat(r.days)}));
+      const entries=shRows.filter(r=>r.name.trim()&&parseFloat(r.days)>0).map(r=>({labour_code:(r.code||'').trim(),labour_name:r.name.trim(),days:parseFloat(r.days)}));
       if(!entries.length) return toast('Add name and days','error');
       try{ const res=await api('/labour/shearing/bulk',{method:'POST',body:{company:CO,month:month(),entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); shRows=[]; shRender(); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
@@ -228,18 +231,19 @@
       if(!OV.shearing.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No shearing posted yet this month.</div>'; return; }
       const locked=OV.locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
-        ${['Name','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
-        ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+        ${['Code','Name','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
           :`<tr class="border-b border-line/60" data-id="${r.id}">
+            <td class="px-2 py-1"><input data-f="labour_code" value="${esc(r.labour_code||'')}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs"></td>
             <td class="px-2 py-1"><input data-f="days" type="number" min="0" step="1" value="${r.days}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
             <td class="px-2 py-1 text-right"><button onclick="delSh(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
-        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="2">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.shearing_total)}</td><td></td></tr>
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="3">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.shearing_total)}</td><td></td></tr>
         </tbody></table></div>`;
     }
     async function editSh(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
-      try{ await api('/labour/shearing/'+id,{method:'PUT',body:{labour_name:g('labour_name'),days:g('days')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+      try{ await api('/labour/shearing/'+id,{method:'PUT',body:{labour_code:g('labour_code'),labour_name:g('labour_name'),days:g('days')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
     async function delSh(id){ if(!confirm('Remove this shearing entry?'))return; try{ await api('/labour/shearing/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- submit / approve ---------- */

@@ -548,3 +548,7 @@ CREATE TABLE IF NOT EXISTS labour_period (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE(company, period)
 );
+
+-- Labour payments: capture an employee/labour code alongside the name.
+ALTER TABLE labour_ot ADD COLUMN IF NOT EXISTS labour_code TEXT;
+ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS labour_code TEXT;
