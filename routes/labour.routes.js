@@ -60,7 +60,7 @@ router.get('/overview', async (req, res) => {
   const company = COMP(req.query.company); if (!company) return res.status(400).json({ error: 'Bad company' });
   const month = isValidMonth(req.query.month) ? req.query.month : new Date().toISOString().slice(0, 7);
   const p = await periodRow(company, month);
-  const ot = (await q(`SELECT id,labour_code,labour_name,hours,amount FROM labour_ot WHERE company=$1 AND period=$2 ORDER BY labour_name`, [company, month])).rows;
+  const ot = (await q(`SELECT id,labour_code,labour_name,to_char(ot_date,'YYYY-MM-DD') AS ot_date,hours,amount FROM labour_ot WHERE company=$1 AND period=$2 ORDER BY labour_name,ot_date`, [company, month])).rows;
   const shearing = (await q(`SELECT id,labour_code,labour_name,days,amount FROM labour_shearing WHERE company=$1 AND period=$2 ORDER BY labour_name`, [company, month])).rows;
   const otNames = (await q(`SELECT DISTINCT labour_name FROM labour_ot WHERE company=$1 ORDER BY labour_name`, [company])).rows.map(r => r.labour_name);
   const shNames = (await q(`SELECT DISTINCT labour_name FROM labour_shearing WHERE company=$1 ORDER BY labour_name`, [company])).rows.map(r => r.labour_name);
@@ -80,20 +80,23 @@ router.post('/ot/bulk', async (req, res) => {
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
   const month = isValidMonth(req.body.month) ? req.body.month : new Date().toISOString().slice(0, 7);
   if (!(await assertEditable(company, month, res))) return;
+  const today = new Date().toISOString().slice(0, 10);
   const clean = [];
   for (const e of (req.body.entries || [])) {
-    const name = String(e.labour_name || '').trim(), code = String(e.labour_code || '').trim(), hours = parseFloat(e.hours);
+    const name = String(e.labour_name || '').trim(), code = String(e.labour_code || '').trim();
+    const date = String(e.ot_date || '').slice(0, 10), hours = parseFloat(e.hours);
     if (!name) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: `Pick a date for ${name}` });
+    if (date > today) return res.status(400).json({ error: `Future date not allowed (${name})` });
     if (!(hours > 0)) return res.status(400).json({ error: `Enter hours for ${name}` });
-    clean.push({ name, code, hours: +hours.toFixed(2), amount: otAmount(hours) });
+    clean.push({ name, code, date, hours: +hours.toFixed(2), amount: otAmount(hours) });
   }
   if (!clean.length) return res.status(400).json({ error: 'Add at least one row with name and hours.' });
-  const otDate = month + '-01';   // date isn't tracked per row; month is the unit
   let total = 0;
   for (const c of clean) {
     total += c.amount;
     await q(`INSERT INTO labour_ot(company,labour_code,labour_name,ot_date,period,hours,amount,entered_by_id,entered_by_name)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [company, c.code, c.name, otDate, month, c.hours, c.amount, req.user.id, req.user.name]);
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [company, c.code, c.name, c.date, month, c.hours, c.amount, req.user.id, req.user.name]);
   }
   await refreshTotals(company, month);
   res.json({ ok: true, count: clean.length, total });
@@ -102,11 +105,12 @@ router.put('/ot/:id', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const row = (await q(`SELECT * FROM labour_ot WHERE id=$1`, [req.params.id])).rows[0];
   if (!row) return res.status(404).json({ error: 'Not found' });
-  const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim(), hours = parseFloat(req.body.hours);
-  if (!name || !(hours > 0)) return res.status(400).json({ error: 'Name and hours are required.' });
+  const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim();
+  const date = String(req.body.ot_date || '').slice(0, 10), hours = parseFloat(req.body.hours);
+  if (!name || !(hours > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Name, date and hours are required.' });
   if (!(await assertEditable(row.company, row.period, res))) return;
-  await q(`UPDATE labour_ot SET labour_code=$2,labour_name=$3,hours=$4,amount=$5,updated_at=now() WHERE id=$1`,
-    [row.id, code, name, +hours.toFixed(2), otAmount(hours)]);
+  await q(`UPDATE labour_ot SET labour_code=$2,labour_name=$3,ot_date=$4,hours=$5,amount=$6,updated_at=now() WHERE id=$1`,
+    [row.id, code, name, date, +hours.toFixed(2), otAmount(hours)]);
   await refreshTotals(row.company, row.period);
   res.json({ ok: true });
 });
@@ -221,18 +225,18 @@ router.post('/return', async (req, res) => {
 // ---------- report (HTML, used for the accounts email + on-screen/print) ----------
 async function buildReportHtml(company, month) {
   const co = LABOUR_CO[company];
-  const ot = (await q(`SELECT labour_code,labour_name,hours,amount FROM labour_ot WHERE company=$1 AND period=$2 ORDER BY labour_name`, [company, month])).rows;
+  const ot = (await q(`SELECT labour_code,labour_name,to_char(ot_date,'DD Mon') AS d,hours,amount FROM labour_ot WHERE company=$1 AND period=$2 ORDER BY labour_name,ot_date`, [company, month])).rows;
   const sh = (await q(`SELECT labour_code,labour_name,days,amount FROM labour_shearing WHERE company=$1 AND period=$2 ORDER BY labour_name`, [company, month])).rows;
   const otT = ot.reduce((s, r) => s + r.amount, 0), shT = sh.reduce((s, r) => s + r.amount, 0);
   const th = 'style="text-align:left;padding:6px 10px;border-bottom:2px solid #0A4566;font-size:12px;text-transform:uppercase;color:#0A4566"';
   const td = 'style="padding:6px 10px;border-bottom:1px solid #e5e7eb;font-size:13px"';
-  const otRows = ot.map(r => `<tr><td ${td}>${r.labour_code||'—'}</td><td ${td}>${r.labour_name}</td><td ${td}>${(+r.hours).toFixed(2)}</td><td ${td} align="right">${money(r.amount)}</td></tr>`).join('') || `<tr><td ${td} colspan="4">No OT entries.</td></tr>`;
+  const otRows = ot.map(r => `<tr><td ${td}>${r.labour_code||'—'}</td><td ${td}>${r.labour_name}</td><td ${td}>${r.d}</td><td ${td}>${(+r.hours).toFixed(2)}</td><td ${td} align="right">${money(r.amount)}</td></tr>`).join('') || `<tr><td ${td} colspan="5">No OT entries.</td></tr>`;
   const shRows = sh.map(r => `<tr><td ${td}>${r.labour_code||'—'}</td><td ${td}>${r.labour_name}</td><td ${td}>${(+r.days).toFixed(1)}</td><td ${td} align="right">${money(r.amount)}</td></tr>`).join('') || `<tr><td ${td} colspan="4">No shearing entries.</td></tr>`;
   return `<div style="font-family:Segoe UI,Arial,sans-serif;color:#111;max-width:640px">
     <h2 style="color:#0A4566;margin:0 0 2px">Labour Payments — ${co.label}</h2>
     <div style="color:#555;margin-bottom:16px">${monthName(month)} · management-approved</div>
     <h3 style="margin:14px 0 4px">Overtime <span style="color:#0A4566">(${money(otT)})</span></h3>
-    <table style="border-collapse:collapse;width:100%"><tr><th ${th}>Code</th><th ${th}>Name</th><th ${th}>Hours</th><th ${th} align="right">Amount</th></tr>${otRows}</table>
+    <table style="border-collapse:collapse;width:100%"><tr><th ${th}>Code</th><th ${th}>Name</th><th ${th}>Date</th><th ${th}>Hours</th><th ${th} align="right">Amount</th></tr>${otRows}</table>
     <h3 style="margin:18px 0 4px">Shed B — Shearing <span style="color:#0A4566">(${money(shT)})</span></h3>
     <table style="border-collapse:collapse;width:100%"><tr><th ${th}>Code</th><th ${th}>Name</th><th ${th}>Days</th><th ${th} align="right">Amount</th></tr>${shRows}</table>
     <div style="margin-top:18px;padding:12px;background:#f1f5f9;border-radius:8px;font-size:16px"><b>Grand total: ${money(otT + shT)}</b></div>
