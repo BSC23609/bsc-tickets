@@ -164,7 +164,7 @@
 
     /* ---------- OT add grid ---------- */
     function otAddRow(n){ for(let k=0;k<(n||1);k++) otRows.push({name:'',hours:''}); otRender(); }
-    function otUpd(i,k,v){ otRows[i][k]=v; if(k==='hours') otRender(); else otTot(); }
+    function otUpd(i,k,v){ otRows[i][k]=v; if(k==='hours'){ const el=document.getElementById('ot_amt_'+i); if(el) el.textContent=rupee(otAmt(v)); otTot(); } }
     function otDelRow(i){ otRows.splice(i,1); otRender(); }
     function otTot(){ document.getElementById('otNewTotal').textContent=rupee(otRows.reduce((s,r)=>s+otAmt(r.hours),0)); }
     function otRender(){
@@ -172,7 +172,7 @@
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
           <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Hours</label><input type="number" min="0" step="0.5" value="${r.hours||''}" oninput="otUpd(${i},'hours',this.value)" placeholder="2.5" class="field !py-1.5 text-xs w-24"></div>
-          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold">${rupee(otAmt(r.hours))}</div></div>
+          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold" id="ot_amt_${i}">${rupee(otAmt(r.hours))}</div></div>
           <button onclick="otDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour to log OT.</div>';
       otTot();
@@ -204,7 +204,7 @@
 
     /* ---------- Shearing add grid ---------- */
     function shAddRow(n){ for(let k=0;k<(n||1);k++) shRows.push({name:'',days:''}); shRender(); }
-    function shUpd(i,k,v){ shRows[i][k]=v; if(k==='days') shRender(); else shTot(); }
+    function shUpd(i,k,v){ shRows[i][k]=v; if(k==='days'){ const el=document.getElementById('sh_amt_'+i); if(el) el.textContent=rupee(shAmt(v)); shTot(); } }
     function shDelRow(i){ shRows.splice(i,1); shRender(); }
     function shTot(){ document.getElementById('shNewTotal').textContent=rupee(shRows.reduce((s,r)=>s+shAmt(r.days),0)); }
     function shRender(){
@@ -212,7 +212,7 @@
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
           <div class="flex-1 min-w-[150px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
           <div><label class="fieldlabel">Days</label><input type="number" min="0" step="1" value="${r.days||''}" oninput="shUpd(${i},'days',this.value)" placeholder="e.g. 6" class="field !py-1.5 text-xs w-24"></div>
-          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold">${rupee(shAmt(r.days))}</div></div>
+          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold" id="sh_amt_${i}">${rupee(shAmt(r.days))}</div></div>
           <button onclick="shDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour for shearing days.</div>';
       shTot();
