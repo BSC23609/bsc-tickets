@@ -94,6 +94,7 @@ router.get('/me', auth.requireAuth, async (req, res) => {
     ot_approver: ((await q(`SELECT value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch')`)).rows.map(r => +r.value)).includes(u.id),
     ot_hr: (await q(`SELECT 1 FROM app_settings WHERE key='ot_hr_emp_id' AND value=$1`, [String(u.id)])).rows.length > 0,
     ot_mgmt: ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).includes(u.id),
+    expense_final: u.is_admin || ((await require('../lib/chain').getChain()).final_approver_ids || []).includes(u.id),
     apps: require('../lib/apps').appAccessFor(u),
     token,
   });

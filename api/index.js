@@ -397,6 +397,7 @@ app.use('/api/outpass', require('../routes/outpass.routes'));
 app.use('/api/expense', require('../routes/expense.routes'));
 app.use('/api/ot', require('../routes/ot.routes'));
 app.use('/api/labour', require('../routes/labour.routes'));
+app.use('/api/final', require('../routes/final.routes'));
 app.use('/api/inbox', require('../routes/inbox.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
 

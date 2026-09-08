@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Final Approvals — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css?v=2">
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-3xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <button onclick="logout()" class="deck-out">Sign out</button>
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Management</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Final Approval for Payments</h1>
+      <p class="text-sm text-slate-500 mt-1">Everything awaiting your final approval — expenses, staff overtime and labour payments.</p>
+    </div>
+
+    <div id="denied" class="hidden card p-8 text-center text-slate-500">This module is for management and admins only.</div>
+
+    <div id="ui" class="hidden">
+      <div class="flex items-end gap-2 mb-4 flex-wrap">
+        <div><label class="fieldlabel">Type</label>
+          <select id="fType" class="field !w-auto text-sm" onchange="render()">
+            <option value="">All types</option>
+            <option value="conveyance">Local Conveyance</option>
+            <option value="outstation">Outstation</option>
+            <option value="misc">Miscellaneous</option>
+            <option value="ot">Overtime</option>
+            <option value="labour">Labours</option>
+          </select></div>
+        <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Employee / payee</label>
+          <input id="fName" oninput="render()" placeholder="Search name…" class="field text-sm"></div>
+        <button onclick="load()" class="btn-ghost text-sm">↻ Refresh</button>
+      </div>
+
+      <div class="card p-4 mb-4 flex items-center justify-between" style="background:#0A4566;color:#fff">
+        <div class="text-sm opacity-80"><span id="cnt" class="font-bold"></span> awaiting approval</div>
+        <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
+      </div>
+
+      <div id="groups"></div>
+      <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">✅</div>Nothing awaiting final approval.</div>
+    </div>
+  </main>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50"></div>
+
+  <script src="/js/common.js?v=89"></script>
+  <script>
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const rupee = n => '\u20b9' + Number(n||0).toLocaleString('en-IN');
+    let me=null, ITEMS=[];
+
+    (async function init(){
+      try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
+      if(!(me.is_admin || me.ot_mgmt || me.expense_final)){ document.getElementById('denied').classList.remove('hidden'); return; }
+      document.getElementById('ui').classList.remove('hidden');
+      await load();
+    })();
+    async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+
+    async function load(){
+      try{ const d=await api('/final/queue'); ITEMS=d.items||[]; render(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+
+    function typeBadge(t){
+      const m={conveyance:['bg-blue-100 text-blue-700','Conveyance'],outstation:['bg-teal-100 text-teal-700','Outstation'],
+        misc:['bg-violet-100 text-violet-700','Misc'],ot:['bg-amber-100 text-amber-700','Overtime'],labour:['bg-emerald-100 text-emerald-700','Labours']};
+      const x=m[t]||['bg-slate-100 text-slate-600',t]; return '<span class="pill '+x[0]+'">'+x[1]+'</span>';
+    }
+
+    function render(){
+      const ft=document.getElementById('fType').value.toLowerCase();
+      const fn=document.getElementById('fName').value.trim().toLowerCase();
+      let rows=ITEMS.filter(i=>(!ft||i.type_key===ft) && (!fn||i.payee.toLowerCase().includes(fn)));
+      document.getElementById('cnt').textContent=rows.length;
+      document.getElementById('grand').textContent=rupee(rows.reduce((s,i)=>s+i.amount,0));
+      document.getElementById('empty').classList.toggle('hidden', rows.length>0);
+      // group by payee
+      const groups=new Map();
+      rows.forEach(i=>{ if(!groups.has(i.payee_key)) groups.set(i.payee_key,{payee:i.payee,emp_no:i.emp_no||'',items:[],total:0}); const g=groups.get(i.payee_key); g.items.push(i); g.total+=i.amount; });
+      const box=document.getElementById('groups'); box.innerHTML='';
+      [...groups.values()].forEach(g=>{
+        const card=document.createElement('div'); card.className='card p-4 mb-3';
+        let html='<div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-line">'+
+          '<div class="font-semibold">'+esc(g.payee)+(g.emp_no?' <span class="text-xs text-slate-400 mono">'+esc(g.emp_no)+'</span>':'')+'</div>'+
+          '<div class="flex items-center gap-2"><span class="text-sm font-bold text-emerald-700">'+rupee(g.total)+'</span>'+
+          (g.items.length>1?'<button data-grp="'+g.payee.replace(/"/g,'&quot;')+'" onclick="approveGroup(this)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566">Approve all ('+g.items.length+')</button>':'')+'</div></div>';
+        g.items.forEach(i=>{
+          html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">'+
+            '<div class="min-w-0"><div class="flex items-center gap-2 flex-wrap">'+typeBadge(i.type_key)+'<span class="text-sm font-semibold">'+rupee(i.amount)+'</span></div>'+
+            '<div class="text-xs text-slate-500 mt-0.5">'+esc(i.sub)+'</div></div>'+
+            '<div class="flex items-center gap-2 shrink-0">'+
+            (i.pdf_token?'<a href="/dlx/'+i.pdf_token+'" target="_blank" class="btn-ghost text-xs">PDF</a>':'')+
+            '<button onclick=\'approveOne('+JSON.stringify(i.approve)+',this)\' class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>'+
+            '</div></div>';
+        });
+        card.innerHTML=html; box.appendChild(card);
+      });
+    }
+
+    async function approveOne(approve, btn){
+      if(btn){ btn.disabled=true; btn.textContent='Approving…'; }
+      try{ await api(approve.url,{method:'POST',body:approve.body||{}}); toast('Approved','success'); await load(); }
+      catch(e){ toast(e.message,'error'); if(btn){ btn.disabled=false; btn.textContent='Approve'; } }
+    }
+    async function approveGroup(btn){
+      const payee=btn.getAttribute('data-grp');
+      const grp=ITEMS.filter(i=>i.payee===payee);
+      if(!confirm('Approve all '+grp.length+' item(s) for '+payee+'?')) return;
+      btn.disabled=true; btn.textContent='Approving…';
+      let ok=0, fail=0;
+      for(const i of grp){ try{ await api(i.approve.url,{method:'POST',body:i.approve.body||{}}); ok++; }catch(e){ fail++; } }
+      toast('Approved '+ok+(fail?' · '+fail+' failed':''), fail?'error':'success');
+      await load();
+    }
+  </script>
+</body>
+</html>
