@@ -53,6 +53,9 @@
         <a id="otTile" href="/ot.html" class="tile d2 hidden"><span class="ref">OT</span>
           <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
           <h3>Overtime</h3><p>Log OT, approve, verify and final-approve &mdash; end to end.</p><span class="arrow">Open &rarr;</span></a>
+        <a id="labourTile" href="/labour.html" class="tile d3 hidden"><span class="ref">LAB</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M6 21V8l6-4 6 4v13"/><path d="M10 21v-5h4v5"/></svg></div>
+          <h3>Labour Payments</h3><p>Post labour OT &amp; Shed-B shearing (BSC / G2) for management approval.</p><span class="arrow">Open &rarr;</span></a>
       </div>
     </section>
 
@@ -120,6 +123,7 @@
       if(me.is_admin) document.getElementById('adminTile').classList.remove('hidden');
       const otDept=['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
       if(otDept||me.ot_approver||me.ot_hr||me.ot_mgmt||me.is_admin) document.getElementById('otTile').classList.remove('hidden');
+      if(me.ot_hr||me.ot_mgmt||me.is_admin){ const lt=document.getElementById('labourTile'); if(lt) lt.classList.remove('hidden'); }
       document.querySelectorAll('[data-app]').forEach(el=>{ if(me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden'); });
       hideEmptySections();
     }

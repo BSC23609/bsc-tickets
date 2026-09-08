@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Labour Payments — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css?v=2">
+  <style>
+    body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
+    .co-tab{padding:.5rem 1rem;border-radius:.6rem;font-size:.9rem;font-weight:700;color:#64748b;cursor:pointer;border:2px solid #e2e8f0}
+    .co-tab.on{background:#0A4566;color:#fff;border-color:#0A4566}
+    .amt{font-family:'Space Grotesk';font-size:1.4rem;font-weight:700;color:#0A4566}
+  </style>
+</head>
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-3xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <button onclick="logout()" class="deck-out">Sign out</button>
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Labour Payments</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Labour Payments</h1>
+      <p class="text-sm text-slate-500 mt-1">Overtime (₹50 / half hour) &amp; Shed-B shearing (₹50 / day) for daily-wage labour.</p>
+    </div>
+
+    <div class="flex items-center gap-2 mb-4 flex-wrap">
+      <div id="coTabs" class="flex gap-2"></div>
+      <div class="flex-1"></div>
+      <label class="fieldlabel !mb-0 mr-1">Month</label>
+      <input id="month" type="month" class="field !w-auto text-sm" onchange="loadOverview()">
+    </div>
+
+    <div id="statusCard" class="card p-4 mb-5"></div>
+
+    <!-- ===== OVERTIME ===== -->
+    <div class="mb-2 flex items-center justify-between">
+      <div class="eyebrow">Overtime</div>
+      <div class="text-sm font-bold text-emerald-700" id="otTotal"></div>
+    </div>
+    <div id="otAddCard" class="card p-4 mb-3">
+      <div class="flex items-end gap-2 mb-3 flex-wrap">
+        <div><label class="fieldlabel">Default date</label><input id="otDefDate" type="date" class="field !w-auto text-sm"></div>
+        <button onclick="otAddRow(1)" class="addrow">+ Add labour</button>
+        <button onclick="otAddRow(5)" class="btn-ghost text-xs">+ 5 rows</button>
+        <button onclick="otApplyDate()" class="btn-ghost text-xs">Apply date to all</button>
+      </div>
+      <datalist id="otNames"></datalist>
+      <div id="otRows" class="space-y-2"></div>
+      <div class="claimbar mt-3">
+        <div><div class="cap">New OT total</div><div class="amt" id="otNewTotal">₹0</div></div>
+        <button onclick="clickBusy(this,'Saving…',otSaveAll)" class="btn text-sm">Save OT</button>
+      </div>
+    </div>
+    <div id="otList" class="mb-6"></div>
+
+    <!-- ===== SHEARING ===== -->
+    <div class="mb-2 flex items-center justify-between">
+      <div class="eyebrow">Shed B — Shearing</div>
+      <div class="text-sm font-bold text-emerald-700" id="shTotal"></div>
+    </div>
+    <div id="shAddCard" class="card p-4 mb-3">
+      <div class="flex items-end gap-2 mb-3 flex-wrap">
+        <button onclick="shAddRow(1)" class="addrow">+ Add labour</button>
+        <button onclick="shAddRow(5)" class="btn-ghost text-xs">+ 5 rows</button>
+        <div class="text-xs text-slate-500 pb-1">Name &amp; number of days worked · ₹50 per day</div>
+      </div>
+      <datalist id="shNames"></datalist>
+      <div id="shRows" class="space-y-2"></div>
+      <div class="claimbar mt-3">
+        <div><div class="cap">New shearing total</div><div class="amt" id="shNewTotal">₹0</div></div>
+        <button onclick="clickBusy(this,'Saving…',shSaveAll)" class="btn text-sm">Save shearing</button>
+      </div>
+    </div>
+    <div id="shList" class="mb-6"></div>
+
+    <div class="card p-5 flex items-center justify-between" style="background:#0A4566;color:#fff">
+      <div class="text-sm font-semibold opacity-80">Grand total for the month</div>
+      <div class="text-2xl font-bold" style="font-family:'Space Grotesk'" id="grandTotal">₹0</div>
+    </div>
+
+    <!-- ===== MANAGEMENT ===== -->
+    <div id="mgmtWrap" class="hidden mt-8">
+      <div class="eyebrow mb-2">Management · pending approvals</div>
+      <div id="pendingList"></div>
+    </div>
+  </main>
+
+  <script src="/js/common.js?v=89"></script>
+  <script>
+    let me=null, CO='BSC', OV=null, otRows=[], shRows=[];
+    const COMPANIES=[{k:'BSC',n:'BSC'},{k:'G2',n:'G2'}];
+    const otAmt=h=>Math.floor((parseFloat(h)||0)*2)*50;
+    const shAmt=d=>Math.round((parseFloat(d)||0)*50);
+    const rupee=n=>'₹'+Number(n||0).toLocaleString('en-IN');
+
+    (async function init(){
+      try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
+      const canHr = me.ot_hr || me.is_admin;
+      if(!canHr){ document.querySelector('main').innerHTML='<div class="card p-8 text-center text-slate-500">This module is for HR and admins only.</div>'; return; }
+      const bar=document.getElementById('coTabs');
+      COMPANIES.forEach(c=>{ const b=document.createElement('div'); b.className='co-tab'+(c.k===CO?' on':''); b.textContent=c.n; b.onclick=()=>{ CO=c.k; document.querySelectorAll('.co-tab').forEach(x=>x.classList.toggle('on', x.textContent===c.n)); loadOverview(); }; bar.appendChild(b); });
+      const today=new Date().toISOString().slice(0,10);
+      document.getElementById('month').value=today.slice(0,7);
+      document.getElementById('otDefDate').value=today;
+      await loadOverview();
+    })();
+    async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    const month=()=>document.getElementById('month').value||new Date().toISOString().slice(0,7);
+
+    async function loadOverview(){
+      OV=await api('/labour/overview?company='+CO+'&month='+month());
+      document.getElementById('otNames').innerHTML=(OV.ot_names||[]).map(n=>`<option value="${esc(n)}">`).join('');
+      document.getElementById('shNames').innerHTML=(OV.sh_names||[]).map(n=>`<option value="${esc(n)}">`).join('');
+      document.getElementById('otTotal').textContent='OT '+rupee(OV.ot_total);
+      document.getElementById('shTotal').textContent='Shearing '+rupee(OV.shearing_total);
+      document.getElementById('grandTotal').textContent=rupee(OV.grand_total);
+      renderStatus(); renderOtList(); renderShList();
+      const locked=OV.locked;
+      document.getElementById('otAddCard').classList.toggle('hidden', locked);
+      document.getElementById('shAddCard').classList.toggle('hidden', locked);
+      // management pending
+      const mw=document.getElementById('mgmtWrap');
+      if(OV.can_approve){ mw.classList.remove('hidden'); loadPending(); } else mw.classList.add('hidden');
+    }
+
+    function renderStatus(){
+      const el=document.getElementById('statusCard');
+      const label=OV.company_label;
+      if(OV.status==='draft'){
+        el.innerHTML=`<div class="flex items-center justify-between gap-3 flex-wrap">
+          <div><span class="pill bg-slate-100 text-slate-600">Draft</span>
+            <div class="text-sm text-slate-600 mt-1">${esc(label)} · add entries below, then submit for management approval.</div></div>
+          <button onclick="clickBusy(this,'Submitting…',submitApproval)" class="btn text-sm">Submit for Final Approval</button></div>`;
+      } else if(OV.status==='pending_mgmt'){
+        el.innerHTML=`<div class="flex items-center justify-between gap-3 flex-wrap">
+          <div><span class="pill bg-amber-100 text-amber-700">Pending management</span>
+            <div class="text-sm text-slate-600 mt-1">Submitted by ${esc(OV.submitted_by||'HR')} · still editable until approved.</div></div>
+          ${OV.can_approve?`<div class="flex gap-2"><button onclick="clickBusy(this,'Approving…',approveThis)" class="btn text-sm">Approve &amp; send to accounts</button>
+            <button onclick="returnThis()" class="btn-ghost text-sm">Return to HR</button></div>`:''}</div>`;
+      } else {
+        el.innerHTML=`<div><span class="pill bg-emerald-100 text-emerald-700">✓ Approved</span>
+          <div class="text-sm text-slate-600 mt-1">Approved by ${esc(OV.mgmt_by||'management')} · report ${OV.accounts_sent_at?'sent':'queued'} to <b>${esc(OV.accounts_email)}</b>. This month is locked.</div>
+          <a href="/api/labour/report/${CO}/${month()}" target="_blank" class="text-xs font-semibold text-brand-600 hover:underline">View report ↗</a></div>`;
+      }
+    }
+
+    /* ---------- OT add grid ---------- */
+    function otAddRow(n){ const d=document.getElementById('otDefDate').value||new Date().toISOString().slice(0,10); for(let k=0;k<(n||1);k++) otRows.push({name:'',date:d,hours:''}); otRender(); }
+    function otApplyDate(){ const d=document.getElementById('otDefDate').value; if(!d) return toast('Pick a default date','error'); otRows.forEach(r=>r.date=d); otRender(); }
+    function otUpd(i,k,v){ otRows[i][k]=v; if(k==='hours') otRender(); else otTot(); }
+    function otDelRow(i){ otRows.splice(i,1); otRender(); }
+    function otTot(){ document.getElementById('otNewTotal').textContent=rupee(otRows.reduce((s,r)=>s+otAmt(r.hours),0)); }
+    function otRender(){
+      document.getElementById('otRows').innerHTML = otRows.length ? otRows.map((r,i)=>`
+        <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
+          <div class="flex-1 min-w-[150px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Date</label><input type="date" value="${r.date||''}" onchange="otUpd(${i},'date',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Hours</label><input type="number" min="0" step="0.5" value="${r.hours||''}" oninput="otUpd(${i},'hours',this.value)" placeholder="2.5" class="field !py-1.5 text-xs w-20"></div>
+          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold">${rupee(otAmt(r.hours))}</div></div>
+          <button onclick="otDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
+        </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour to log OT.</div>';
+      otTot();
+    }
+    async function otSaveAll(){
+      const entries=otRows.filter(r=>r.name.trim()&&r.date&&parseFloat(r.hours)>0).map(r=>({labour_name:r.name.trim(),ot_date:r.date,hours:parseFloat(r.hours)}));
+      if(!entries.length) return toast('Add name, date and hours','error');
+      try{ const res=await api('/labour/ot/bulk',{method:'POST',body:{company:CO,entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); otRows=[]; otRender(); loadOverview(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    function renderOtList(){
+      const el=document.getElementById('otList');
+      if(!OV.ot.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No OT posted yet this month.</div>'; return; }
+      const locked=OV.locked;
+      el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
+        ${['Name','Date','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2 text-slate-500">${r.ot_date}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+          :`<tr class="border-b border-line/60" data-id="${r.id}">
+            <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs"></td>
+            <td class="px-2 py-1"><input data-f="ot_date" type="date" value="${r.ot_date}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs"></td>
+            <td class="px-2 py-1"><input data-f="hours" type="number" min="0" step="0.5" value="${r.hours}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs w-20"></td>
+            <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
+            <td class="px-2 py-1 text-right"><button onclick="delOt(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="3">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.ot_total)}</td><td></td></tr>
+        </tbody></table></div>`;
+    }
+    async function editOt(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
+      try{ await api('/labour/ot/'+id,{method:'PUT',body:{labour_name:g('labour_name'),ot_date:g('ot_date'),hours:g('hours')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+    async function delOt(id){ if(!confirm('Remove this OT entry?'))return; try{ await api('/labour/ot/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
+
+    /* ---------- Shearing add grid ---------- */
+    function shAddRow(n){ for(let k=0;k<(n||1);k++) shRows.push({name:'',days:''}); shRender(); }
+    function shUpd(i,k,v){ shRows[i][k]=v; if(k==='days') shRender(); else shTot(); }
+    function shDelRow(i){ shRows.splice(i,1); shRender(); }
+    function shTot(){ document.getElementById('shNewTotal').textContent=rupee(shRows.reduce((s,r)=>s+shAmt(r.days),0)); }
+    function shRender(){
+      document.getElementById('shRows').innerHTML = shRows.length ? shRows.map((r,i)=>`
+        <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
+          <div class="flex-1 min-w-[150px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Days</label><input type="number" min="0" step="1" value="${r.days||''}" oninput="shUpd(${i},'days',this.value)" placeholder="e.g. 6" class="field !py-1.5 text-xs w-24"></div>
+          <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold">${rupee(shAmt(r.days))}</div></div>
+          <button onclick="shDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
+        </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour for shearing days.</div>';
+      shTot();
+    }
+    async function shSaveAll(){
+      const entries=shRows.filter(r=>r.name.trim()&&parseFloat(r.days)>0).map(r=>({labour_name:r.name.trim(),days:parseFloat(r.days)}));
+      if(!entries.length) return toast('Add name and days','error');
+      try{ const res=await api('/labour/shearing/bulk',{method:'POST',body:{company:CO,month:month(),entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); shRows=[]; shRender(); loadOverview(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    function renderShList(){
+      const el=document.getElementById('shList');
+      if(!OV.shearing.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No shearing posted yet this month.</div>'; return; }
+      const locked=OV.locked;
+      el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
+        ${['Name','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+          :`<tr class="border-b border-line/60" data-id="${r.id}">
+            <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs"></td>
+            <td class="px-2 py-1"><input data-f="days" type="number" min="0" step="1" value="${r.days}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-24"></td>
+            <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
+            <td class="px-2 py-1 text-right"><button onclick="delSh(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="2">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.shearing_total)}</td><td></td></tr>
+        </tbody></table></div>`;
+    }
+    async function editSh(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
+      try{ await api('/labour/shearing/'+id,{method:'PUT',body:{labour_name:g('labour_name'),days:g('days')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+    async function delSh(id){ if(!confirm('Remove this shearing entry?'))return; try{ await api('/labour/shearing/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
+
+    /* ---------- submit / approve ---------- */
+    async function submitApproval(){
+      if(!confirm('Submit '+CO+' labour payments for '+month()+' for final approval? You can still edit until management approves.')) return;
+      try{ await api('/labour/submit',{method:'POST',body:{company:CO,month:month()}}); toast('Submitted for final approval','success'); loadOverview(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function approveThis(){
+      if(!confirm('Approve and email the report to accounts? This locks the month.')) return;
+      try{ await api('/labour/approve',{method:'POST',body:{company:CO,month:month()}}); toast('Approved — report sent to accounts','success'); loadOverview(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function returnThis(){
+      if(!confirm('Return this month to HR for changes?')) return;
+      try{ await api('/labour/return',{method:'POST',body:{company:CO,month:month()}}); toast('Returned to HR','info'); loadOverview(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    async function loadPending(){
+      const list=await api('/labour/pending');
+      const el=document.getElementById('pendingList');
+      if(!list.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">Nothing awaiting approval.</div>'; return; }
+      el.innerHTML=list.map(p=>`<div class="card p-3 mb-2 flex items-center justify-between gap-2 flex-wrap">
+        <div><div class="font-semibold text-sm">${esc(p.company_label)} · ${esc(p.month_label)}</div>
+          <div class="text-xs text-slate-500">OT ${rupee(p.ot_total)} + Shearing ${rupee(p.shearing_total)} = <b>${rupee(p.grand_total)}</b> · by ${esc(p.submitted_by_name||'HR')}</div></div>
+        <button onclick="openPending('${p.company}','${p.period}')" class="btn-ghost text-xs">Open</button></div>`).join('');
+    }
+    function openPending(c,m){ CO=c; document.querySelectorAll('.co-tab').forEach(x=>x.classList.toggle('on', x.textContent===c)); document.getElementById('month').value=m; loadOverview(); window.scrollTo({top:0,behavior:'smooth'}); }
+  </script>
+</body>
+</html>

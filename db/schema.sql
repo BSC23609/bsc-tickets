@@ -496,3 +496,55 @@ CREATE TABLE IF NOT EXISTS password_otps (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_password_otps_emp ON password_otps(employee_id, used, expires_at);
+
+-- Labour (daily-wage) overtime, posted by HR on their behalf (labourers have no logins).
+-- Same rate as staff OT: Rs.50 per half hour. HR can post per-day or a whole month at once.
+CREATE TABLE IF NOT EXISTS labour_ot (
+  id              SERIAL PRIMARY KEY,
+  labour_name     TEXT NOT NULL,
+  ot_date         DATE NOT NULL,
+  period          TEXT NOT NULL,                 -- YYYY-MM
+  hours           NUMERIC(5,2) NOT NULL,
+  amount          INT NOT NULL,
+  entered_by_id   INT REFERENCES employees(id),
+  entered_by_name TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_labour_ot_period ON labour_ot(period);
+
+-- Labour Payments module: company (BSC/G2) separation + monthly approval cycle.
+ALTER TABLE labour_ot ADD COLUMN IF NOT EXISTS company TEXT NOT NULL DEFAULT 'BSC';
+
+-- Shed B shearing: Rs.50 per day extra (tiresome work). One row per labour per month (days count).
+CREATE TABLE IF NOT EXISTS labour_shearing (
+  id              SERIAL PRIMARY KEY,
+  company         TEXT NOT NULL,
+  labour_name     TEXT NOT NULL,
+  days            NUMERIC(5,1) NOT NULL,
+  amount          INT NOT NULL,                  -- days * 50
+  period          TEXT NOT NULL,                 -- YYYY-MM
+  entered_by_id   INT REFERENCES employees(id),
+  entered_by_name TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_labour_shearing_cp ON labour_shearing(company, period);
+CREATE INDEX IF NOT EXISTS idx_labour_ot_cp ON labour_ot(company, period);
+
+-- Monthly batch status per company: draft -> pending_mgmt -> approved.
+CREATE TABLE IF NOT EXISTS labour_period (
+  id                 SERIAL PRIMARY KEY,
+  company            TEXT NOT NULL,
+  period             TEXT NOT NULL,              -- YYYY-MM
+  status             TEXT NOT NULL DEFAULT 'draft',
+  ot_total           INT NOT NULL DEFAULT 0,
+  shearing_total     INT NOT NULL DEFAULT 0,
+  submitted_at       TIMESTAMPTZ,
+  submitted_by_name  TEXT,
+  mgmt_at            TIMESTAMPTZ,
+  mgmt_by_name       TEXT,
+  accounts_sent_at   TIMESTAMPTZ,
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE(company, period)
+);
