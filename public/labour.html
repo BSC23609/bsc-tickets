@@ -51,10 +51,9 @@
     </div>
     <div id="otAddCard" class="card p-4 mb-3">
       <div class="flex items-end gap-2 mb-3 flex-wrap">
-        <div><label class="fieldlabel">Default date</label><input id="otDefDate" type="date" class="field !w-auto text-sm"></div>
         <button onclick="otAddRow(1)" class="addrow">+ Add labour</button>
         <button onclick="otAddRow(5)" class="btn-ghost text-xs">+ 5 rows</button>
-        <button onclick="otApplyDate()" class="btn-ghost text-xs">Apply date to all</button>
+        <div class="text-xs text-slate-500 pb-1">Name &amp; hours for the month · ₹50 per half hour</div>
       </div>
       <datalist id="otNames"></datalist>
       <div id="otRows" class="space-y-2"></div>
@@ -113,7 +112,6 @@
       COMPANIES.forEach(c=>{ const b=document.createElement('div'); b.className='co-tab'+(c.k===CO?' on':''); b.textContent=c.n; b.onclick=()=>{ CO=c.k; document.querySelectorAll('.co-tab').forEach(x=>x.classList.toggle('on', x.textContent===c.n)); loadOverview(); }; bar.appendChild(b); });
       const today=new Date().toISOString().slice(0,10);
       document.getElementById('month').value=today.slice(0,7);
-      document.getElementById('otDefDate').value=today;
       await loadOverview();
     })();
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
@@ -157,26 +155,24 @@
     }
 
     /* ---------- OT add grid ---------- */
-    function otAddRow(n){ const d=document.getElementById('otDefDate').value||new Date().toISOString().slice(0,10); for(let k=0;k<(n||1);k++) otRows.push({name:'',date:d,hours:''}); otRender(); }
-    function otApplyDate(){ const d=document.getElementById('otDefDate').value; if(!d) return toast('Pick a default date','error'); otRows.forEach(r=>r.date=d); otRender(); }
+    function otAddRow(n){ for(let k=0;k<(n||1);k++) otRows.push({name:'',hours:''}); otRender(); }
     function otUpd(i,k,v){ otRows[i][k]=v; if(k==='hours') otRender(); else otTot(); }
     function otDelRow(i){ otRows.splice(i,1); otRender(); }
     function otTot(){ document.getElementById('otNewTotal').textContent=rupee(otRows.reduce((s,r)=>s+otAmt(r.hours),0)); }
     function otRender(){
       document.getElementById('otRows').innerHTML = otRows.length ? otRows.map((r,i)=>`
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
-          <div class="flex-1 min-w-[150px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
-          <div><label class="fieldlabel">Date</label><input type="date" value="${r.date||''}" onchange="otUpd(${i},'date',this.value)" class="field !py-1.5 text-xs"></div>
-          <div><label class="fieldlabel">Hours</label><input type="number" min="0" step="0.5" value="${r.hours||''}" oninput="otUpd(${i},'hours',this.value)" placeholder="2.5" class="field !py-1.5 text-xs w-20"></div>
+          <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Name</label><input list="otNames" value="${esc(r.name)}" oninput="otUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Hours</label><input type="number" min="0" step="0.5" value="${r.hours||''}" oninput="otUpd(${i},'hours',this.value)" placeholder="2.5" class="field !py-1.5 text-xs w-24"></div>
           <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold">${rupee(otAmt(r.hours))}</div></div>
           <button onclick="otDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour to log OT.</div>';
       otTot();
     }
     async function otSaveAll(){
-      const entries=otRows.filter(r=>r.name.trim()&&r.date&&parseFloat(r.hours)>0).map(r=>({labour_name:r.name.trim(),ot_date:r.date,hours:parseFloat(r.hours)}));
-      if(!entries.length) return toast('Add name, date and hours','error');
-      try{ const res=await api('/labour/ot/bulk',{method:'POST',body:{company:CO,entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); otRows=[]; otRender(); loadOverview(); }
+      const entries=otRows.filter(r=>r.name.trim()&&parseFloat(r.hours)>0).map(r=>({labour_name:r.name.trim(),hours:parseFloat(r.hours)}));
+      if(!entries.length) return toast('Add name and hours','error');
+      try{ const res=await api('/labour/ot/bulk',{method:'POST',body:{company:CO,month:month(),entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); otRows=[]; otRender(); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
     }
     function renderOtList(){
@@ -184,19 +180,18 @@
       if(!OV.ot.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No OT posted yet this month.</div>'; return; }
       const locked=OV.locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
-        ${['Name','Date','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
-        ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2 text-slate-500">${r.ot_date}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+        ${['Name','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
           :`<tr class="border-b border-line/60" data-id="${r.id}">
             <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs"></td>
-            <td class="px-2 py-1"><input data-f="ot_date" type="date" value="${r.ot_date}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs"></td>
-            <td class="px-2 py-1"><input data-f="hours" type="number" min="0" step="0.5" value="${r.hours}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs w-20"></td>
+            <td class="px-2 py-1"><input data-f="hours" type="number" min="0" step="0.5" value="${r.hours}" onchange="editOt(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
             <td class="px-2 py-1 text-right"><button onclick="delOt(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
-        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="3">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.ot_total)}</td><td></td></tr>
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="2">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.ot_total)}</td><td></td></tr>
         </tbody></table></div>`;
     }
     async function editOt(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
-      try{ await api('/labour/ot/'+id,{method:'PUT',body:{labour_name:g('labour_name'),ot_date:g('ot_date'),hours:g('hours')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+      try{ await api('/labour/ot/'+id,{method:'PUT',body:{labour_name:g('labour_name'),hours:g('hours')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
     async function delOt(id){ if(!confirm('Remove this OT entry?'))return; try{ await api('/labour/ot/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- Shearing add grid ---------- */
