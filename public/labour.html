@@ -99,6 +99,14 @@
   <script src="/js/common.js?v=89"></script>
   <script>
     let me=null, CO='BSC', OV=null, otRows=[], shRows=[];
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    async function clickBusy(btn, label, fn){
+      if(!btn || btn.dataset.busy) return;
+      btn.dataset.busy='1'; const orig=btn.innerHTML, w=btn.offsetWidth;
+      btn.disabled=true; btn.style.minWidth=w+'px'; btn.innerHTML=(label||'…');
+      try{ await fn(); } catch(e){ if(window.toast) toast(e.message||'Something went wrong','error'); }
+      finally{ delete btn.dataset.busy; btn.disabled=false; btn.style.minWidth=''; btn.innerHTML=orig; }
+    }
     const COMPANIES=[{k:'BSC',n:'BSC'},{k:'G2',n:'G2'}];
     const otAmt=h=>Math.floor((parseFloat(h)||0)*2)*50;
     const shAmt=d=>Math.round((parseFloat(d)||0)*50);
