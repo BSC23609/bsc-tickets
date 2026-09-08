@@ -61,7 +61,7 @@ router.get('/overview', async (req, res) => {
   const month = isValidMonth(req.query.month) ? req.query.month : new Date().toISOString().slice(0, 7);
   const p = await periodRow(company, month);
   const ot = (await q(`SELECT id,labour_code,labour_name,to_char(ot_date,'YYYY-MM-DD') AS ot_date,hours,amount FROM labour_ot WHERE company=$1 AND period=$2 ORDER BY labour_name,ot_date`, [company, month])).rows;
-  const shearing = (await q(`SELECT id,labour_code,labour_name,days,amount FROM labour_shearing WHERE company=$1 AND period=$2 ORDER BY labour_name`, [company, month])).rows;
+  const shearing = (await q(`SELECT id,labour_code,labour_name,to_char(sh_date,'YYYY-MM-DD') AS sh_date,days,amount FROM labour_shearing WHERE company=$1 AND period=$2 ORDER BY labour_name,sh_date`, [company, month])).rows;
   const otNames = (await q(`SELECT DISTINCT labour_name FROM labour_ot WHERE company=$1 ORDER BY labour_name`, [company])).rows.map(r => r.labour_name);
   const shNames = (await q(`SELECT DISTINCT labour_name FROM labour_shearing WHERE company=$1 ORDER BY labour_name`, [company])).rows.map(r => r.labour_name);
   const ot_total = ot.reduce((s, r) => s + r.amount, 0), shearing_total = shearing.reduce((s, r) => s + r.amount, 0);
@@ -130,19 +130,23 @@ router.post('/shearing/bulk', async (req, res) => {
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
   const month = isValidMonth(req.body.month) ? req.body.month : new Date().toISOString().slice(0, 7);
   if (!(await assertEditable(company, month, res))) return;
+  const today = new Date().toISOString().slice(0, 10);
   const clean = [];
   for (const e of (req.body.entries || [])) {
-    const name = String(e.labour_name || '').trim(), code = String(e.labour_code || '').trim(), days = parseFloat(e.days);
+    const name = String(e.labour_name || '').trim(), code = String(e.labour_code || '').trim();
+    const date = String(e.sh_date || '').slice(0, 10), days = parseFloat(e.days);
     if (!name) continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: `Pick a date for ${name}` });
+    if (date > today) return res.status(400).json({ error: `Future date not allowed (${name})` });
     if (!(days > 0)) return res.status(400).json({ error: `Enter days for ${name}` });
-    clean.push({ name, code, days: +days.toFixed(1), amount: shAmount(days) });
+    clean.push({ name, code, date, days: +days.toFixed(1), amount: shAmount(days) });
   }
   if (!clean.length) return res.status(400).json({ error: 'Add at least one row with name and days.' });
   let total = 0;
   for (const c of clean) {
     total += c.amount;
-    await q(`INSERT INTO labour_shearing(company,labour_code,labour_name,days,amount,period,entered_by_id,entered_by_name)
-             VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, [company, c.code, c.name, c.days, c.amount, month, req.user.id, req.user.name]);
+    await q(`INSERT INTO labour_shearing(company,labour_code,labour_name,sh_date,days,amount,period,entered_by_id,entered_by_name)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [company, c.code, c.name, c.date, c.days, c.amount, month, req.user.id, req.user.name]);
   }
   await refreshTotals(company, month);
   res.json({ ok: true, count: clean.length, total });
@@ -151,10 +155,11 @@ router.put('/shearing/:id', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const row = (await q(`SELECT * FROM labour_shearing WHERE id=$1`, [req.params.id])).rows[0];
   if (!row) return res.status(404).json({ error: 'Not found' });
-  const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim(), days = parseFloat(req.body.days);
-  if (!name || !(days > 0)) return res.status(400).json({ error: 'Name and days are required.' });
+  const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim();
+  const date = String(req.body.sh_date || '').slice(0, 10), days = parseFloat(req.body.days);
+  if (!name || !(days > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Name, date and days are required.' });
   if (!(await assertEditable(row.company, row.period, res))) return;
-  await q(`UPDATE labour_shearing SET labour_code=$2,labour_name=$3,days=$4,amount=$5,updated_at=now() WHERE id=$1`, [row.id, code, name, +days.toFixed(1), shAmount(days)]);
+  await q(`UPDATE labour_shearing SET labour_code=$2,labour_name=$3,sh_date=$4,days=$5,amount=$6,updated_at=now() WHERE id=$1`, [row.id, code, name, date, +days.toFixed(1), shAmount(days)]);
   await refreshTotals(row.company, row.period);
   res.json({ ok: true });
 });

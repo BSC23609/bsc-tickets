@@ -72,9 +72,10 @@
     </div>
     <div id="shAddCard" class="card p-4 mb-3">
       <div class="flex items-end gap-2 mb-3 flex-wrap">
+        <div><label class="fieldlabel">Default date</label><input id="shDefDate" type="date" class="field !w-auto text-sm"></div>
         <button onclick="shAddRow(1)" class="addrow">+ Add labour</button>
         <button onclick="shAddRow(5)" class="btn-ghost text-xs">+ 5 rows</button>
-        <div class="text-xs text-slate-500 pb-1">Name &amp; number of days worked · ₹50 per day</div>
+        <button onclick="shApplyDate()" class="btn-ghost text-xs">Apply date to all</button>
       </div>
       <datalist id="shNames"></datalist>
       <div id="shRows" class="space-y-2"></div>
@@ -122,6 +123,7 @@
       const today=new Date().toISOString().slice(0,10);
       document.getElementById('month').value=today.slice(0,7);
       document.getElementById('otDefDate').value=today;
+      document.getElementById('shDefDate').value=today;
       await loadOverview();
     })();
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
@@ -210,7 +212,8 @@
     async function delOt(id){ if(!confirm('Remove this OT entry?'))return; try{ await api('/labour/ot/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- Shearing add grid ---------- */
-    function shAddRow(n){ for(let k=0;k<(n||1);k++) shRows.push({code:'',name:'',days:''}); shRender(); }
+    function shAddRow(n){ const d=document.getElementById('shDefDate').value||new Date().toISOString().slice(0,10); for(let k=0;k<(n||1);k++) shRows.push({code:'',name:'',date:d,days:''}); shRender(); }
+    function shApplyDate(){ const d=document.getElementById('shDefDate').value; if(!d) return toast('Pick a default date','error'); shRows.forEach(r=>r.date=d); shRender(); }
     function shUpd(i,k,v){ shRows[i][k]=v; if(k==='days'){ const el=document.getElementById('sh_amt_'+i); if(el) el.textContent=rupee(shAmt(v)); shTot(); } }
     function shDelRow(i){ shRows.splice(i,1); shRender(); }
     function shTot(){ document.getElementById('shNewTotal').textContent=rupee(shRows.reduce((s,r)=>s+shAmt(r.days),0)); }
@@ -218,16 +221,17 @@
       document.getElementById('shRows').innerHTML = shRows.length ? shRows.map((r,i)=>`
         <div class="flex flex-wrap items-end gap-2 border-b border-line pb-2">
           <div><label class="fieldlabel">Emp code</label><input value="${esc(r.code)}" oninput="shUpd(${i},'code',this.value)" placeholder="code" class="field !py-1.5 text-xs w-24"></div>
-          <div class="flex-1 min-w-[130px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
-          <div><label class="fieldlabel">Days</label><input type="number" min="0" step="1" value="${r.days||''}" oninput="shUpd(${i},'days',this.value)" placeholder="e.g. 6" class="field !py-1.5 text-xs w-24"></div>
+          <div class="flex-1 min-w-[120px]"><label class="fieldlabel">Name</label><input list="shNames" value="${esc(r.name)}" oninput="shUpd(${i},'name',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Date</label><input type="date" value="${r.date||''}" onchange="shUpd(${i},'date',this.value)" class="field !py-1.5 text-xs"></div>
+          <div><label class="fieldlabel">Days</label><input type="number" min="0" step="1" value="${r.days||''}" oninput="shUpd(${i},'days',this.value)" placeholder="e.g. 1" class="field !py-1.5 text-xs w-20"></div>
           <div class="pb-1"><div class="fieldlabel">Amount</div><div class="text-sm font-semibold" id="sh_amt_${i}">${rupee(shAmt(r.days))}</div></div>
           <button onclick="shDelRow(${i})" class="text-red-500 text-lg leading-none pb-1">&times;</button>
         </div>`).join('') : '<div class="text-sm text-slate-400 py-3 text-center">Add a labour for shearing days.</div>';
       shTot();
     }
     async function shSaveAll(){
-      const entries=shRows.filter(r=>r.name.trim()&&parseFloat(r.days)>0).map(r=>({labour_code:(r.code||'').trim(),labour_name:r.name.trim(),days:parseFloat(r.days)}));
-      if(!entries.length) return toast('Add name and days','error');
+      const entries=shRows.filter(r=>r.name.trim()&&r.date&&parseFloat(r.days)>0).map(r=>({labour_code:(r.code||'').trim(),labour_name:r.name.trim(),sh_date:r.date,days:parseFloat(r.days)}));
+      if(!entries.length) return toast('Add name, date and days','error');
       try{ const res=await api('/labour/shearing/bulk',{method:'POST',body:{company:CO,month:month(),entries}}); toast('Saved '+res.count+' · '+rupee(res.total),'success'); shRows=[]; shRender(); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
     }
@@ -236,19 +240,20 @@
       if(!OV.shearing.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No shearing posted yet this month.</div>'; return; }
       const locked=OV.locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
-        ${['Code','Name','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
-        ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
+        ${['Code','Name','Date','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
+        ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2 text-slate-500">${r.sh_date||'—'}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
           :`<tr class="border-b border-line/60" data-id="${r.id}">
             <td class="px-2 py-1"><input data-f="labour_code" value="${esc(r.labour_code||'')}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-24"></td>
             <td class="px-2 py-1"><input data-f="labour_name" value="${esc(r.labour_name)}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs"></td>
-            <td class="px-2 py-1"><input data-f="days" type="number" min="0" step="1" value="${r.days}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-24"></td>
+            <td class="px-2 py-1"><input data-f="sh_date" type="date" value="${r.sh_date||''}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs"></td>
+            <td class="px-2 py-1"><input data-f="days" type="number" min="0" step="1" value="${r.days}" onchange="editSh(${r.id},this)" class="field !py-1 text-xs w-20"></td>
             <td class="px-3 py-1 font-semibold">${rupee(r.amount)}</td>
             <td class="px-2 py-1 text-right"><button onclick="delSh(${r.id})" class="text-red-600 text-xs hover:underline">Remove</button></td></tr>`).join('')}
-        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="3">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.shearing_total)}</td><td></td></tr>
+        <tr class="bg-slate-50 font-bold"><td class="px-3 py-2" colspan="4">Total</td><td class="px-3 py-2 text-emerald-700">${rupee(OV.shearing_total)}</td><td></td></tr>
         </tbody></table></div>`;
     }
     async function editSh(id,inp){ const tr=inp.closest('tr'); const g=f=>tr.querySelector(`[data-f="${f}"]`).value;
-      try{ await api('/labour/shearing/'+id,{method:'PUT',body:{labour_code:g('labour_code'),labour_name:g('labour_name'),days:g('days')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
+      try{ await api('/labour/shearing/'+id,{method:'PUT',body:{labour_code:g('labour_code'),labour_name:g('labour_name'),sh_date:g('sh_date'),days:g('days')}}); loadOverview(); }catch(e){ toast(e.message,'error'); loadOverview(); } }
     async function delSh(id){ if(!confirm('Remove this shearing entry?'))return; try{ await api('/labour/shearing/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- submit / approve ---------- */
