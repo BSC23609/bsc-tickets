@@ -4,7 +4,6 @@ const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const wati = require('../lib/wati');
 const graph = require('../lib/graph');
-const { buildOtReportXlsx } = require('../lib/ot_report');
 const { background } = require('../lib/bg');
 const { computeOt } = require('../lib/ot');
 const router = express.Router();
@@ -37,32 +36,36 @@ async function otMgmtIds() {
 // After management approval: build the report, email Accounts, and WhatsApp Accounts to check email.
 async function sendBatchToAccounts(batchId, period) {
   const summary = (await q(
-    `SELECT e.name AS employee_name, e.emp_no, o.department,
-            count(*) AS days, COALESCE(sum(o.hours),0) AS hours, COALESCE(sum(o.amount),0) AS amount
+    `SELECT e.name AS employee_name, COALESCE(sum(o.hours),0) AS hours, COALESCE(sum(o.amount),0) AS amount
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
-     WHERE o.batch_id=$1 GROUP BY e.name, e.emp_no, o.department ORDER BY e.name`, [batchId])).rows;
-  const detail = (await q(
-    `SELECT e.name AS employee_name, e.emp_no, to_char(o.ot_date,'YYYY-MM-DD') AS ot_date, o.end_time, o.hours, o.amount, o.is_late
-     FROM ot_entries o JOIN employees e ON e.id=o.employee_id WHERE o.batch_id=$1 ORDER BY e.name, o.ot_date`, [batchId])).rows;
-  const rep = await buildOtReportXlsx(period, summary, detail);
+     WHERE o.batch_id=$1 GROUP BY e.name ORDER BY e.name`, [batchId])).rows;
+  const monthName = new Date(period + '-01').toLocaleString('en-IN', { month: 'long', year: 'numeric' });
+  const total = summary.reduce((s, l) => s + Number(l.amount), 0);
+  const money = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN');
+  const { buildPaymentReportPDF } = require('../lib/payment_pdf');
+  const pdf = await buildPaymentReportPDF({
+    title: 'Overtime — Bharat Steel (Chennai)',
+    subtitle: `${monthName} · consolidated monthly report`,
+    approved: true,
+    sections: [{ name: 'Overtime', total,
+      cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+      rows: summary.map(l => [l.employee_name, (+l.hours).toFixed(2), money(l.amount)]) }],
+    grandTotal: total,
+  });
 
   const cfg = Object.fromEntries((await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_accounts_emp_id','ot_accounts_email')`)).rows.map(r => [r.key, r.value]));
   if (cfg.ot_accounts_email) {
     try {
       await graph.sendMail({
         to: cfg.ot_accounts_email,
-        subject: `Approved OT report — ${rep.monthName}`,
-        html: `<p>Please find attached the management-approved overtime report for <b>${rep.monthName}</b>.</p>
-               <p>${rep.emp_count} employees · Total <b>Rs. ${rep.total.toLocaleString('en-IN')}</b>.</p>
-               <p>Kindly process the payment.</p>`,
-        attachments: [{
-          name: `OT_${period}.xlsx`,
-          contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          contentBytes: rep.base64,
-        }],
+        subject: `Overtime report — ${monthName} — ${money(total)} [APPROVED]`,
+        html: `<p>Please find attached the management-approved <b>overtime</b> report for <b>${monthName}</b>.</p>
+               <p>${summary.length} employees · Total <b>${money(total)}</b>. Kindly process the payment.</p>`,
+        attachments: [{ name: `OT_${period}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
       });
     } catch (e) { console.error('[ot accounts email]', e.message); }
   }
+  const rep = { total, emp_count: summary.length, monthName };
   if (cfg.ot_accounts_emp_id) {
     const acc = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [+cfg.ot_accounts_emp_id])).rows[0];
     if (acc && acc.phone) {

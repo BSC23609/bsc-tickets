@@ -201,12 +201,14 @@ router.post('/approve', async (req, res) => {
   res.json({ ok: true, status: 'approved' });
   background((async () => {
     try {
-      const html = await buildReportHtml(company, month);
+      const { pdf, otT, shT } = await buildReportPdf(company, month);
       const acct = LABOUR_CO[company].accounts;
       const ok = await graph.sendMail({
         to: acct,
-        subject: `Labour payments — ${LABOUR_CO[company].label} — ${monthName(month)} — ${money(ot + sh)}`,
-        html,
+        subject: `Labour payments — ${LABOUR_CO[company].label} — ${monthName(month)} — ${money(ot + sh)} [APPROVED]`,
+        html: `<p>Please find attached the management-approved <b>labour payments</b> report for <b>${LABOUR_CO[company].label} — ${monthName(month)}</b>.</p>
+               <p>Overtime ${money(otT)} + Shearing ${money(shT)} = <b>${money(otT + shT)}</b>. Kindly process the payment.</p>`,
+        attachments: [{ name: `Labour_${company}_${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
       });
       if (ok) await q(`UPDATE labour_period SET accounts_sent_at=now() WHERE company=$1 AND period=$2`, [company, month]);
     } catch (e) { console.error('[labour accounts email]', e.message); }
@@ -253,5 +255,27 @@ router.get('/report/:company/:month', async (req, res) => {
   const company = COMP(req.params.company); if (!company || !isValidMonth(req.params.month)) return res.status(400).send('Bad request');
   res.send(await buildReportHtml(company, req.params.month));
 });
+// PDF version (consolidated, no dates) — attached to the accounts email on approval.
+async function buildReportPdf(company, month) {
+  const { buildPaymentReportPDF } = require('../lib/payment_pdf');
+  const ot = (await q(`SELECT labour_name, COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
+                       FROM labour_ot WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
+  const sh = (await q(`SELECT labour_name, COALESCE(SUM(days),0) AS days, COALESCE(SUM(amount),0) AS amount
+                       FROM labour_shearing WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
+  const otT = ot.reduce((s, r) => s + Number(r.amount), 0), shT = sh.reduce((s, r) => s + Number(r.amount), 0);
+  const pdf = await buildPaymentReportPDF({
+    title: `Labour Payments — ${LABOUR_CO[company].label}`,
+    subtitle: `${monthName(month)} · consolidated monthly report`,
+    approved: true,
+    sections: [
+      { name: 'Overtime', total: otT, cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+        rows: ot.map(r => [r.labour_name, (+r.hours).toFixed(2), money(r.amount)]) },
+      { name: 'Shed B — Shearing', total: shT, cols: [{ label: 'Name', width: 0.6 }, { label: 'Days', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+        rows: sh.map(r => [r.labour_name, (+r.days).toFixed(1), money(r.amount)]) },
+    ],
+    grandTotal: otT + shT,
+  });
+  return { pdf, otT, shT };
+}
 
 module.exports = router;
