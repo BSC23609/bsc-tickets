@@ -852,7 +852,9 @@ router.get('/misc/new', async (req, res) => {
 router.put('/misc/:id', async (req, res) => {
   const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
   if (!row || row.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (!['draft', 'generated', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Locked' });
+  // Editable until HR approves — covers both the online chain and offline settlement, which both
+  // branch from pending_hr. Once HR-approved / final / settled / paid it locks.
+  if (!['draft', 'generated', 'returned', 'pending_hr'].includes(row.status)) return res.status(409).json({ error: 'This claim can no longer be edited — HR has already actioned it.' });
   let total = 0;
   const items = (req.body.items || []).map(it => {
     const amount = Math.max(0, parseFloat(it.amount) || 0); total += amount;
