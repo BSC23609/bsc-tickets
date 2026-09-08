@@ -208,7 +208,7 @@
         <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
         <button onclick="clickBusy(this,'Saving…',saveMiscChanges)" id="ms_save" class="btn text-sm hidden">Save changes</button>
         <button onclick="clickBusy(this,'Submitting…',submitMisc)" id="ms_gen" class="btn text-sm">Submit for approval</button>
-        <button onclick="clickBusy(this,'Saving…',settleMiscOffline)" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
+        <button onclick="clickBusy(this,'Saving…',settleMiscOffline)" id="ms_settle" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
       </div>
     </section>
 
@@ -525,7 +525,7 @@
         </div>
         <div class="flex items-center gap-2">
           ${s.status==='returned'?`<button onclick="event.stopPropagation();reopenReturned(${s.id},'${s.form_type}','${s.period||''}')" class="btn text-xs" style="padding:.4rem .8rem">Edit &amp; resubmit</button>`:''}
-          ${(s.status==='pending_hr'&&s.form_type==='misc')?`<button onclick="event.stopPropagation();reopenReturned(${s.id},'${s.form_type}','${s.period||''}')" class="btn-ghost text-xs" style="padding:.4rem .8rem">Edit</button>`:''}
+          ${((s.status==='pending_hr'||s.status==='settled_offline')&&s.form_type==='misc')?`<button onclick="event.stopPropagation();reopenReturned(${s.id},'${s.form_type}','${s.period||''}')" class="btn-ghost text-xs" style="padding:.4rem .8rem">Edit</button>`:''}
           ${s.pdf_token?`<a href="/dlx/${s.pdf_token}" target="_blank" onclick="event.stopPropagation()" class="btn-ghost text-xs">PDF</a>`:''}
         </div>
       </div>`).join('');
@@ -535,7 +535,7 @@
       else if(form==='outstation'){ document.getElementById('ot_month').value=period; showForm('out'); }
       else {
         const s=await api('/expense/'+id);
-        msDraft={ id:s.id, ref_no:s.ref_no };
+        msDraft={ id:s.id, ref_no:s.ref_no, pdf_token:s.pdf_token };
         msStatus = s.status;
         msItems=((s.payload&&s.payload.items)||[]).map(i=>({date:i.date||'',desc:i.desc||'',amount:i.amount||'',bills:i.bills||(i.bill?[i.bill]:[])}));
         showForm('misc');
@@ -929,10 +929,26 @@
       document.getElementById('ms_gen').classList.toggle('hidden', editing);
       document.getElementById('ms_save').classList.toggle('hidden', !editing);
     }
+    function updMiscButtons(){
+      const submitted = msStatus==='pending_hr';
+      const offline = msStatus==='settled_offline';
+      const editingExisting = submitted || offline;
+      document.getElementById('ms_gen').classList.toggle('hidden', editingExisting);   // Submit for approval
+      document.getElementById('ms_settle').classList.toggle('hidden', offline);         // already settled → hide
+      const save=document.getElementById('ms_save');
+      save.classList.toggle('hidden', !editingExisting);
+      save.textContent = offline ? 'Save & reprint' : 'Save changes';
+    }
     async function saveMiscChanges(){
       if(!msItems.length) return toast('Add at least one item','error');
       try{ await api('/expense/misc/'+msDraft.id,{method:'PUT',body:{items:msItems}});
-        toast('Changes saved — still with HR for review','success'); showForm('mine'); }
+        if(msStatus==='settled_offline'){
+          toast('Saved — opening the corrected PDF to reprint','success');
+          if(msDraft.pdf_token) window.open('/dlx/'+msDraft.pdf_token,'_blank');
+        } else {
+          toast('Changes saved — still with HR for review','success');
+        }
+        showForm('mine'); }
       catch(e){ toast(e.message,'error'); }
     }
     function renderMisc(){
