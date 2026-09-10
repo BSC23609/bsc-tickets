@@ -109,7 +109,7 @@
             '<div class="min-w-0"><div class="text-sm font-semibold text-ink">'+esc(i.payee)+(i.emp_no?' <span class="text-xs text-slate-400 mono">'+esc(i.emp_no)+'</span>':'')+' · '+rupee(i.amount)+'</div>'+
             '<div class="text-xs text-slate-500 mt-0.5">'+esc(i.sub)+'</div></div>'+
             '<div class="flex items-center gap-2 shrink-0">'+
-            (i.pdf_token?'<a href="/dlx/'+i.pdf_token+'" target="_blank" class="btn-ghost text-xs">PDF</a>':'')+
+            (i.pdf_token?'<a href="/dlx/'+i.pdf_token+'" target="_blank" class="btn-ghost text-xs">PDF</a>':(i.report_url?'<a href="'+i.report_url+'" target="_blank" class="btn-ghost text-xs">PDF</a>':''))+
             '<button onclick=\'approveOne('+JSON.stringify(i.approve)+',this)\' class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>'+
             '</div></div>';
         });

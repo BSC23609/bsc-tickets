@@ -285,6 +285,15 @@ router.get('/report/:company/:month', async (req, res) => {
   const company = COMP(req.params.company); if (!company || !isValidMonth(req.params.month)) return res.status(400).send('Bad request');
   res.send(await buildReportHtml(company, req.params.month));
 });
+router.get('/report-pdf/:company/:month/:part', async (req, res) => {
+  if (!(await isLabourHr(req.user) || await isLabourMgmt(req.user))) return res.status(403).send('Not allowed');
+  const company = COMP(req.params.company); const part = req.params.part === 'shearing' ? 'shearing' : 'ot';
+  if (!company || !isValidMonth(req.params.month)) return res.status(400).send('Bad request');
+  const { pdf } = await buildReportPdf(company, req.params.month, part);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="Labour_${part}_${company}_${req.params.month}.pdf"`);
+  res.end(pdf);
+});
 // PDF version (consolidated, no dates) — per part ('ot' or 'shearing'), for the accounts email.
 async function buildReportPdf(company, month, part) {
   const { buildPaymentReportPDF } = require('../lib/payment_pdf');
