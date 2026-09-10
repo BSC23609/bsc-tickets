@@ -228,6 +228,17 @@ router.post('/approve', async (req, res) => {
         attachments: [{ name: `Labour_${part}_${company}_${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
       });
       await q(`UPDATE labour_period SET accounts_sent_at=now() WHERE company=$1 AND period=$2`, [company, month]);
+      // WhatsApp the labour accounts contact (e.g. Lakshmi) that the payment is approved.
+      const labAccId = +((await q(`SELECT value FROM app_settings WHERE key='labour_accounts_emp_id'`)).rows[0]?.value || 0);
+      if (labAccId) {
+        const acc = (await q(`SELECT name,phone FROM employees WHERE id=$1 AND active=TRUE`, [labAccId])).rows[0];
+        if (acc && acc.phone) {
+          const tbl = part === 'shearing' ? 'labour_shearing' : 'labour_ot';
+          const cnt = +(await q(`SELECT count(DISTINCT labour_name) AS c FROM ${tbl} WHERE company=$1 AND period=$2`, [company, month])).rows[0].c;
+          try { await wati.notify.ot.accounts(acc, { period: `${label} · ${LABOUR_CO[company].label} · ${monthName(month)}`, employees: cnt, total: String(total) }); }
+          catch (e) { console.error('[labour accounts wa]', e.message); }
+        }
+      }
     } catch (e) { console.error('[labour accounts email]', e.message); }
   })());
 });
