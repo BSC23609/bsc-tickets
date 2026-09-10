@@ -960,6 +960,11 @@ router.post('/report/:period/send', async (req, res) => {
   res.json({ ok: true, ...out });
 });
 
+async function claimPdfById(id) {
+  const full = await loadRow(id);
+  if (!full) return null;
+  return pdfFor(full, 'approved', full.final_by_name || 'Management', full.final_at);
+}
 module.exports = router;
 module.exports.nudgeManagers = nudgeManagers;
-module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, loadTripByToken, applyTripApprove, applyTripReject, nudgeManagers };
+module.exports._internal = { conveyancePdf, outstationPdf, miscPdf, loadRow, claimPdfById, loadTripByToken, applyTripApprove, applyTripReject, nudgeManagers };

@@ -849,6 +849,21 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
 });
 
 // ---- Cron: 6:30pm IST daily report — overall recipients + per-person subscribers ----
+app.all('/api/cron/monthly-accounts', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+  recordCron('monthly-accounts');
+  // Only act on the 5th (IST) unless a month is passed explicitly (so a daily pinger is safe).
+  const todayIST = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+  const dom = Number(todayIST.slice(8, 10));
+  const fin = require('../routes/final.routes')._internal;
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : fin.prevMonth();
+  if (!req.query.month && dom !== 5) return res.json({ ok: true, skipped: `not the 5th (today ${todayIST})` });
+  try { res.json(await fin.runMonthlyAccounts(month)); }
+  catch (e) { console.error('[cron monthly-accounts]', e); res.status(500).json({ error: e.message }); }
+});
+
 app.all('/api/cron/daily-report', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;

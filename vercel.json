@@ -1,21 +1,49 @@
 {
   "version": 2,
-  "functions": { "api/index.js": { "maxDuration": 60, "includeFiles": "{lib/fonts/**,public/img/**,db/**}" } },
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "{lib/fonts/**,public/img/**,db/**}"
+    }
+  },
   "headers": [
     {
       "source": "/js/(.*)",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
+      ]
     },
     {
       "source": "/(.*)\\.html",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache, must-revalidate" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, must-revalidate"
+        }
+      ]
     }
   ],
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+    {
+      "source": "/(.*)",
+      "destination": "/api/index"
+    }
   ],
   "crons": [
-    { "path": "/api/cron/auto-close", "schedule": "0 1 * * *" },
-    { "path": "/api/cron/daily-report", "schedule": "0 13 * * *" }
+    {
+      "path": "/api/cron/auto-close",
+      "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/daily-report",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/monthly-accounts",
+      "schedule": "30 6 5 * *"
+    }
   ]
 }

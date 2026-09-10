@@ -53,6 +53,18 @@
         <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
       </div>
 
+      <div class="card p-4 mb-4">
+        <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
+          <div><div class="eyebrow">Monthly accounts run</div>
+            <div class="text-sm text-slate-500">One consolidated report per employee (breakdown + each claim/OT) → a single email to accounts, per company. Auto-runs on the 5th.</div></div>
+          <div class="flex items-end gap-2">
+            <div><label class="fieldlabel">Month</label><input id="mrMonth" type="month" class="field !w-auto text-sm" onchange="loadMonthly()"></div>
+            <button onclick="clickBusy(this,'Running…',runMonthly)" class="btn text-sm">Run &amp; email accounts</button>
+          </div>
+        </div>
+        <div id="mrList"></div>
+      </div>
+
       <div id="groups"></div>
       <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">✅</div>Nothing awaiting final approval.</div>
     </div>
@@ -63,6 +75,7 @@
   <script src="/js/common.js?v=89"></script>
   <script>
     const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    async function clickBusy(btn,label,fn){ if(!btn||btn.dataset.busy)return; btn.dataset.busy='1'; const o=btn.innerHTML; btn.disabled=true; btn.innerHTML=(label||'…'); try{ await fn(); }catch(e){ if(window.toast) toast(e.message||'Error','error'); } finally{ delete btn.dataset.busy; btn.disabled=false; btn.innerHTML=o; } }
     const rupee = n => '\u20b9' + Number(n||0).toLocaleString('en-IN');
     let me=null, ITEMS=[];
 
@@ -70,9 +83,32 @@
       try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
       if(!(me.is_admin || me.ot_mgmt || me.expense_final)){ document.getElementById('denied').classList.remove('hidden'); return; }
       document.getElementById('ui').classList.remove('hidden');
-      await load();
+      const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
+      document.getElementById('mrMonth').value=d.toISOString().slice(0,7);
+      await load(); await loadMonthly();
     })();
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    const mrMonth=()=>document.getElementById('mrMonth').value||new Date().toISOString().slice(0,7);
+    async function loadMonthly(){
+      try{ const d=await api('/final/monthly-list?month='+mrMonth());
+        const el=document.getElementById('mrList');
+        if(!d.employees.length){ el.innerHTML='<div class="text-xs text-slate-400">No approved payments for this month yet.</div>'; return; }
+        el.innerHTML='<div class="text-[11px] text-slate-400 mb-1">'+d.employees.length+' employees with approved payments · send one individually if they missed the run:</div>'+
+          d.employees.map(e=>`<div class="flex items-center justify-between gap-2 py-1.5 border-b border-line/50 last:border-0">
+            <div class="text-sm"><b>${esc(e.name)}</b> <span class="text-xs text-slate-400 mono">${esc(e.emp_no)}</span> · ${rupee(e.total)}</div>
+            <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">Send to accounts</button></div>`).join('');
+      }catch(e){ /* non-mgmt */ }
+    }
+    async function runMonthly(){
+      if(!confirm('Run the monthly consolidation for '+mrMonth()+' and email accounts (per company)?')) return;
+      const r=await api('/final/monthly-run',{method:'POST',body:{month:mrMonth()}});
+      const s=(r.sent||[]).map(x=>x.company+': '+x.employees+' → '+x.accounts).join(' · ');
+      toast(s?('Sent — '+s):'Nothing approved to send','success');
+    }
+    async function sendEmp(id){
+      const r=await api('/final/send-employee',{method:'POST',body:{month:mrMonth(),emp_id:id}});
+      toast('Sent '+r.emp+' ('+rupee(r.total)+') → '+r.accounts,'success');
+    }
 
     async function load(){
       try{ const d=await api('/final/queue'); ITEMS=d.items||[]; render(); }
