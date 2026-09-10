@@ -137,33 +137,34 @@
       document.getElementById('shTotal').textContent='Shearing '+rupee(OV.shearing_total);
       document.getElementById('grandTotal').textContent=rupee(OV.grand_total);
       renderStatus(); renderOtList(); renderShList();
-      const locked=OV.locked;
-      document.getElementById('otAddCard').classList.toggle('hidden', locked);
-      document.getElementById('shAddCard').classList.toggle('hidden', locked);
-      // management pending
+      document.getElementById('otAddCard').classList.toggle('hidden', OV.ot_locked);
+      document.getElementById('shAddCard').classList.toggle('hidden', OV.sh_locked);
       const mw=document.getElementById('mgmtWrap');
       if(OV.can_approve){ mw.classList.remove('hidden'); loadPending(); } else mw.classList.add('hidden');
     }
 
-    function renderStatus(){
-      const el=document.getElementById('statusCard');
-      const label=OV.company_label;
-      if(OV.status==='draft'){
-        el.innerHTML=`<div class="flex items-center justify-between gap-3 flex-wrap">
-          <div><span class="pill bg-slate-100 text-slate-600">Draft</span>
-            <div class="text-sm text-slate-600 mt-1">${esc(label)} · add entries below, then submit for management approval.</div></div>
-          <button onclick="clickBusy(this,'Submitting…',submitApproval)" class="btn text-sm">Submit for Final Approval</button></div>`;
-      } else if(OV.status==='pending_mgmt'){
-        el.innerHTML=`<div class="flex items-center justify-between gap-3 flex-wrap">
-          <div><span class="pill bg-amber-100 text-amber-700">Pending management</span>
-            <div class="text-sm text-slate-600 mt-1">Submitted by ${esc(OV.submitted_by||'HR')} · still editable until approved.</div></div>
-          ${OV.can_approve?`<div class="flex gap-2"><button onclick="clickBusy(this,'Approving…',approveThis)" class="btn text-sm">Approve &amp; send to accounts</button>
-            <button onclick="returnThis()" class="btn-ghost text-sm">Return to HR</button></div>`:''}</div>`;
-      } else {
-        el.innerHTML=`<div><span class="pill bg-emerald-100 text-emerald-700">✓ Approved</span>
-          <div class="text-sm text-slate-600 mt-1">Approved by ${esc(OV.mgmt_by||'management')} · report ${OV.accounts_sent_at?'sent':'queued'} to <b>${esc(OV.accounts_email)}</b>. This month is locked.</div>
-          <a href="/api/labour/report/${CO}/${month()}" target="_blank" class="text-xs font-semibold text-brand-600 hover:underline">View report ↗</a></div>`;
+    function partCard(part){
+      const status = part==='ot' ? OV.ot_status : OV.shearing_status;
+      const label = part==='ot' ? 'Overtime' : 'Shearing';
+      const total = part==='ot' ? OV.ot_total : OV.shearing_total;
+      if(status==='draft'){
+        return `<div class="flex items-center justify-between gap-2 py-1 flex-wrap">
+          <div><span class="pill bg-slate-100 text-slate-600">${label} · Draft</span> <span class="text-xs text-slate-500">${rupee(total)}</span></div>
+          <button onclick="clickBusy(this,'Submitting…',()=>submitPart('${part}'))" class="btn text-xs">Submit ${label} for approval</button></div>`;
       }
+      if(status==='pending_mgmt'){
+        return `<div class="flex items-center justify-between gap-2 py-1 flex-wrap">
+          <div><span class="pill bg-amber-100 text-amber-700">${label} · Pending management</span> <span class="text-xs text-slate-500">${rupee(total)} · still editable</span></div>
+          ${OV.can_approve?`<div class="flex gap-2"><button onclick="clickBusy(this,'Approving…',()=>approvePart('${part}'))" class="btn text-xs">Approve ${label}</button>
+            <button onclick="returnPart('${part}')" class="btn-ghost text-xs">Return</button></div>`:''}</div>`;
+      }
+      return `<div class="flex items-center justify-between gap-2 py-1 flex-wrap">
+        <div><span class="pill bg-emerald-100 text-emerald-700">${label} · ✓ Approved</span> <span class="text-xs text-slate-500">${rupee(total)} · sent to ${esc(OV.accounts_email)}</span></div></div>`;
+    }
+    function renderStatus(){
+      document.getElementById('statusCard').innerHTML =
+        '<div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">'+esc(OV.company_label)+'</div>'+
+        partCard('ot')+'<div class="border-t border-line/60 my-1"></div>'+partCard('shearing');
     }
 
     /* ---------- OT add grid ---------- */
@@ -193,7 +194,7 @@
     function renderOtList(){
       const el=document.getElementById('otList');
       if(!OV.ot.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No OT posted yet this month.</div>'; return; }
-      const locked=OV.locked;
+      const locked=OV.ot_locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
         ${['Code','Name','Date','Hours','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
         ${OV.ot.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2 text-slate-500">${r.ot_date}</td><td class="px-3 py-2">${(+r.hours).toFixed(2)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
@@ -238,7 +239,7 @@
     function renderShList(){
       const el=document.getElementById('shList');
       if(!OV.shearing.length){ el.innerHTML='<div class="text-xs text-slate-400 px-1">No shearing posted yet this month.</div>'; return; }
-      const locked=OV.locked;
+      const locked=OV.sh_locked;
       el.innerHTML=`<div class="card p-0 overflow-hidden"><table class="w-full text-sm"><thead><tr class="text-left border-b border-line bg-slate-50">
         ${['Code','Name','Date','Days','Amount',''].map(h=>`<th class="px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">${h}</th>`).join('')}</tr></thead><tbody>
         ${OV.shearing.map(r=>locked?`<tr class="border-b border-line/60"><td class="px-3 py-2 mono text-slate-500">${esc(r.labour_code||'—')}</td><td class="px-3 py-2 font-semibold">${esc(r.labour_name)}</td><td class="px-3 py-2 text-slate-500">${r.sh_date||'—'}</td><td class="px-3 py-2">${(+r.days).toFixed(1)}</td><td class="px-3 py-2 font-semibold">${rupee(r.amount)}</td><td></td></tr>`
@@ -257,19 +258,21 @@
     async function delSh(id){ if(!confirm('Remove this shearing entry?'))return; try{ await api('/labour/shearing/'+id,{method:'DELETE'}); toast('Removed','info'); loadOverview(); }catch(e){ toast(e.message,'error'); } }
 
     /* ---------- submit / approve ---------- */
-    async function submitApproval(){
-      if(!confirm('Submit '+CO+' labour payments for '+month()+' for final approval? You can still edit until management approves.')) return;
-      try{ await api('/labour/submit',{method:'POST',body:{company:CO,month:month()}}); toast('Submitted for final approval','success'); loadOverview(); }
+    async function submitPart(part){
+      const label = part==='ot'?'Overtime':'Shearing';
+      if(!confirm('Submit '+label+' for '+CO+' '+month()+' for final approval? You can still edit until management approves.')) return;
+      try{ await api('/labour/submit',{method:'POST',body:{company:CO,month:month(),part}}); toast(label+' submitted for approval','success'); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
     }
-    async function approveThis(){
-      if(!confirm('Approve and email the report to accounts? This locks the month.')) return;
-      try{ await api('/labour/approve',{method:'POST',body:{company:CO,month:month()}}); toast('Approved — report sent to accounts','success'); loadOverview(); }
+    async function approvePart(part){
+      const label = part==='ot'?'Overtime':'Shearing';
+      if(!confirm('Approve '+label+' and email the report to accounts? This locks '+label+' for the month.')) return;
+      try{ await api('/labour/approve',{method:'POST',body:{company:CO,month:month(),part}}); toast(label+' approved — report sent to accounts','success'); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
     }
-    async function returnThis(){
-      if(!confirm('Return this month to HR for changes?')) return;
-      try{ await api('/labour/return',{method:'POST',body:{company:CO,month:month()}}); toast('Returned to HR','info'); loadOverview(); }
+    async function returnPart(part){
+      if(!confirm('Return this to HR for changes?')) return;
+      try{ await api('/labour/return',{method:'POST',body:{company:CO,month:month(),part}}); toast('Returned to HR','info'); loadOverview(); }
       catch(e){ toast(e.message,'error'); }
     }
     async function loadPending(){

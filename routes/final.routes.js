@@ -47,14 +47,22 @@ router.get('/queue', async (req, res) => {
     amount: Number(b.total_amount || 0), approve: { url: '/ot/mgmt-batch/' + b.id + '/approve' },
   }));
 
-  // 3) Labour OT + shearing — grouped under a single "Labours" payee, per company+month.
-  const lab = (await q(`SELECT company, period, ot_total, shearing_total FROM labour_period WHERE status='pending_mgmt' ORDER BY period`)).rows;
-  lab.forEach(p => items.push({
-    kind: 'labour', type_key: 'labour', type_label: 'Labour (OT + Shearing)', payee: 'Labours', payee_key: 'labours',
-    sub: (LABOUR_CO[p.company] || p.company) + ' \u00b7 ' + monthLabel(p.period) + ' \u00b7 OT ' + money(p.ot_total) + ' + Shearing ' + money(p.shearing_total),
-    amount: Number(p.ot_total || 0) + Number(p.shearing_total || 0), company: p.company, period: p.period,
-    approve: { url: '/labour/approve', body: { company: p.company, month: p.period } },
-  }));
+  // 3) Labour OT + shearing — grouped under "Labours", submitted/approved per part.
+  const lab = (await q(`SELECT company, period, ot_total, shearing_total, ot_status, shearing_status FROM labour_period WHERE ot_status='pending_mgmt' OR shearing_status='pending_mgmt' ORDER BY period`)).rows;
+  lab.forEach(p => {
+    if (p.ot_status === 'pending_mgmt') items.push({
+      kind: 'labour', type_key: 'labour', type_label: 'Labour (OT + Shearing)', payee: 'Labours', payee_key: 'labours',
+      sub: (LABOUR_CO[p.company] || p.company) + ' \u00b7 ' + monthLabel(p.period) + ' \u00b7 Overtime',
+      amount: Number(p.ot_total || 0), company: p.company, period: p.period,
+      approve: { url: '/labour/approve', body: { company: p.company, month: p.period, part: 'ot' } },
+    });
+    if (p.shearing_status === 'pending_mgmt') items.push({
+      kind: 'labour', type_key: 'labour', type_label: 'Labour (OT + Shearing)', payee: 'Labours', payee_key: 'labours',
+      sub: (LABOUR_CO[p.company] || p.company) + ' \u00b7 ' + monthLabel(p.period) + ' \u00b7 Shearing',
+      amount: Number(p.shearing_total || 0), company: p.company, period: p.period,
+      approve: { url: '/labour/approve', body: { company: p.company, month: p.period, part: 'shearing' } },
+    });
+  });
 
   const total = items.reduce((s, i) => s + i.amount, 0);
   res.json({ items, total, count: items.length });

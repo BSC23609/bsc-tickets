@@ -555,3 +555,7 @@ ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS labour_code TEXT;
 
 -- Shearing: track the work date too (report stays consolidated, date is for entry only).
 ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS sh_date DATE;
+
+-- Labour payments: OT and Shearing are submitted/approved separately.
+ALTER TABLE labour_period ADD COLUMN IF NOT EXISTS ot_status       TEXT NOT NULL DEFAULT 'draft';
+ALTER TABLE labour_period ADD COLUMN IF NOT EXISTS shearing_status TEXT NOT NULL DEFAULT 'draft';

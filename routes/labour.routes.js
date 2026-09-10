@@ -47,10 +47,11 @@ async function refreshTotals(company, period) {
   await q(`UPDATE labour_period SET ot_total=$3, shearing_total=$4, updated_at=now() WHERE company=$1 AND period=$2`, [company, period, ot, sh]);
   return { ot, sh };
 }
-// Entries can be added/edited/removed only while the month is not yet management-approved.
-async function assertEditable(company, period, res) {
+// Entries can be added/edited/removed only while that part (OT or Shearing) is not yet approved.
+async function assertEditable(company, period, res, part) {
   const p = await periodRow(company, period);
-  if (p.status === 'approved') { res.status(409).json({ error: 'This month is already management-approved and locked. Ask management to return it if changes are needed.' }); return false; }
+  const st = part === 'shearing' ? p.shearing_status : p.ot_status;
+  if (st === 'approved') { res.status(409).json({ error: `The ${part === 'shearing' ? 'shearing' : 'OT'} for this month is already approved and locked. Ask management to return it if changes are needed.` }); return false; }
   return true;
 }
 
@@ -66,10 +67,12 @@ router.get('/overview', async (req, res) => {
   const shNames = (await q(`SELECT DISTINCT labour_name FROM labour_shearing WHERE company=$1 ORDER BY labour_name`, [company])).rows.map(r => r.labour_name);
   const ot_total = ot.reduce((s, r) => s + r.amount, 0), shearing_total = shearing.reduce((s, r) => s + r.amount, 0);
   res.json({
-    company, company_label: LABOUR_CO[company].label, month, status: p.status,
-    submitted_by: p.submitted_by_name, mgmt_by: p.mgmt_by_name, accounts_sent_at: p.accounts_sent_at,
+    company, company_label: LABOUR_CO[company].label, month,
+    ot_status: p.ot_status, shearing_status: p.shearing_status,
+    ot_locked: p.ot_status === 'approved', sh_locked: p.shearing_status === 'approved',
+    submitted_by: p.submitted_by_name, mgmt_by: p.mgmt_by_name,
     accounts_email: LABOUR_CO[company].accounts,
-    locked: p.status === 'approved', can_approve: await isLabourMgmt(req.user),
+    can_approve: await isLabourMgmt(req.user),
     ot, shearing, ot_total, shearing_total, grand_total: ot_total + shearing_total, ot_names: otNames, sh_names: shNames,
   });
 });
@@ -79,7 +82,7 @@ router.post('/ot/bulk', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
   const month = isValidMonth(req.body.month) ? req.body.month : new Date().toISOString().slice(0, 7);
-  if (!(await assertEditable(company, month, res))) return;
+  if (!(await assertEditable(company, month, res, 'ot'))) return;
   const today = new Date().toISOString().slice(0, 10);
   const clean = [];
   for (const e of (req.body.entries || [])) {
@@ -108,7 +111,7 @@ router.put('/ot/:id', async (req, res) => {
   const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim();
   const date = String(req.body.ot_date || '').slice(0, 10), hours = parseFloat(req.body.hours);
   if (!name || !(hours > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Name, date and hours are required.' });
-  if (!(await assertEditable(row.company, row.period, res))) return;
+  if (!(await assertEditable(row.company, row.period, res, 'ot'))) return;
   await q(`UPDATE labour_ot SET labour_code=$2,labour_name=$3,ot_date=$4,hours=$5,amount=$6,updated_at=now() WHERE id=$1`,
     [row.id, code, name, date, +hours.toFixed(2), otAmount(hours)]);
   await refreshTotals(row.company, row.period);
@@ -118,7 +121,7 @@ router.delete('/ot/:id', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const row = (await q(`SELECT * FROM labour_ot WHERE id=$1`, [req.params.id])).rows[0];
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (!(await assertEditable(row.company, row.period, res))) return;
+  if (!(await assertEditable(row.company, row.period, res, 'ot'))) return;
   await q(`DELETE FROM labour_ot WHERE id=$1`, [req.params.id]);
   await refreshTotals(row.company, row.period);
   res.json({ ok: true });
@@ -129,7 +132,7 @@ router.post('/shearing/bulk', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
   const month = isValidMonth(req.body.month) ? req.body.month : new Date().toISOString().slice(0, 7);
-  if (!(await assertEditable(company, month, res))) return;
+  if (!(await assertEditable(company, month, res, 'shearing'))) return;
   const today = new Date().toISOString().slice(0, 10);
   const clean = [];
   for (const e of (req.body.entries || [])) {
@@ -158,7 +161,7 @@ router.put('/shearing/:id', async (req, res) => {
   const name = String(req.body.labour_name || '').trim(), code = String(req.body.labour_code || '').trim();
   const date = String(req.body.sh_date || '').slice(0, 10), days = parseFloat(req.body.days);
   if (!name || !(days > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Name, date and days are required.' });
-  if (!(await assertEditable(row.company, row.period, res))) return;
+  if (!(await assertEditable(row.company, row.period, res, 'shearing'))) return;
   await q(`UPDATE labour_shearing SET labour_code=$2,labour_name=$3,sh_date=$4,days=$5,amount=$6,updated_at=now() WHERE id=$1`, [row.id, code, name, date, +days.toFixed(1), shAmount(days)]);
   await refreshTotals(row.company, row.period);
   res.json({ ok: true });
@@ -167,66 +170,77 @@ router.delete('/shearing/:id', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const row = (await q(`SELECT * FROM labour_shearing WHERE id=$1`, [req.params.id])).rows[0];
   if (!row) return res.status(404).json({ error: 'Not found' });
-  if (!(await assertEditable(row.company, row.period, res))) return;
+  if (!(await assertEditable(row.company, row.period, res, 'shearing'))) return;
   await q(`DELETE FROM labour_shearing WHERE id=$1`, [req.params.id]);
   await refreshTotals(row.company, row.period);
   res.json({ ok: true });
 });
 
-// ---------- submit for final approval ----------
+// ---------- submit for final approval (per part: 'ot' or 'shearing') ----------
 router.post('/submit', async (req, res) => {
   if (!(await isLabourHr(req.user))) return res.status(403).json({ error: 'HR / admin only.' });
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
+  const part = req.body.part === 'shearing' ? 'shearing' : 'ot';
   const month = isValidMonth(req.body.month) ? req.body.month : new Date().toISOString().slice(0, 7);
   const p = await periodRow(company, month);
-  if (p.status === 'approved') return res.status(409).json({ error: 'Already approved.' });
+  const col = part + '_status';
+  if (p[col] === 'approved') return res.status(409).json({ error: 'Already approved.' });
   const { ot, sh } = await refreshTotals(company, month);
-  if (ot + sh <= 0) return res.status(400).json({ error: 'Nothing to submit — add some entries first.' });
-  await q(`UPDATE labour_period SET status='pending_mgmt', submitted_at=now(), submitted_by_name=$3, updated_at=now() WHERE company=$1 AND period=$2`, [company, month, req.user.name]);
-  res.json({ ok: true, status: 'pending_mgmt', ot_total: ot, shearing_total: sh, grand_total: ot + sh });
-  // Management sees it in their in-app "Pending approvals" list. (A WhatsApp/email nudge can be
-  // added later once a template is registered.)
+  const amt = part === 'shearing' ? sh : ot;
+  if (amt <= 0) return res.status(400).json({ error: `Nothing to submit — add some ${part === 'shearing' ? 'shearing' : 'OT'} entries first.` });
+  await q(`UPDATE labour_period SET ${col}='pending_mgmt', submitted_at=now(), submitted_by_name=$3, updated_at=now() WHERE company=$1 AND period=$2`, [company, month, req.user.name]);
+  res.json({ ok: true, part, status: 'pending_mgmt', amount: amt });
 });
 
-// ---------- management: pending list + approve + return ----------
+// ---------- management: pending list + approve + return (per part) ----------
 router.get('/pending', async (req, res) => {
   if (!(await isLabourMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
-  const rows = (await q(`SELECT company,period,ot_total,shearing_total,submitted_at,submitted_by_name FROM labour_period WHERE status='pending_mgmt' ORDER BY submitted_at`)).rows;
-  res.json(rows.map(r => ({ ...r, company_label: LABOUR_CO[r.company]?.label || r.company, month_label: monthName(r.period), grand_total: r.ot_total + r.shearing_total })));
+  const rows = (await q(`SELECT company,period,ot_total,shearing_total,ot_status,shearing_status,submitted_by_name FROM labour_period WHERE ot_status='pending_mgmt' OR shearing_status='pending_mgmt' ORDER BY period`)).rows;
+  const out = [];
+  rows.forEach(r => {
+    const base = { company: r.company, period: r.period, company_label: LABOUR_CO[r.company]?.label || r.company, month_label: monthName(r.period), submitted_by_name: r.submitted_by_name };
+    if (r.ot_status === 'pending_mgmt') out.push({ ...base, part: 'ot', label: 'Overtime', amount: r.ot_total });
+    if (r.shearing_status === 'pending_mgmt') out.push({ ...base, part: 'shearing', label: 'Shearing', amount: r.shearing_total });
+  });
+  res.json(out);
 });
 router.post('/approve', async (req, res) => {
   if (!(await isLabourMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
+  const part = req.body.part === 'shearing' ? 'shearing' : 'ot';
   const month = isValidMonth(req.body.month) ? req.body.month : '';
+  const col = part + '_status';
   const p = (await q(`SELECT * FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0];
   if (!p) return res.status(404).json({ error: 'Not found' });
-  if (p.status !== 'pending_mgmt') return res.status(409).json({ error: `Can't approve — it is ${p.status}.` });
+  if (p[col] !== 'pending_mgmt') return res.status(409).json({ error: `Can't approve — the ${part} is ${p[col]}.` });
   const { ot, sh } = await refreshTotals(company, month);
-  await q(`UPDATE labour_period SET status='approved', mgmt_at=now(), mgmt_by_name=$3, updated_at=now() WHERE company=$1 AND period=$2`, [company, month, req.user.name]);
-  res.json({ ok: true, status: 'approved' });
+  await q(`UPDATE labour_period SET ${col}='approved', mgmt_at=now(), mgmt_by_name=$3, updated_at=now() WHERE company=$1 AND period=$2`, [company, month, req.user.name]);
+  res.json({ ok: true, part, status: 'approved' });
   background((async () => {
     try {
-      const { pdf, otT, shT } = await buildReportPdf(company, month);
+      const { pdf, total, label } = await buildReportPdf(company, month, part);
       const acct = LABOUR_CO[company].accounts;
-      const ok = await graph.sendMail({
+      await graph.sendMail({
         to: acct,
-        subject: `Labour payments — ${LABOUR_CO[company].label} — ${monthName(month)} — ${money(ot + sh)} [APPROVED]`,
-        html: `<p>Please find attached the management-approved <b>labour payments</b> report for <b>${LABOUR_CO[company].label} — ${monthName(month)}</b>.</p>
-               <p>Overtime ${money(otT)} + Shearing ${money(shT)} = <b>${money(otT + shT)}</b>. Kindly process the payment.</p>`,
-        attachments: [{ name: `Labour_${company}_${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
+        subject: `Labour ${label} — ${LABOUR_CO[company].label} — ${monthName(month)} — ${money(total)} [APPROVED]`,
+        html: `<p>Please find attached the management-approved labour <b>${label.toLowerCase()}</b> report for <b>${LABOUR_CO[company].label} — ${monthName(month)}</b>.</p>
+               <p>Total <b>${money(total)}</b>. Kindly process the payment.</p>`,
+        attachments: [{ name: `Labour_${part}_${company}_${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
       });
-      if (ok) await q(`UPDATE labour_period SET accounts_sent_at=now() WHERE company=$1 AND period=$2`, [company, month]);
+      await q(`UPDATE labour_period SET accounts_sent_at=now() WHERE company=$1 AND period=$2`, [company, month]);
     } catch (e) { console.error('[labour accounts email]', e.message); }
   })());
 });
 router.post('/return', async (req, res) => {
   if (!(await isLabourMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const company = COMP(req.body.company); if (!company) return res.status(400).json({ error: 'Bad company' });
+  const part = req.body.part === 'shearing' ? 'shearing' : 'ot';
   const month = isValidMonth(req.body.month) ? req.body.month : '';
-  const p = (await q(`SELECT status FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0];
-  if (!p || p.status !== 'pending_mgmt') return res.status(409).json({ error: 'Only a pending month can be returned.' });
-  await q(`UPDATE labour_period SET status='draft', submitted_at=NULL, submitted_by_name=NULL, updated_at=now() WHERE company=$1 AND period=$2`, [company, month]);
-  res.json({ ok: true, status: 'draft' });
+  const col = part + '_status';
+  const p = (await q(`SELECT * FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0];
+  if (!p || p[col] !== 'pending_mgmt') return res.status(409).json({ error: 'Only a pending item can be returned.' });
+  await q(`UPDATE labour_period SET ${col}='draft', updated_at=now() WHERE company=$1 AND period=$2`, [company, month]);
+  res.json({ ok: true, part, status: 'draft' });
 });
 
 // ---------- report (HTML, used for the accounts email + on-screen/print) ----------
@@ -260,27 +274,33 @@ router.get('/report/:company/:month', async (req, res) => {
   const company = COMP(req.params.company); if (!company || !isValidMonth(req.params.month)) return res.status(400).send('Bad request');
   res.send(await buildReportHtml(company, req.params.month));
 });
-// PDF version (consolidated, no dates) — attached to the accounts email on approval.
-async function buildReportPdf(company, month) {
+// PDF version (consolidated, no dates) — per part ('ot' or 'shearing'), for the accounts email.
+async function buildReportPdf(company, month, part) {
   const { buildPaymentReportPDF } = require('../lib/payment_pdf');
+  if (part === 'shearing') {
+    const sh = (await q(`SELECT labour_name, COALESCE(SUM(days),0) AS days, COALESCE(SUM(amount),0) AS amount
+                         FROM labour_shearing WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
+    const total = sh.reduce((s, r) => s + Number(r.amount), 0);
+    const pdf = await buildPaymentReportPDF({
+      title: `Labour Shearing — ${LABOUR_CO[company].label}`,
+      subtitle: `${monthName(month)} · Shed B · consolidated monthly report`, approved: true,
+      sections: [{ name: 'Shed B — Shearing', total, cols: [{ label: 'Name', width: 0.6 }, { label: 'Days', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+        rows: sh.map(r => [r.labour_name, (+r.days).toFixed(1), money(r.amount)]) }],
+      grandTotal: total,
+    });
+    return { pdf, total, label: 'Shearing' };
+  }
   const ot = (await q(`SELECT labour_name, COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
                        FROM labour_ot WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
-  const sh = (await q(`SELECT labour_name, COALESCE(SUM(days),0) AS days, COALESCE(SUM(amount),0) AS amount
-                       FROM labour_shearing WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
-  const otT = ot.reduce((s, r) => s + Number(r.amount), 0), shT = sh.reduce((s, r) => s + Number(r.amount), 0);
+  const total = ot.reduce((s, r) => s + Number(r.amount), 0);
   const pdf = await buildPaymentReportPDF({
-    title: `Labour Payments — ${LABOUR_CO[company].label}`,
-    subtitle: `${monthName(month)} · consolidated monthly report`,
-    approved: true,
-    sections: [
-      { name: 'Overtime', total: otT, cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
-        rows: ot.map(r => [r.labour_name, (+r.hours).toFixed(2), money(r.amount)]) },
-      { name: 'Shed B — Shearing', total: shT, cols: [{ label: 'Name', width: 0.6 }, { label: 'Days', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
-        rows: sh.map(r => [r.labour_name, (+r.days).toFixed(1), money(r.amount)]) },
-    ],
-    grandTotal: otT + shT,
+    title: `Labour Overtime — ${LABOUR_CO[company].label}`,
+    subtitle: `${monthName(month)} · consolidated monthly report`, approved: true,
+    sections: [{ name: 'Overtime', total, cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+      rows: ot.map(r => [r.labour_name, (+r.hours).toFixed(2), money(r.amount)]) }],
+    grandTotal: total,
   });
-  return { pdf, otT, shT };
+  return { pdf, total, label: 'Overtime' };
 }
 
 module.exports = router;
