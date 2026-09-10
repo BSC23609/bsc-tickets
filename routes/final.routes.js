@@ -103,7 +103,7 @@ module.exports = router;
 
 // ===================== MONTHLY CONSOLIDATED PAYMENTS TO ACCOUNTS =====================
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
-const OT_DONE = "('approved','hr_verified','mgmt_approved','paid')";
+const OT_DONE = "('mgmt_approved','paid')";  // final-approved stage (paid keeps mgmt_approved history via 'paid')
 
 // Build one employee's consolidated PDF: breakdown cover + each approved claim + OT summary.
 async function buildEmployeeConsolidatedPdf(empId, month) {
