@@ -978,6 +978,17 @@ router.post('/reopen-nonmgmt', async (req, res) => {
   res.json({ ok: true, reopened: r.rows.length });
 });
 
+// Reopen ONE approved-but-unpaid claim back to pending_final (per submission).
+router.post('/:id/reopen-final', async (req, res) => {
+  if (!(await isManagement(req.user))) return res.status(403).json({ error: 'Only management can reopen.' });
+  const row = await loadRow(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'approved') return res.status(409).json({ error: 'Only an approved claim can be reopened.' });
+  if (row.paid_at) return res.status(409).json({ error: 'This claim is marked paid — unmark paid first.' });
+  await q(`UPDATE expense_submissions SET status='pending_final', final_at=NULL, final_by_name=NULL, updated_at=now() WHERE id=$1`, [row.id]);
+  res.json({ ok: true });
+});
+
 async function claimPdfById(id) {
   const full = await loadRow(id);
   if (!full) return null;

@@ -253,18 +253,22 @@ router.get('/month-items', async (req, res) => {
     labour: { key: 'labour', label: 'Labour (OT + Shearing)', items: [] },
   };
   const exp = (await q(
-    `SELECT s.id, s.form_type, s.total_amount, s.status, s.paid_at, s.pdf_token, e.name AS emp_name, e.emp_no
+    `SELECT s.id, s.form_type, s.total_amount, s.status, s.paid_at, s.final_by_name, s.pdf_token, e.name AS emp_name, e.emp_no
      FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
      WHERE s.status IN ('pending_final','approved','settled_offline') AND ${expInMonth('s', '$1')}
      ORDER BY e.name`, [month])).rows;
+  const mgmtNames = (await q(`SELECT name FROM employees WHERE id = ANY((SELECT string_to_array(COALESCE(value,''),',')::int[] FROM app_settings WHERE key='ot_mgmt_emp_ids'))`)).rows.map(r => r.name);
   exp.forEach(r => {
     const state = r.status === 'settled_offline' ? 'offline' : (r.status === 'approved' ? 'approved' : 'pending');
     const paid = !!r.paid_at;
     (cats[r.form_type] || cats.misc).items.push({
       payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), state, paid,
+      approved_by: state === 'approved' ? (r.final_by_name || '') : null,
+      nonmgmt: state === 'approved' && r.final_by_name && !mgmtNames.includes(r.final_by_name),
       pdf_token: r.pdf_token || null,
       approve: state === 'pending' ? { url: '/expense/' + r.id + '/final-approve' } : null,
       paidToggle: state === 'approved' ? { url: '/expense/' + r.id + '/' + (paid ? 'unmark-paid' : 'mark-paid') } : null,
+      reopen: (state === 'approved' && !paid) ? { url: '/expense/' + r.id + '/reopen-final' } : null,
     });
   });
   // Staff OT — one row per employee (approved individually), by OT date's calendar month.
@@ -283,6 +287,7 @@ router.get('/month-items', async (req, res) => {
       report_url: `/api/final/employee-report/${r.emp_id}/${month}`,
       approve: state === 'pending' ? { url: '/ot/mgmt-employee-approve', body: { emp_id: r.emp_id, month } } : null,
       paidToggle: state === 'approved' ? { url: '/ot/mgmt-employee-paid', body: { emp_id: r.emp_id, month, paid: !paid } } : null,
+      reopen: (state === 'approved' && !paid) ? { url: '/ot/mgmt-employee-unapprove', body: { emp_id: r.emp_id, month } } : null,
     });
   });
   const lab = (await q(`SELECT company, period, ot_total, shearing_total, ot_status, shearing_status FROM labour_period WHERE period=$1`, [month])).rows;

@@ -50,9 +50,7 @@
           Send consolidated Monthly payment report to Accounts
         </button>
       </div>
-      <div class="text-right mb-4 -mt-2">
-        <button onclick="reopenNonMgmt(this)" class="text-xs text-slate-400 hover:text-slate-600 hover:underline">⟲ Reopen claims approved by non-management</button>
-      </div>
+
 
       <div id="cats"></div>
       <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">🗂️</div>No final-approval items for this month yet.</div>
@@ -109,7 +107,9 @@
                 ? '<button onclick=\'togglePaid('+JSON.stringify(i.paidToggle)+',this)\' class="pill bg-slate-200 text-slate-600 text-[11px] hover:bg-slate-300" title="Paid — excluded from report. Click to mark unpaid.">₹ Paid</button>'
                 : '<button onclick=\'togglePaid('+JSON.stringify(i.paidToggle)+',this)\' class="pill bg-amber-100 text-amber-700 text-[11px] hover:bg-amber-200" title="Unpaid — will be sent in the report. Click to mark paid.">Unpaid</button>')
             : '';
-          const badge = (i.state==='approved' ? '<span class="pill bg-emerald-100 text-emerald-700 text-[11px]">✓ Final Approved</span>'+paidBtn
+          const approver = i.approved_by ? '<span class="text-[10px] '+(i.nonmgmt?'text-red-500':'text-slate-400')+' mono" title="'+(i.nonmgmt?'Approved by someone outside management':'')+'">by '+esc(i.approved_by)+(i.nonmgmt?' ⚠':'')+'</span>' : '';
+          const reopenBtn = i.reopen ? '<button onclick=\'reopenOne('+JSON.stringify(i.reopen)+',this)\' class="text-[11px] text-slate-400 hover:text-red-600 hover:underline" title="Send back to pending final approval">⟲ Reopen</button>' : '';
+          const badge = (i.state==='approved' ? '<span class="pill bg-emerald-100 text-emerald-700 text-[11px]">✓ Final Approved</span>'+approver+paidBtn+reopenBtn
             : (i.state==='offline' ? '<span class="pill bg-slate-200 text-slate-600 text-[11px]">Settled offline</span>' : ''));
           html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">'+
             '<div class="min-w-0"><div class="text-sm font-semibold text-ink">'+esc(i.payee)+(i.emp_no?' <span class="text-xs text-slate-400 mono">'+esc(i.emp_no)+'</span>':'')+' · '+rupee(i.amount)+'</div>'+
@@ -138,9 +138,9 @@
       toast('Approved '+ok+(fail?' · '+fail+' failed':''), fail?'error':'success');
       await loadMonth();
     }
-    async function reopenNonMgmt(btn){
-      if(!confirm('Reopen all approved-but-unpaid claims that were approved by someone outside the management team? They go back to pending final approval.')) return;
-      try{ const r=await api('/expense/reopen-nonmgmt',{method:'POST'}); toast('Reopened '+r.reopened+' claim(s) for management approval','success'); await loadMonth(); }
+    async function reopenOne(desc, btn){
+      if(!confirm('Reopen this claim? It goes back to pending final approval.')) return;
+      try{ await api(desc.url,{method:'POST',body:desc.body||{}}); toast('Reopened — back to pending final approval','info'); await loadMonth(); }
       catch(e){ toast(e.message,'error'); }
     }
     async function togglePaid(desc, btn){

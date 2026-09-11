@@ -457,6 +457,17 @@ router.get('/mgmt-batch/:id', requireOtMgmt, async (req, res) => {
 // Approve one employee's OT for a month (final approval, per employee) — flows into their
 // consolidated monthly report. Marks that employee's mgmt_pending entries as mgmt_approved.
 // Mark/unmark one employee's OT (for a month) as paid — paid OT drops out of the consolidated report.
+// Reopen one employee's approved (unpaid) OT for a month back to pending (per employee).
+router.post('/mgmt-employee-unapprove', requireOtMgmt, async (req, res) => {
+  const empId = +req.body.emp_id;
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : '';
+  if (!empId || !month) return res.status(400).json({ error: 'Bad request' });
+  const r = await q(`UPDATE ot_entries SET status='mgmt_pending', updated_at=now()
+    WHERE employee_id=$1 AND status='mgmt_approved'
+      AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month') RETURNING id`, [empId, month]);
+  res.json({ ok: true, reopened: r.rows.length });
+});
+
 router.post('/mgmt-employee-paid', requireOtMgmt, async (req, res) => {
   const empId = +req.body.emp_id;
   const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : '';
