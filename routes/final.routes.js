@@ -235,6 +235,17 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
 });
 
 // Employees who have approved payments in a month (for the catch-up picker).
+// Preview an employee's consolidated report (breakdown + each claim/OT) before it's emailed.
+router.get('/employee-report/:empId/:month', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+  if (!/^\d{4}-\d{2}$/.test(req.params.month)) return res.status(400).send('Bad month');
+  const r = await buildEmployeeConsolidatedPdf(+req.params.empId, req.params.month);
+  if (!r) return res.status(404).send('No approved payments for this employee in that month.');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
+  res.end(r.pdf);
+});
+
 router.get('/monthly-list', async (req, res) => {
   if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();

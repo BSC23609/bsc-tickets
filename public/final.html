@@ -97,7 +97,10 @@
           d.employees.map(e=>`<div class="flex items-center justify-between gap-2 py-1.5 border-b border-line/50 last:border-0">
             <div class="text-sm"><b>${esc(e.name)}</b> <span class="text-xs text-slate-400 mono">${esc(e.emp_no)}</span> · ${rupee(e.total)}
               ${e.sent_at?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(e.sent_at)}</span>`:''}</div>
-            <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">${e.sent_at?'Resend':'Send to accounts'}</button></div>`).join('');
+            <div class="flex items-center gap-2">
+              <a href="/api/final/employee-report/${e.id}/${mrMonth()}" target="_blank" class="btn-ghost text-xs">View</a>
+              <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">${e.sent_at?'Resend':'Send to accounts'}</button>
+            </div></div>`).join('');
       }catch(e){ /* non-mgmt */ }
     }
     async function runMonthly(){
