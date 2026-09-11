@@ -101,8 +101,13 @@
           '<div class="flex items-center gap-2">'+typeBadge(c.key)+'<span class="text-xs text-slate-400">'+c.items.length+' item'+(c.items.length>1?'s':'')+(pend?' · '+pend+' pending':' · all cleared')+'</span></div>'+
           (pend>1?'<button data-cat="'+c.key+'" onclick="approveCategory(this)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566">Approve all pending ('+pend+')</button>':'')+'</div>';
         c.items.forEach(i=>{
-          const badge = i.state==='approved' ? '<span class="pill bg-emerald-100 text-emerald-700 text-[11px]">✓ Final Approved</span>'
-            : (i.state==='offline' ? '<span class="pill bg-slate-200 text-slate-600 text-[11px]">Settled offline</span>' : '');
+          const paidBtn = (i.state==='approved' && i.paidToggle)
+            ? (i.paid
+                ? '<button onclick=\'togglePaid('+JSON.stringify(i.paidToggle)+',this)\' class="pill bg-slate-200 text-slate-600 text-[11px] hover:bg-slate-300" title="Paid — excluded from report. Click to mark unpaid.">₹ Paid</button>'
+                : '<button onclick=\'togglePaid('+JSON.stringify(i.paidToggle)+',this)\' class="pill bg-amber-100 text-amber-700 text-[11px] hover:bg-amber-200" title="Unpaid — will be sent in the report. Click to mark paid.">Unpaid</button>')
+            : '';
+          const badge = (i.state==='approved' ? '<span class="pill bg-emerald-100 text-emerald-700 text-[11px]">✓ Final Approved</span>'+paidBtn
+            : (i.state==='offline' ? '<span class="pill bg-slate-200 text-slate-600 text-[11px]">Settled offline</span>' : ''));
           html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">'+
             '<div class="min-w-0"><div class="text-sm font-semibold text-ink">'+esc(i.payee)+(i.emp_no?' <span class="text-xs text-slate-400 mono">'+esc(i.emp_no)+'</span>':'')+' · '+rupee(i.amount)+'</div>'+
             (i.sub?'<div class="text-xs text-slate-500 mt-0.5">'+esc(i.sub)+'</div>':'')+'</div>'+
@@ -129,6 +134,11 @@
       for(const i of pend){ try{ await api(i.approve.url,{method:'POST',body:i.approve.body||{}}); ok++; }catch(e){ fail++; } }
       toast('Approved '+ok+(fail?' · '+fail+' failed':''), fail?'error':'success');
       await loadMonth();
+    }
+    async function togglePaid(desc, btn){
+      if(btn){ btn.disabled=true; }
+      try{ await api(desc.url,{method:'POST',body:desc.body||{}}); await loadMonth(); }
+      catch(e){ toast(e.message,'error'); if(btn) btn.disabled=false; }
     }
     async function sendConsolidated(){
       if(!MONTH.all_approved) return toast('Approve every item first','error');

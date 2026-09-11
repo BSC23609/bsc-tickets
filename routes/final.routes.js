@@ -116,7 +116,7 @@ function expInMonth(s, p) {
   )`;
 }
 function otInMonth(o, p) {
-  return `${o}.ot_date >= (${p}||'-01')::date AND ${o}.ot_date < ((${p}||'-01')::date + interval '1 month') AND ${o}.status IN ${OT_DONE}`;
+  return `${o}.ot_date >= (${p}||'-01')::date AND ${o}.ot_date < ((${p}||'-01')::date + interval '1 month') AND ${o}.status = 'mgmt_approved'`;  // unpaid only
 }
 
 // Build one employee's consolidated PDF: breakdown cover + each approved claim + OT summary.
@@ -125,7 +125,7 @@ async function buildEmployeeConsolidatedPdf(empId, month) {
   if (!emp) return null;
   const claims = (await q(
     `SELECT id, form_type, total_amount FROM expense_submissions s
-     WHERE employee_id=$1 AND status='approved' AND ${expInMonth('s','$2')}
+     WHERE employee_id=$1 AND status='approved' AND paid_at IS NULL AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
   const ot = (await q(`SELECT COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
      FROM ot_entries o WHERE employee_id=$1 AND ${otInMonth('o','$2')}`, [empId, month])).rows[0];
@@ -175,7 +175,7 @@ async function runMonthlyAccounts(month, byName) {
   const cfg = await chain.getChain();
   const emps = (await q(
     `SELECT DISTINCT e.id, e.name, e.emp_no FROM employees e
-     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')})
+     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')})
         OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}))
        AND NOT EXISTS (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id)
      ORDER BY e.emp_no`, [month])).rows;
@@ -256,31 +256,36 @@ router.get('/month-items', async (req, res) => {
     labour: { key: 'labour', label: 'Labour (OT + Shearing)', items: [] },
   };
   const exp = (await q(
-    `SELECT s.id, s.form_type, s.total_amount, s.status, s.pdf_token, e.name AS emp_name, e.emp_no
+    `SELECT s.id, s.form_type, s.total_amount, s.status, s.paid_at, s.pdf_token, e.name AS emp_name, e.emp_no
      FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
      WHERE s.status IN ('pending_final','approved','settled_offline') AND ${expInMonth('s', '$1')}
      ORDER BY e.name`, [month])).rows;
   exp.forEach(r => {
     const state = r.status === 'settled_offline' ? 'offline' : (r.status === 'approved' ? 'approved' : 'pending');
+    const paid = !!r.paid_at;
     (cats[r.form_type] || cats.misc).items.push({
-      payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), state,
-      pdf_token: r.pdf_token || null, approve: state === 'pending' ? { url: '/expense/' + r.id + '/final-approve' } : null,
+      payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), state, paid,
+      pdf_token: r.pdf_token || null,
+      approve: state === 'pending' ? { url: '/expense/' + r.id + '/final-approve' } : null,
+      paidToggle: state === 'approved' ? { url: '/expense/' + r.id + '/' + (paid ? 'unmark-paid' : 'mark-paid') } : null,
     });
   });
   // Staff OT — one row per employee (approved individually), by OT date's calendar month.
   const ot = (await q(
     `SELECT e.id AS emp_id, e.name, e.emp_no, COALESCE(SUM(o.hours),0) AS hours, COALESCE(SUM(o.amount),0) AS amount,
-            bool_or(o.status='mgmt_pending') AS has_pending
+            bool_or(o.status='mgmt_pending') AS has_pending, bool_or(o.status='mgmt_approved') AS has_unpaid
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
      WHERE o.status IN ('mgmt_pending','mgmt_approved','paid')
        AND o.ot_date >= ($1||'-01')::date AND o.ot_date < (($1||'-01')::date + interval '1 month')
      GROUP BY e.id, e.name, e.emp_no ORDER BY e.name`, [month])).rows;
   ot.forEach(r => {
     const state = r.has_pending ? 'pending' : 'approved';
+    const paid = !r.has_pending && !r.has_unpaid; // all final entries are 'paid'
     cats.ot.items.push({
-      payee: r.name, emp_no: r.emp_no, amount: Number(r.amount || 0), state,
+      payee: r.name, emp_no: r.emp_no, amount: Number(r.amount || 0), state, paid,
       report_url: `/api/final/employee-report/${r.emp_id}/${month}`,
       approve: state === 'pending' ? { url: '/ot/mgmt-employee-approve', body: { emp_id: r.emp_id, month } } : null,
+      paidToggle: state === 'approved' ? { url: '/ot/mgmt-employee-paid', body: { emp_id: r.emp_id, month, paid: !paid } } : null,
     });
   });
   const lab = (await q(`SELECT company, period, ot_total, shearing_total, ot_status, shearing_status FROM labour_period WHERE period=$1`, [month])).rows;
@@ -307,11 +312,11 @@ router.get('/monthly-list', async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
   const rows = (await q(
     `SELECT e.id, e.name, e.emp_no,
-       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')}),0)
+       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')}),0)
        + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}),0) AS total,
        (SELECT to_char(sent_at,'DD Mon HH24:MI') FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) AS sent_at
      FROM employees e
-     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')})
+     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')})
         OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')})
      ORDER BY (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) NULLS FIRST, e.emp_no`, [month])).rows;
   res.json({ month, employees: rows });
