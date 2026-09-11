@@ -243,7 +243,17 @@ router.get('/employee-report/:empId/:month', async (req, res) => {
     }
     if (!empId) return res.status(404).send('Employee not found.');
     const r = await buildEmployeeConsolidatedPdf(empId, req.params.month);
-    if (!r) return res.status(404).send('No approved payments for this employee in that month.');
+    if (!r) {
+      const m = req.params.month;
+      const exp = (await q(`SELECT form_type, status, (paid_at IS NOT NULL) AS paid, total_amount FROM expense_submissions s WHERE employee_id=$1 AND ${expInMonth('s', '$2')} ORDER BY form_type`, [empId, m])).rows;
+      const ot = (await q(`SELECT status, count(*) c, sum(amount) amt FROM ot_entries WHERE employee_id=$1 AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month') GROUP BY status`, [empId, m])).rows;
+      let msg = `No UNPAID, final-approved payments for this employee in ${m}.\n\nThe consolidated report includes ONLY items that are Final Approved AND Unpaid.\n\nWhat this employee has this month:\n`;
+      if (exp.length) exp.forEach(e => { msg += `  • ${e.form_type}: \u20b9${e.total_amount} — status=${e.status}${e.paid ? '  [PAID → excluded]' : ''}\n`; });
+      else msg += '  • (no expense claims fall in this month)\n';
+      if (ot.length) ot.forEach(o => { msg += `  • OT: \u20b9${o.amt} — status=${o.status} (${o.c} entries)\n`; });
+      msg += `\nFix: approve any 'pending_final' items, and un-mark any that are Paid, in Final Approvals — then they'll appear here.`;
+      return res.status(404).type('text/plain').send(msg);
+    }
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename="${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
     res.end(r.pdf);
