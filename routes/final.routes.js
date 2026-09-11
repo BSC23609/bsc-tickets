@@ -140,9 +140,10 @@ async function buildEmployeeConsolidatedPdf(empId, month) {
 
   const { buildCoverPdf, mergePdfs } = require('../lib/consolidated');
   const cover = await buildCoverPdf({ empName: emp.name, empNo: emp.emp_no, monthLabel: monthLabel(month), breakdown, total });
-  const parts = [cover];
   const expense = require('./expense.routes');
-  for (const c of claims) { const pdf = await expense._internal.claimPdfById(c.id); if (pdf) parts.push(pdf); }
+  // Regenerate every claim PDF in parallel (was sequential — slow / timed out for heavy employees).
+  const claimPdfs = await Promise.all(claims.map(c => expense._internal.claimPdfById(c.id).catch(e => { console.error('[consolidated claimPdf]', c.id, e.message); return null; })));
+  const parts = [cover, ...claimPdfs.filter(Boolean)];
   if (otAmt > 0) {
     const { buildPaymentReportPDF } = require('../lib/payment_pdf');
     parts.push(await buildPaymentReportPDF({
@@ -231,13 +232,22 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
 // Employees who have approved payments in a month (for the catch-up picker).
 // Preview an employee's consolidated report (breakdown + each claim/OT) before it's emailed.
 router.get('/employee-report/:empId/:month', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
-  if (!/^\d{4}-\d{2}$/.test(req.params.month)) return res.status(400).send('Bad month');
-  const r = await buildEmployeeConsolidatedPdf(+req.params.empId, req.params.month);
-  if (!r) return res.status(404).send('No approved payments for this employee in that month.');
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
-  res.end(r.pdf);
+  try {
+    if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+    if (!/^\d{4}-\d{2}$/.test(req.params.month)) return res.status(400).send('Bad month');
+    // Accept a numeric employee id OR an emp code (e.g. BSC/119 or BSC_119).
+    let empId = +req.params.empId;
+    if (!empId) {
+      const no = String(req.params.empId).replace(/_/g, '/');
+      empId = (await q(`SELECT id FROM employees WHERE emp_no=$1 OR emp_no=$2 LIMIT 1`, [no, req.params.empId])).rows[0]?.id || 0;
+    }
+    if (!empId) return res.status(404).send('Employee not found.');
+    const r = await buildEmployeeConsolidatedPdf(empId, req.params.month);
+    if (!r) return res.status(404).send('No approved payments for this employee in that month.');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
+    res.end(r.pdf);
+  } catch (e) { console.error('[employee-report]', e); res.status(500).send('Could not build the report: ' + e.message); }
 });
 
 // Everything for a month that's relevant to final approval, grouped by category, each with its
