@@ -122,22 +122,17 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
   if (!emp) return null;
   const claims = (await q(
-    `SELECT id, form_type, total_amount FROM expense_submissions s
+    `SELECT id, form_type, total_amount, final_by_name, to_char(final_at,'DD Mon YYYY, HH12:MI AM') AS final_at_fmt FROM expense_submissions s
      WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
   const otStatus = includePaid ? "status IN ('mgmt_approved','paid')" : "status = 'mgmt_approved'";
   const ot = (await q(`SELECT COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
      FROM ot_entries WHERE employee_id=$1 AND ${otStatus}
        AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month')`, [empId, month])).rows[0];
-  const byType = { conveyance: 0, outstation: 0, misc: 0 };
-  claims.forEach(c => { byType[c.form_type] = (byType[c.form_type] || 0) + Number(c.total_amount); });
+  const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation', misc: 'Miscellaneous' };
   const otAmt = Number(ot.amount || 0);
-  const breakdown = [
-    { label: 'Local Conveyance', amount: byType.conveyance },
-    { label: 'Outstation', amount: byType.outstation },
-    { label: 'Miscellaneous', amount: byType.misc },
-    { label: 'Overtime', amount: otAmt },
-  ].filter(b => b.amount > 0);
+  const breakdown = claims.map(c => ({ label: FORM_LABEL[c.form_type] || c.form_type, amount: Number(c.total_amount || 0), by: c.final_by_name || '\u2014', at: c.final_at_fmt || '' }));
+  if (otAmt > 0) breakdown.push({ label: 'Overtime', amount: otAmt, by: 'Management', at: '' });
   const total = breakdown.reduce((s, b) => s + b.amount, 0);
   if (total <= 0) return null;
 
