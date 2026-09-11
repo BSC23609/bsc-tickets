@@ -27,7 +27,6 @@ async function isLabourHr(u) {
   return !!r;
 }
 async function isLabourMgmt(u) {
-  if (u.is_admin) return true;
   const ids = ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number);
   return ids.includes(u.id);
 }

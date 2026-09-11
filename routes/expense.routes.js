@@ -98,6 +98,13 @@ async function refNo(prefix) {
   return `${base}${String(rows[0].mx + 1).padStart(3, '0')}`;
 }
 
+// Unified final-approval authority: the management team (Admin → OT approvers → Management
+// approvers). No admin bypass — only these people can final-approve expense / OT / labour.
+async function managementIds() {
+  return ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).filter(Boolean);
+}
+async function isManagement(u) { return (await managementIds()).includes(u.id); }
+
 async function loadRow(id) {
   return (await q(`SELECT s.*, e.name AS emp_name, e.emp_no AS emp_code, e.job_title AS designation,
     e.expense_category, e.email AS emp_email FROM expense_submissions s
@@ -147,7 +154,7 @@ router.get('/meta', async (req, res) => {
   res.json({ rates: pol.rates, limits: pol.limits, category: cat, category_label: catLabel(cat), min_cycle,
     reporting_manager: mgr ? mgr.name : null, conveyance_log_hours: pol.log_hours,
     is_hr_approver: req.user.is_admin || c.hr_approver_ids.includes(req.user.id),
-    is_final_approver: req.user.is_admin || c.final_approver_ids.includes(req.user.id),
+    is_final_approver: await isManagement(req.user),
     is_accounts: req.user.is_admin || !!(c.accounts_notify_id && req.user.id === c.accounts_notify_id),
     is_trip_manager: await isTripManager(req.user),
     me: { emp_no: req.user.emp_no, name: req.user.name, designation: req.user.job_title || '' }, hr_email: HR_EMAIL });
@@ -552,9 +559,9 @@ router.get('/final-approvals', async (req, res) => {
 // Final approvers HR can route to (for the approve dropdown).
 router.get('/chain-approvers', async (req, res) => {
   if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR only' });
-  const c = await chain.getChain();
-  if (!c.final_approver_ids.length) return res.json([]);
-  res.json((await q(`SELECT id,name,emp_no FROM employees WHERE id = ANY($1) AND active=TRUE ORDER BY name`, [c.final_approver_ids])).rows);
+  const mids = await managementIds();
+  if (!mids.length) return res.json([]);
+  res.json((await q(`SELECT id,name,emp_no FROM employees WHERE id = ANY($1) AND active=TRUE ORDER BY name`, [mids])).rows);
 });
 
 // ---------------- detail (owner / HR / final approver) ----------------
@@ -570,7 +577,7 @@ router.get('/:id', async (req, res) => {
     perms: {
       is_owner: owner,
       can_hr: row.status === 'pending_hr' && hr,
-      can_final: row.status === 'pending_final' && (req.user.is_admin || row.final_approver_id === req.user.id),
+      can_final: row.status === 'pending_final' && (await isManagement(req.user)),
       can_send_cmd: (req.user.is_admin || hr || row.final_approver_id === req.user.id) && ['pending_hr', 'pending_final', 'approved'].includes(row.status),
       can_settle_offline: (owner || req.user.is_admin || (_c.accounts_notify_id && _c.accounts_notify_id === req.user.id))
         && ['draft', 'pending', 'pending_hr', 'pending_final', 'returned'].includes(row.status),
@@ -585,8 +592,7 @@ router.post('/:id/hr-approve', async (req, res) => {
   const row = await loadRow(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.status !== 'pending_hr') return res.status(409).json({ error: 'Not awaiting HR' });
-  const c = await chain.getChain();
-  if (!c.final_approver_ids.includes(finalId)) return res.status(400).json({ error: 'Pick a valid final approver' });
+  if (!(await managementIds()).includes(finalId)) return res.status(400).json({ error: 'Pick a valid final approver (management).' });
   await q(`UPDATE expense_submissions SET status='pending_final', hr_by_id=$2, hr_by_name=$3, hr_at=now(), final_approver_id=$4 WHERE id=$1`,
     [row.id, req.user.id, req.user.name, finalId]);
   res.json({ ok: true });
@@ -648,17 +654,15 @@ router.post('/:id/final-approve', async (req, res) => {
   const row = await loadRow(req.params.id);
   if (!row) return res.status(404).json({ error: 'Not found' });
   if (row.status !== 'pending_final') return res.status(409).json({ error: 'Not awaiting final approval' });
-  if (!(req.user.is_admin || row.final_approver_id === req.user.id)) return res.status(403).json({ error: 'Not the assigned approver' });
+  if (!(await isManagement(req.user))) return res.status(403).json({ error: 'Only the named management approvers can final-approve.' });
   await applyFinalApprove(row, req.user.name);
   res.json({ ok: true });
 });
 
 // One-shot: approve for payment every claim awaiting THIS approver's final approval.
 router.post('/final-approve-all', async (req, res) => {
-  const rows = (await q(
-    `SELECT * FROM expense_submissions WHERE status='pending_final'` +
-    (req.user.is_admin ? '' : ' AND final_approver_id=$1'),
-    req.user.is_admin ? [] : [req.user.id])).rows;
+  if (!(await isManagement(req.user))) return res.status(403).json({ error: 'Only management can final-approve.' });
+  const rows = (await q(`SELECT * FROM expense_submissions WHERE status='pending_final'`)).rows;
   for (const row of rows) { try { await applyFinalApprove(row, req.user.name); } catch (e) { console.error('[final-approve-all]', row.id, e.message); } }
   res.json({ ok: true, approved: rows.length });
 });
@@ -958,6 +962,20 @@ router.post('/report/:period/send', async (req, res) => {
   if (CMD_TEST_PHONE) { background(wati.notify.expense.report({ name: 'Test', phone: CMD_TEST_PHONE }, payload)); out.whatsapped = true; }
   out.no_cmd = !cmd; out.no_email = cmd && !cmd.email;
   res.json({ ok: true, ...out });
+});
+
+// One-time cleanup: reopen approved-but-unpaid claims that were final-approved by someone who is
+// NOT in the management team — sends them back to pending_final for proper management approval.
+router.post('/reopen-nonmgmt', async (req, res) => {
+  if (!(await isManagement(req.user))) return res.status(403).json({ error: 'Only management can do this.' });
+  const mids = await managementIds();
+  if (!mids.length) return res.status(400).json({ error: 'Configure the management approvers first.' });
+  const names = (await q(`SELECT name FROM employees WHERE id = ANY($1)`, [mids])).rows.map(r => r.name);
+  const r = await q(
+    `UPDATE expense_submissions SET status='pending_final', final_at=NULL, final_by_name=NULL, updated_at=now()
+     WHERE status='approved' AND paid_at IS NULL AND (final_by_name IS NULL OR final_by_name <> ALL($1::text[])) RETURNING id`,
+    [names]);
+  res.json({ ok: true, reopened: r.rows.length });
 });
 
 async function claimPdfById(id) {

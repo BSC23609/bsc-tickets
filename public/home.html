@@ -127,7 +127,7 @@
       const otDept=['production','dispatch'].includes(String(me.department||'').trim().toLowerCase());
       if(otDept||me.ot_approver||me.ot_hr||me.ot_mgmt||me.is_admin) document.getElementById('otTile').classList.remove('hidden');
       if(me.ot_hr||me.ot_mgmt||me.is_admin){ const lt=document.getElementById('labourTile'); if(lt) lt.classList.remove('hidden'); }
-      if(me.ot_mgmt||me.expense_final||me.is_admin){ const ft=document.getElementById('finalTile'); if(ft) ft.classList.remove('hidden'); }
+      if(me.ot_mgmt){ const ft=document.getElementById('finalTile'); if(ft) ft.classList.remove('hidden'); }
       document.querySelectorAll('[data-app]').forEach(el=>{ if(me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden'); });
       hideEmptySections();
     }

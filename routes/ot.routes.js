@@ -430,8 +430,8 @@ router.post('/hr-generate', requireOtHr, async (req, res) => {
 // ---- Management (Goverdhan / Gourav / Shivam) ----
 async function requireOtMgmt(req, res, next) {
   const ids = await otMgmtIds();
-  if (req.user.is_admin || ids.includes(req.user.id)) return next();
-  return res.status(403).json({ error: 'Only management can approve OT batches.' });
+  if (ids.includes(req.user.id)) return next();
+  return res.status(403).json({ error: 'Only the named management approvers can approve OT.' });
 }
 router.get('/mgmt-batches', requireOtMgmt, async (req, res) => {
   const rows = (await q(

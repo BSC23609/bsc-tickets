@@ -16,11 +16,8 @@ const monthLabel = (p) => { if (!p) return ''; const [y, m] = String(p).split('-
 const money = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN');
 
 async function isMgmt(u) {
-  if (u.is_admin) return true;
-  const mgmt = ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number);
-  if (mgmt.includes(u.id)) return true;
-  const c = await chain.getChain();
-  return (c.final_approver_ids || []).includes(u.id);
+  const mgmt = ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).filter(Boolean);
+  return mgmt.includes(u.id);
 }
 
 router.get('/queue', async (req, res) => {
