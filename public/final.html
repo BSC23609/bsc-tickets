@@ -93,21 +93,24 @@
       try{ const d=await api('/final/monthly-list?month='+mrMonth());
         const el=document.getElementById('mrList');
         if(!d.employees.length){ el.innerHTML='<div class="text-xs text-slate-400">No approved payments for this month yet.</div>'; return; }
-        el.innerHTML='<div class="text-[11px] text-slate-400 mb-1">'+d.employees.length+' employees with approved payments · send one individually if they missed the run:</div>'+
+        el.innerHTML='<div class="text-[11px] text-slate-400 mb-1">'+d.employees.length+' employees with approved payments · already-sent ones are marked:</div>'+
           d.employees.map(e=>`<div class="flex items-center justify-between gap-2 py-1.5 border-b border-line/50 last:border-0">
-            <div class="text-sm"><b>${esc(e.name)}</b> <span class="text-xs text-slate-400 mono">${esc(e.emp_no)}</span> · ${rupee(e.total)}</div>
-            <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">Send to accounts</button></div>`).join('');
+            <div class="text-sm"><b>${esc(e.name)}</b> <span class="text-xs text-slate-400 mono">${esc(e.emp_no)}</span> · ${rupee(e.total)}
+              ${e.sent_at?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(e.sent_at)}</span>`:''}</div>
+            <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">${e.sent_at?'Resend':'Send to accounts'}</button></div>`).join('');
       }catch(e){ /* non-mgmt */ }
     }
     async function runMonthly(){
       if(!confirm('Run the monthly consolidation for '+mrMonth()+' and email accounts (per company)?')) return;
       const r=await api('/final/monthly-run',{method:'POST',body:{month:mrMonth()}});
       const s=(r.sent||[]).map(x=>x.company+': '+x.employees+' → '+x.accounts).join(' · ');
-      toast(s?('Sent — '+s):'Nothing approved to send','success');
+      toast(s?('Sent — '+s):'Nothing new to send (all already sent or none approved)','success');
+      await loadMonthly();
     }
     async function sendEmp(id){
       const r=await api('/final/send-employee',{method:'POST',body:{month:mrMonth(),emp_id:id}});
       toast('Sent '+r.emp+' ('+rupee(r.total)+') → '+r.accounts,'success');
+      await loadMonthly();
     }
 
     async function load(){

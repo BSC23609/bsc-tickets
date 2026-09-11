@@ -559,3 +559,15 @@ ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS sh_date DATE;
 -- Labour payments: OT and Shearing are submitted/approved separately.
 ALTER TABLE labour_period ADD COLUMN IF NOT EXISTS ot_status       TEXT NOT NULL DEFAULT 'draft';
 ALTER TABLE labour_period ADD COLUMN IF NOT EXISTS shearing_status TEXT NOT NULL DEFAULT 'draft';
+
+-- Tracks which employees' consolidated monthly report was already emailed to accounts (no double-send).
+CREATE TABLE IF NOT EXISTS payment_run_sent (
+  id             SERIAL PRIMARY KEY,
+  period         TEXT NOT NULL,
+  employee_id    INT NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  total          INT NOT NULL DEFAULT 0,
+  accounts_email TEXT,
+  sent_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_by        TEXT,
+  UNIQUE(period, employee_id)
+);

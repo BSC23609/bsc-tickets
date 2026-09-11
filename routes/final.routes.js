@@ -146,14 +146,25 @@ async function buildEmployeeConsolidatedPdf(empId, month) {
 
 // Run the monthly consolidation for a given month: one email per company (by emp_no prefix)
 // with one consolidated PDF attachment per employee.
-async function runMonthlyAccounts(month) {
+async function recordSent(period, empId, total, acct, by) {
+  await q(`INSERT INTO payment_run_sent(period,employee_id,total,accounts_email,sent_by)
+           VALUES($1,$2,$3,$4,$5)
+           ON CONFLICT (period,employee_id) DO UPDATE SET total=EXCLUDED.total, accounts_email=EXCLUDED.accounts_email, sent_at=now(), sent_by=EXCLUDED.sent_by`,
+    [period, empId, Math.round(total), acct, by || null]);
+}
+
+// One email per company (by emp_no prefix) with one consolidated PDF per employee.
+// Employees already emailed for this month are skipped (no double-send).
+async function runMonthlyAccounts(month, byName) {
   const chain = require('../lib/chain');
-const graph = require('../lib/graph'); const cfg = await chain.getChain();
+  const graph = require('../lib/graph');
+  const cfg = await chain.getChain();
   const emps = (await q(
     `SELECT DISTINCT e.id, e.name, e.emp_no FROM employees e
-     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved'
+     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved'
                      AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1)))
-        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE})
+        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE}))
+       AND NOT EXISTS (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id)
      ORDER BY e.emp_no`, [month])).rows;
   const byPrefix = {};
   for (const e of emps) { const pfx = String(e.emp_no || '').split('/')[0].toUpperCase() || 'BSC'; (byPrefix[pfx] = byPrefix[pfx] || []).push(e); }
@@ -161,10 +172,10 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
   for (const pfx of Object.keys(byPrefix)) {
     const acct = chain.accountsEmailFor(cfg, pfx + '/x');
     if (!acct) continue;
-    const attachments = [];
+    const attachments = []; const done = [];
     for (const e of byPrefix[pfx]) {
       const r = await buildEmployeeConsolidatedPdf(e.id, month);
-      if (r) attachments.push({ name: `${e.name.replace(/[^\w .-]/g, '')} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: r.pdf.toString('base64') });
+      if (r) { attachments.push({ name: `${e.name.replace(/[^\w .-]/g, '')} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: r.pdf.toString('base64') }); done.push({ id: e.id, total: r.total }); }
     }
     if (attachments.length) {
       await graph.sendMail({
@@ -173,6 +184,7 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
         html: `<p>Please find attached the consolidated monthly payment reports (one per employee) for <b>${pfx} — ${monthLabel(month)}</b>.</p><p>Kindly process the payments.</p>`,
         attachments,
       });
+      for (const d of done) await recordSent(month, d.id, d.total, acct, byName || 'Monthly run');
       sent.push({ company: pfx, accounts: acct, employees: attachments.length });
     }
   }
@@ -182,7 +194,7 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
 router.post('/monthly-run', async (req, res) => {
   if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : prevMonth();
-  try { res.json(await runMonthlyAccounts(month)); }
+  try { res.json(await runMonthlyAccounts(month, req.user.name)); }
   catch (e) { console.error('[monthly-run]', e); res.status(500).json({ error: e.message }); }
 });
 
@@ -202,6 +214,7 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
     html: `<p>Consolidated payment report for <b>${r.emp.name} (${r.emp.emp_no})</b> — ${monthLabel(month)}. Kindly process.</p>`,
     attachments: [{ name: `${r.emp.name.replace(/[^\w .-]/g, '')} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: r.pdf.toString('base64') }],
   });
+  await recordSent(month, r.emp.id, r.total, acct, req.user.name);
   res.json({ ok: true, total: r.total, accounts: acct, emp: r.emp.name });
 });
 
@@ -212,11 +225,12 @@ router.get('/monthly-list', async (req, res) => {
   const rows = (await q(
     `SELECT e.id, e.name, e.emp_no,
        COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1))),0)
-       + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE}),0) AS total
+       + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE}),0) AS total,
+       (SELECT to_char(sent_at,'DD Mon HH24:MI') FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) AS sent_at
      FROM employees e
      WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1)))
         OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE})
-     ORDER BY e.emp_no`, [month])).rows;
+     ORDER BY (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) NULLS FIRST, e.emp_no`, [month])).rows;
   res.json({ month, employees: rows });
 });
 
