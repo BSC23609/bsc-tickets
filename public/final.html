@@ -34,39 +34,25 @@
 
     <div id="ui" class="hidden">
       <div class="flex items-end gap-2 mb-4 flex-wrap">
-        <div><label class="fieldlabel">Type</label>
-          <select id="fType" class="field !w-auto text-sm" onchange="render()">
-            <option value="">All types</option>
-            <option value="conveyance">Local Conveyance</option>
-            <option value="outstation">Outstation</option>
-            <option value="misc">Miscellaneous</option>
-            <option value="ot">Overtime</option>
-            <option value="labour">Labours</option>
-          </select></div>
-        <div class="flex-1 min-w-[160px]"><label class="fieldlabel">Employee / payee</label>
-          <input id="fName" oninput="render()" placeholder="Search name…" class="field text-sm"></div>
-        <button onclick="load()" class="btn-ghost text-sm">↻ Refresh</button>
+        <div><label class="fieldlabel">Month</label><input id="mrMonth" type="month" class="field !w-auto text-sm" onchange="loadMonth()"></div>
+        <div class="flex-1 min-w-[120px]"><label class="fieldlabel">Search payee</label>
+          <input id="fName" oninput="renderMonth()" placeholder="Name…" class="field text-sm"></div>
+        <button onclick="loadMonth()" class="btn-ghost text-sm">↻ Refresh</button>
       </div>
 
-      <div class="card p-4 mb-4 flex items-center justify-between" style="background:#0A4566;color:#fff">
-        <div class="text-sm opacity-80"><span id="cnt" class="font-bold"></span> awaiting approval</div>
-        <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
-      </div>
-
-      <div class="card p-4 mb-4">
-        <div class="flex items-center justify-between gap-2 flex-wrap mb-2">
-          <div><div class="eyebrow">Monthly accounts run</div>
-            <div class="text-sm text-slate-500">One consolidated report per employee (breakdown + each claim/OT) → a single email to accounts, per company. Auto-runs on the 5th.</div></div>
-          <div class="flex items-end gap-2">
-            <div><label class="fieldlabel">Month</label><input id="mrMonth" type="month" class="field !w-auto text-sm" onchange="loadMonthly()"></div>
-            <button onclick="clickBusy(this,'Running…',runMonthly)" class="btn text-sm">Run &amp; email accounts</button>
-          </div>
+      <div class="card p-4 mb-4 flex items-center justify-between gap-3 flex-wrap" style="background:#0A4566;color:#fff">
+        <div>
+          <div class="text-sm opacity-80"><span id="statusLine" class="font-bold"></span></div>
+          <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
         </div>
-        <div id="mrList"></div>
+        <button id="sendBtn" onclick="clickBusy(this,'Sending…',sendConsolidated)"
+                class="text-sm font-semibold px-4 py-2.5 rounded-lg bg-white text-brand-700 disabled:opacity-40 disabled:cursor-not-allowed">
+          Send consolidated Monthly payment report to Accounts
+        </button>
       </div>
 
-      <div id="groups"></div>
-      <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">✅</div>Nothing awaiting final approval.</div>
+      <div id="cats"></div>
+      <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">🗂️</div>No final-approval items for this month yet.</div>
     </div>
   </main>
 
@@ -77,102 +63,78 @@
     const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     async function clickBusy(btn,label,fn){ if(!btn||btn.dataset.busy)return; btn.dataset.busy='1'; const o=btn.innerHTML; btn.disabled=true; btn.innerHTML=(label||'…'); try{ await fn(); }catch(e){ if(window.toast) toast(e.message||'Error','error'); } finally{ delete btn.dataset.busy; btn.disabled=false; btn.innerHTML=o; } }
     const rupee = n => '\u20b9' + Number(n||0).toLocaleString('en-IN');
-    let me=null, ITEMS=[];
-
+    let me=null, MONTH=null;
     (async function init(){
       try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
       if(!(me.is_admin || me.ot_mgmt || me.expense_final)){ document.getElementById('denied').classList.remove('hidden'); return; }
       document.getElementById('ui').classList.remove('hidden');
       const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
       document.getElementById('mrMonth').value=d.toISOString().slice(0,7);
-      await load(); await loadMonthly();
+      await loadMonth();
     })();
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     const mrMonth=()=>document.getElementById('mrMonth').value||new Date().toISOString().slice(0,7);
-    async function loadMonthly(){
-      try{ const d=await api('/final/monthly-list?month='+mrMonth());
-        const el=document.getElementById('mrList');
-        if(!d.employees.length){ el.innerHTML='<div class="text-xs text-slate-400">No approved payments for this month yet.</div>'; return; }
-        el.innerHTML='<div class="text-[11px] text-slate-400 mb-1">'+d.employees.length+' employees with approved payments · already-sent ones are marked:</div>'+
-          d.employees.map(e=>`<div class="flex items-center justify-between gap-2 py-1.5 border-b border-line/50 last:border-0">
-            <div class="text-sm"><b>${esc(e.name)}</b> <span class="text-xs text-slate-400 mono">${esc(e.emp_no)}</span> · ${rupee(e.total)}
-              ${e.sent_at?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(e.sent_at)}</span>`:''}</div>
-            <div class="flex items-center gap-2">
-              <a href="/api/final/employee-report/${e.id}/${mrMonth()}" target="_blank" class="btn-ghost text-xs">View</a>
-              <button onclick="clickBusy(this,'Sending…',()=>sendEmp(${e.id}))" class="btn-ghost text-xs">${e.sent_at?'Resend':'Send to accounts'}</button>
-            </div></div>`).join('');
-      }catch(e){ /* non-mgmt */ }
-    }
-    async function runMonthly(){
-      if(!confirm('Run the monthly consolidation for '+mrMonth()+' and email accounts (per company)?')) return;
-      const r=await api('/final/monthly-run',{method:'POST',body:{month:mrMonth()}});
-      const s=(r.sent||[]).map(x=>x.company+': '+x.employees+' → '+x.accounts).join(' · ');
-      toast(s?('Sent — '+s):'Nothing new to send (all already sent or none approved)','success');
-      await loadMonthly();
-    }
-    async function sendEmp(id){
-      const r=await api('/final/send-employee',{method:'POST',body:{month:mrMonth(),emp_id:id}});
-      toast('Sent '+r.emp+' ('+rupee(r.total)+') → '+r.accounts,'success');
-      await loadMonthly();
-    }
 
-    async function load(){
-      try{ const d=await api('/final/queue'); ITEMS=d.items||[]; render(); }
-      catch(e){ toast(e.message,'error'); }
-    }
-
-    function typeBadge(t){
+    function typeBadge(k){
       const m={conveyance:['bg-blue-100 text-blue-700','Conveyance'],outstation:['bg-teal-100 text-teal-700','Outstation'],
         misc:['bg-violet-100 text-violet-700','Misc'],ot:['bg-amber-100 text-amber-700','Overtime'],labour:['bg-emerald-100 text-emerald-700','Labours']};
-      const x=m[t]||['bg-slate-100 text-slate-600',t]; return '<span class="pill '+x[0]+'">'+x[1]+'</span>';
+      const x=m[k]||['bg-slate-100 text-slate-600',k]; return '<span class="pill '+x[0]+'">'+x[1]+'</span>';
     }
-
-    function render(){
-      const ft=document.getElementById('fType').value.toLowerCase();
+    async function loadMonth(){
+      try{ MONTH=await api('/final/month-items?month='+mrMonth()); renderMonth(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+    function renderMonth(){
       const fn=document.getElementById('fName').value.trim().toLowerCase();
-      let rows=ITEMS.filter(i=>(!ft||i.type_key===ft) && (!fn||i.payee.toLowerCase().includes(fn)));
-      document.getElementById('cnt').textContent=rows.length;
-      document.getElementById('grand').textContent=rupee(rows.reduce((s,i)=>s+i.amount,0));
-      document.getElementById('empty').classList.toggle('hidden', rows.length>0);
-      // group by CATEGORY (type)
-      const order=['conveyance','outstation','misc','ot','labour'];
-      const groups=new Map();
-      rows.forEach(i=>{ if(!groups.has(i.type_key)) groups.set(i.type_key,{key:i.type_key,label:i.type_label,items:[],total:0}); const g=groups.get(i.type_key); g.items.push(i); g.total+=i.amount; });
-      const ordered=[...groups.values()].sort((a,b)=>order.indexOf(a.key)-order.indexOf(b.key));
-      const box=document.getElementById('groups'); box.innerHTML='';
-      ordered.forEach(g=>{
+      const cats=(MONTH.categories||[]).map(c=>({...c, items:c.items.filter(i=>!fn||i.payee.toLowerCase().includes(fn))})).filter(c=>c.items.length);
+      document.getElementById('grand').textContent=rupee(MONTH.total);
+      document.getElementById('statusLine').textContent = MONTH.count===0 ? 'No items this month'
+        : (MONTH.pending===0 ? '✓ All '+MONTH.count+' items final-approved' : MONTH.pending+' of '+MONTH.count+' still pending final approval');
+      document.getElementById('empty').classList.toggle('hidden', (MONTH.count||0)>0);
+      const sb=document.getElementById('sendBtn'); sb.disabled=!MONTH.all_approved;
+      sb.title = MONTH.all_approved ? '' : 'Approve every item first';
+      const box=document.getElementById('cats'); box.innerHTML='';
+      cats.forEach(c=>{
+        const pend=c.items.filter(i=>!i.approved).length;
         const card=document.createElement('div'); card.className='card p-4 mb-3';
         let html='<div class="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-line">'+
-          '<div class="flex items-center gap-2">'+typeBadge(g.key)+'<span class="text-xs text-slate-400">'+g.items.length+' item'+(g.items.length>1?'s':'')+'</span></div>'+
-          '<div class="flex items-center gap-2"><span class="text-sm font-bold text-emerald-700">'+rupee(g.total)+'</span>'+
-          (g.items.length>1?'<button data-cat="'+g.key+'" onclick="approveCategory(this)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566">Approve all ('+g.items.length+')</button>':'')+'</div></div>';
-        g.items.forEach(i=>{
+          '<div class="flex items-center gap-2">'+typeBadge(c.key)+'<span class="text-xs text-slate-400">'+c.items.length+' item'+(c.items.length>1?'s':'')+(pend?' · '+pend+' pending':' · all approved')+'</span></div>'+
+          (pend>1?'<button data-cat="'+c.key+'" onclick="approveCategory(this)" class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566">Approve all pending ('+pend+')</button>':'')+'</div>';
+        c.items.forEach(i=>{
           html+='<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">'+
             '<div class="min-w-0"><div class="text-sm font-semibold text-ink">'+esc(i.payee)+(i.emp_no?' <span class="text-xs text-slate-400 mono">'+esc(i.emp_no)+'</span>':'')+' · '+rupee(i.amount)+'</div>'+
-            '<div class="text-xs text-slate-500 mt-0.5">'+esc(i.sub)+'</div></div>'+
+            (i.sub?'<div class="text-xs text-slate-500 mt-0.5">'+esc(i.sub)+'</div>':'')+'</div>'+
             '<div class="flex items-center gap-2 shrink-0">'+
             (i.pdf_token?'<a href="/dlx/'+i.pdf_token+'" target="_blank" class="btn-ghost text-xs">PDF</a>':(i.report_url?'<a href="'+i.report_url+'" target="_blank" class="btn-ghost text-xs">PDF</a>':''))+
-            '<button onclick=\'approveOne('+JSON.stringify(i.approve)+',this)\' class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>'+
+            (i.approved?'<span class="pill bg-emerald-100 text-emerald-700 text-[11px]">✓ Final Approved</span>'
+              :'<button onclick=\'approveOne('+JSON.stringify(i.approve)+',this)\' class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700">Approve</button>')+
             '</div></div>';
         });
         card.innerHTML=html; box.appendChild(card);
       });
     }
-
     async function approveOne(approve, btn){
       if(btn){ btn.disabled=true; btn.textContent='Approving…'; }
-      try{ await api(approve.url,{method:'POST',body:approve.body||{}}); toast('Approved','success'); await load(); }
+      try{ await api(approve.url,{method:'POST',body:approve.body||{}}); toast('Approved','success'); await loadMonth(); }
       catch(e){ toast(e.message,'error'); if(btn){ btn.disabled=false; btn.textContent='Approve'; } }
     }
     async function approveCategory(btn){
       const cat=btn.getAttribute('data-cat');
-      const grp=ITEMS.filter(i=>i.type_key===cat);
-      if(!confirm('Approve all '+grp.length+' '+(grp[0]?grp[0].type_label:'')+' item(s)?')) return;
+      const c=(MONTH.categories||[]).find(x=>x.key===cat); if(!c) return;
+      const pend=c.items.filter(i=>!i.approved);
+      if(!confirm('Approve all '+pend.length+' pending '+c.label+' item(s)?')) return;
       btn.disabled=true; btn.textContent='Approving…';
       let ok=0, fail=0;
-      for(const i of grp){ try{ await api(i.approve.url,{method:'POST',body:i.approve.body||{}}); ok++; }catch(e){ fail++; } }
+      for(const i of pend){ try{ await api(i.approve.url,{method:'POST',body:i.approve.body||{}}); ok++; }catch(e){ fail++; } }
       toast('Approved '+ok+(fail?' · '+fail+' failed':''), fail?'error':'success');
-      await load();
+      await loadMonth();
+    }
+    async function sendConsolidated(){
+      if(!MONTH.all_approved) return toast('Approve every item first','error');
+      if(!confirm('Send the consolidated monthly payment report for '+mrMonth()+' to accounts (per company)? Already-sent employees are skipped.')) return;
+      const r=await api('/final/monthly-run',{method:'POST',body:{month:mrMonth()}});
+      const summ=(r.sent||[]).map(x=>x.company+': '+x.employees+' → '+x.accounts).join(' · ');
+      toast(summ?('Sent — '+summ):'Nothing new to send (all already sent)','success');
     }
   </script>
 </body>

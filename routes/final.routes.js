@@ -149,9 +149,9 @@ async function buildEmployeeConsolidatedPdf(empId, month) {
   if (otAmt > 0) {
     const { buildPaymentReportPDF } = require('../lib/payment_pdf');
     parts.push(await buildPaymentReportPDF({
-      title: `Overtime — ${emp.name}`, subtitle: monthLabel(month), approved: true,
-      sections: [{ name: 'Overtime', total: otAmt, cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
-        rows: [[emp.name, (+ot.hours).toFixed(2), money(otAmt)]] }],
+      title: `Overtime — ${emp.name}`, subtitle: `${emp.emp_no} · ${monthLabel(month)}`, approved: true,
+      sections: [{ name: 'Overtime', total: otAmt, cols: [{ label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.4 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
+        rows: [[emp.emp_no || '—', emp.name, (+ot.hours).toFixed(2), money(otAmt)]] }],
       grandTotal: otAmt,
     }));
   }
@@ -241,6 +241,55 @@ router.get('/employee-report/:empId/:month', async (req, res) => {
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
   res.end(r.pdf);
+});
+
+// Everything for a month that's relevant to final approval, grouped by category, each with its
+// status (approved / pending). Drives the month-centric Final Approval screen.
+router.get('/month-items', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
+  const cats = {
+    conveyance: { key: 'conveyance', label: 'Local Conveyance', items: [] },
+    outstation: { key: 'outstation', label: 'Outstation', items: [] },
+    misc: { key: 'misc', label: 'Miscellaneous', items: [] },
+    ot: { key: 'ot', label: 'Overtime (staff)', items: [] },
+    labour: { key: 'labour', label: 'Labour (OT + Shearing)', items: [] },
+  };
+  const exp = (await q(
+    `SELECT s.id, s.form_type, s.total_amount, s.status, s.pdf_token, e.name AS emp_name, e.emp_no
+     FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
+     WHERE s.status IN ('pending_final','approved') AND ${expInMonth('s', '$1')}
+     ORDER BY e.name`, [month])).rows;
+  exp.forEach(r => {
+    const approved = r.status === 'approved';
+    (cats[r.form_type] || cats.misc).items.push({
+      payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), approved,
+      pdf_token: r.pdf_token || null, approve: approved ? null : { url: '/expense/' + r.id + '/final-approve' },
+    });
+  });
+  const ot = (await q(`SELECT id, status, total_amount, emp_count FROM ot_batches WHERE period=$1 AND status IN ('mgmt_pending','approved','sent_accounts')`, [month])).rows;
+  ot.forEach(b => {
+    const approved = b.status !== 'mgmt_pending';
+    cats.ot.items.push({ payee: 'Staff overtime batch', sub: b.emp_count + ' staff', amount: Number(b.total_amount || 0), approved,
+      report_url: '/api/final/ot-report/' + b.id, approve: approved ? null : { url: '/ot/mgmt-batch/' + b.id + '/approve' } });
+  });
+  const lab = (await q(`SELECT company, period, ot_total, shearing_total, ot_status, shearing_status FROM labour_period WHERE period=$1`, [month])).rows;
+  lab.forEach(p => {
+    for (const part of ['ot', 'shearing']) {
+      const st = part === 'ot' ? p.ot_status : p.shearing_status;
+      if (st !== 'pending_mgmt' && st !== 'approved') continue;
+      const approved = st === 'approved';
+      cats.labour.items.push({
+        payee: (LABOUR_CO[p.company] || p.company) + ' · ' + (part === 'ot' ? 'Overtime' : 'Shearing'),
+        amount: Number((part === 'ot' ? p.ot_total : p.shearing_total) || 0), approved,
+        report_url: `/api/labour/report-pdf/${p.company}/${p.period}/${part}`,
+        approve: approved ? null : { url: '/labour/approve', body: { company: p.company, month: p.period, part } },
+      });
+    }
+  });
+  let pending = 0, total = 0, count = 0;
+  Object.values(cats).forEach(c => c.items.forEach(i => { count++; total += i.amount; if (!i.approved) pending++; }));
+  res.json({ month, categories: Object.values(cats).filter(c => c.items.length), pending, count, total, all_approved: count > 0 && pending === 0 });
 });
 
 router.get('/monthly-list', async (req, res) => {

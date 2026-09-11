@@ -462,7 +462,7 @@ router.post('/mgmt-batch/:id/approve', requireOtMgmt, async (req, res) => {
   await q(`UPDATE ot_batches SET status='approved', mgmt_emp_id=$2, mgmt_name=$3, reviewed_at=now() WHERE id=$1`, [b.id, req.user.id, req.user.name]);
   await q(`UPDATE ot_entries SET status='mgmt_approved', updated_at=now() WHERE batch_id=$1`, [b.id]);
   res.json({ ok: true });
-  background((async () => { await sendBatchToAccounts(b.id, b.period); })());
+  // OT is NOT emailed separately — it flows into each employee's consolidated monthly report to accounts.
 });
 router.post('/mgmt-batch/:id/reject', requireOtMgmt, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
