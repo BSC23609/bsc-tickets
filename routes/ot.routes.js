@@ -454,6 +454,18 @@ router.get('/mgmt-batch/:id', requireOtMgmt, async (req, res) => {
      WHERE o.batch_id=$1 GROUP BY e.name, e.emp_no, o.department ORDER BY e.name`, [req.params.id])).rows;
   res.json({ batch: { id: b.id, period: b.period, entry_count: b.entry_count, emp_count: b.emp_count, total_amount: b.total_amount, status: b.status }, lines });
 });
+// Approve one employee's OT for a month (final approval, per employee) — flows into their
+// consolidated monthly report. Marks that employee's mgmt_pending entries as mgmt_approved.
+router.post('/mgmt-employee-approve', requireOtMgmt, async (req, res) => {
+  const empId = +req.body.emp_id;
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : '';
+  if (!empId || !month) return res.status(400).json({ error: 'Bad request' });
+  const r = await q(`UPDATE ot_entries SET status='mgmt_approved', updated_at=now()
+    WHERE employee_id=$1 AND status='mgmt_pending'
+      AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month') RETURNING id`, [empId, month]);
+  res.json({ ok: true, approved: r.rows.length });
+});
+
 router.post('/mgmt-batch/:id/approve', requireOtMgmt, async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({ error: 'Bad id' });
   const b = (await q(`SELECT * FROM ot_batches WHERE id=$1`, [req.params.id])).rows[0];

@@ -258,37 +258,47 @@ router.get('/month-items', async (req, res) => {
   const exp = (await q(
     `SELECT s.id, s.form_type, s.total_amount, s.status, s.pdf_token, e.name AS emp_name, e.emp_no
      FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
-     WHERE s.status IN ('pending_final','approved') AND ${expInMonth('s', '$1')}
+     WHERE s.status IN ('pending_final','approved','settled_offline') AND ${expInMonth('s', '$1')}
      ORDER BY e.name`, [month])).rows;
   exp.forEach(r => {
-    const approved = r.status === 'approved';
+    const state = r.status === 'settled_offline' ? 'offline' : (r.status === 'approved' ? 'approved' : 'pending');
     (cats[r.form_type] || cats.misc).items.push({
-      payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), approved,
-      pdf_token: r.pdf_token || null, approve: approved ? null : { url: '/expense/' + r.id + '/final-approve' },
+      payee: r.emp_name, emp_no: r.emp_no, amount: Number(r.total_amount || 0), state,
+      pdf_token: r.pdf_token || null, approve: state === 'pending' ? { url: '/expense/' + r.id + '/final-approve' } : null,
     });
   });
-  const ot = (await q(`SELECT id, status, total_amount, emp_count FROM ot_batches WHERE period=$1 AND status IN ('mgmt_pending','approved','sent_accounts')`, [month])).rows;
-  ot.forEach(b => {
-    const approved = b.status !== 'mgmt_pending';
-    cats.ot.items.push({ payee: 'Staff overtime batch', sub: b.emp_count + ' staff', amount: Number(b.total_amount || 0), approved,
-      report_url: '/api/final/ot-report/' + b.id, approve: approved ? null : { url: '/ot/mgmt-batch/' + b.id + '/approve' } });
+  // Staff OT — one row per employee (approved individually), by OT date's calendar month.
+  const ot = (await q(
+    `SELECT e.id AS emp_id, e.name, e.emp_no, COALESCE(SUM(o.hours),0) AS hours, COALESCE(SUM(o.amount),0) AS amount,
+            bool_or(o.status='mgmt_pending') AS has_pending
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+     WHERE o.status IN ('mgmt_pending','mgmt_approved','paid')
+       AND o.ot_date >= ($1||'-01')::date AND o.ot_date < (($1||'-01')::date + interval '1 month')
+     GROUP BY e.id, e.name, e.emp_no ORDER BY e.name`, [month])).rows;
+  ot.forEach(r => {
+    const state = r.has_pending ? 'pending' : 'approved';
+    cats.ot.items.push({
+      payee: r.name, emp_no: r.emp_no, amount: Number(r.amount || 0), state,
+      report_url: `/api/final/employee-report/${r.emp_id}/${month}`,
+      approve: state === 'pending' ? { url: '/ot/mgmt-employee-approve', body: { emp_id: r.emp_id, month } } : null,
+    });
   });
   const lab = (await q(`SELECT company, period, ot_total, shearing_total, ot_status, shearing_status FROM labour_period WHERE period=$1`, [month])).rows;
   lab.forEach(p => {
     for (const part of ['ot', 'shearing']) {
       const st = part === 'ot' ? p.ot_status : p.shearing_status;
       if (st !== 'pending_mgmt' && st !== 'approved') continue;
-      const approved = st === 'approved';
+      const state = st === 'approved' ? 'approved' : 'pending';
       cats.labour.items.push({
         payee: (LABOUR_CO[p.company] || p.company) + ' · ' + (part === 'ot' ? 'Overtime' : 'Shearing'),
-        amount: Number((part === 'ot' ? p.ot_total : p.shearing_total) || 0), approved,
+        amount: Number((part === 'ot' ? p.ot_total : p.shearing_total) || 0), state,
         report_url: `/api/labour/report-pdf/${p.company}/${p.period}/${part}`,
-        approve: approved ? null : { url: '/labour/approve', body: { company: p.company, month: p.period, part } },
+        approve: state === 'pending' ? { url: '/labour/approve', body: { company: p.company, month: p.period, part } } : null,
       });
     }
   });
   let pending = 0, total = 0, count = 0;
-  Object.values(cats).forEach(c => c.items.forEach(i => { count++; total += i.amount; if (!i.approved) pending++; }));
+  Object.values(cats).forEach(c => c.items.forEach(i => { count++; total += i.amount; if (i.state === 'pending') pending++; }));
   res.json({ month, categories: Object.values(cats).filter(c => c.items.length), pending, count, total, all_approved: count > 0 && pending === 0 });
 });
 
