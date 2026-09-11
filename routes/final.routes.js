@@ -122,7 +122,7 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
   if (!emp) return null;
   const claims = (await q(
-    `SELECT id, form_type, total_amount, final_by_name, to_char(final_at,'DD Mon YYYY, HH12:MI AM') AS final_at_fmt FROM expense_submissions s
+    `SELECT id, form_type, total_amount, final_by_name, to_char(final_at AT TIME ZONE 'Asia/Kolkata','DD Mon YYYY, HH12:MI AM') AS final_at_fmt FROM expense_submissions s
      WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
   const otStatus = includePaid ? "status IN ('mgmt_approved','paid')" : "status = 'mgmt_approved'";
