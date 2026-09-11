@@ -105,16 +105,33 @@ module.exports = router;
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const OT_DONE = "('mgmt_approved','paid')";  // final-approved stage (paid keeps mgmt_approved history via 'paid')
 
+// Which run-month an item belongs to — keyed off the ACTUAL date, not the entry/submission date.
+//   Expense: conveyance/outstation use their (already 26th→25th) period; misc uses the cycle of
+//            its item dates (falling back to submission month only if it has no dated items).
+//   OT:      the OT date's calendar month (1st→last).
+function expInMonth(s, p) {
+  return `(
+    (${s}.form_type <> 'misc' AND ${s}.period = ${p})
+    OR (${s}.form_type = 'misc' AND COALESCE((
+        SELECT to_char(CASE WHEN extract(day from mx) >= 26 THEN date_trunc('month', mx) + interval '1 month' ELSE date_trunc('month', mx) END, 'YYYY-MM')
+        FROM (SELECT max((i->>'date')::date) AS mx FROM jsonb_array_elements(COALESCE(${s}.payload->'items','[]'::jsonb)) i WHERE i->>'date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') q
+      ), to_char(${s}.final_at,'YYYY-MM')) = ${p})
+  )`;
+}
+function otInMonth(o, p) {
+  return `${o}.ot_date >= (${p}||'-01')::date AND ${o}.ot_date < ((${p}||'-01')::date + interval '1 month') AND ${o}.status IN ${OT_DONE}`;
+}
+
 // Build one employee's consolidated PDF: breakdown cover + each approved claim + OT summary.
 async function buildEmployeeConsolidatedPdf(empId, month) {
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
   if (!emp) return null;
   const claims = (await q(
-    `SELECT id, form_type, total_amount FROM expense_submissions
-     WHERE employee_id=$1 AND status='approved' AND (period=$2 OR (period IS NULL AND to_char(final_at,'YYYY-MM')=$2))
+    `SELECT id, form_type, total_amount FROM expense_submissions s
+     WHERE employee_id=$1 AND status='approved' AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
   const ot = (await q(`SELECT COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
-     FROM ot_entries WHERE employee_id=$1 AND period=$2 AND status IN ${OT_DONE}`, [empId, month])).rows[0];
+     FROM ot_entries o WHERE employee_id=$1 AND ${otInMonth('o','$2')}`, [empId, month])).rows[0];
   const byType = { conveyance: 0, outstation: 0, misc: 0 };
   claims.forEach(c => { byType[c.form_type] = (byType[c.form_type] || 0) + Number(c.total_amount); });
   const otAmt = Number(ot.amount || 0);
@@ -161,9 +178,8 @@ async function runMonthlyAccounts(month, byName) {
   const cfg = await chain.getChain();
   const emps = (await q(
     `SELECT DISTINCT e.id, e.name, e.emp_no FROM employees e
-     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved'
-                     AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1)))
-        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE}))
+     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')})
+        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}))
        AND NOT EXISTS (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id)
      ORDER BY e.emp_no`, [month])).rows;
   const byPrefix = {};
@@ -224,12 +240,12 @@ router.get('/monthly-list', async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
   const rows = (await q(
     `SELECT e.id, e.name, e.emp_no,
-       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1))),0)
-       + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE}),0) AS total,
+       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')}),0)
+       + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}),0) AS total,
        (SELECT to_char(sent_at,'DD Mon HH24:MI') FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) AS sent_at
      FROM employees e
-     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND (s.period=$1 OR (s.period IS NULL AND to_char(s.final_at,'YYYY-MM')=$1)))
-        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND o.period=$1 AND o.status IN ${OT_DONE})
+     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND ${expInMonth('s','$1')})
+        OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')})
      ORDER BY (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) NULLS FIRST, e.emp_no`, [month])).rows;
   res.json({ month, employees: rows });
 });
