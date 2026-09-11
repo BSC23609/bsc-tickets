@@ -105,17 +105,14 @@ module.exports = router;
 const prevMonth = () => { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); };
 const OT_DONE = "('mgmt_approved','paid')";  // final-approved stage (paid keeps mgmt_approved history via 'paid')
 
-// Which run-month an item belongs to — keyed off the ACTUAL date, not the entry/submission date.
-//   Expense: conveyance/outstation use their (already 26th→25th) period; misc uses the cycle of
-//            its item dates (falling back to submission month only if it has no dated items).
-//   OT:      the OT date's calendar month (1st→last).
+// Which run-month an item belongs to — keyed off the ACTUAL date, not the entry date.
+//   Conveyance/Outstation: their period (already the 26th→25th cycle from trip dates).
+//   Misc: its "Set month" period if forced, else its submission date (misc has no trip cycle).
+//   OT: the OT date's calendar month (1st→last).
 function expInMonth(s, p) {
   return `(
     (${s}.form_type <> 'misc' AND ${s}.period = ${p})
-    OR (${s}.form_type = 'misc' AND COALESCE((
-        SELECT to_char(CASE WHEN extract(day from mx) >= 26 THEN date_trunc('month', mx) + interval '1 month' ELSE date_trunc('month', mx) END, 'YYYY-MM')
-        FROM (SELECT max((i->>'date')::date) AS mx FROM jsonb_array_elements(COALESCE(${s}.payload->'items','[]'::jsonb)) i WHERE i->>'date' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$') q
-      ), to_char(${s}.final_at,'YYYY-MM')) = ${p})
+    OR (${s}.form_type = 'misc' AND COALESCE(${s}.period, to_char(${s}.submitted_at,'YYYY-MM'), to_char(${s}.created_at,'YYYY-MM'), to_char(${s}.final_at,'YYYY-MM')) = ${p})
   )`;
 }
 function otInMonth(o, p) {
