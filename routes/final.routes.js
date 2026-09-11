@@ -117,15 +117,18 @@ function otInMonth(o, p) {
 }
 
 // Build one employee's consolidated PDF: breakdown cover + each approved claim + OT summary.
-async function buildEmployeeConsolidatedPdf(empId, month) {
+async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
+  const includePaid = !!opts.includePaid;
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
   if (!emp) return null;
   const claims = (await q(
     `SELECT id, form_type, total_amount FROM expense_submissions s
-     WHERE employee_id=$1 AND status='approved' AND paid_at IS NULL AND ${expInMonth('s','$2')}
+     WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
+  const otStatus = includePaid ? "status IN ('mgmt_approved','paid')" : "status = 'mgmt_approved'";
   const ot = (await q(`SELECT COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
-     FROM ot_entries o WHERE employee_id=$1 AND ${otInMonth('o','$2')}`, [empId, month])).rows[0];
+     FROM ot_entries WHERE employee_id=$1 AND ${otStatus}
+       AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month')`, [empId, month])).rows[0];
   const byType = { conveyance: 0, outstation: 0, misc: 0 };
   claims.forEach(c => { byType[c.form_type] = (byType[c.form_type] || 0) + Number(c.total_amount); });
   const otAmt = Number(ot.amount || 0);
@@ -242,7 +245,8 @@ router.get('/employee-report/:empId/:month', async (req, res) => {
       empId = (await q(`SELECT id FROM employees WHERE emp_no=$1 OR emp_no=$2 LIMIT 1`, [no, req.params.empId])).rows[0]?.id || 0;
     }
     if (!empId) return res.status(404).send('Employee not found.');
-    const r = await buildEmployeeConsolidatedPdf(empId, req.params.month);
+    const includePaid = req.query.all === '1' || req.query.all === 'true';
+    const r = await buildEmployeeConsolidatedPdf(empId, req.params.month, { includePaid });
     if (!r) {
       const m = req.params.month;
       const exp = (await q(`SELECT form_type, status, (paid_at IS NOT NULL) AS paid, total_amount FROM expense_submissions s WHERE employee_id=$1 AND ${expInMonth('s', '$2')} ORDER BY form_type`, [empId, m])).rows;
@@ -251,7 +255,7 @@ router.get('/employee-report/:empId/:month', async (req, res) => {
       if (exp.length) exp.forEach(e => { msg += `  • ${e.form_type}: \u20b9${e.total_amount} — status=${e.status}${e.paid ? '  [PAID → excluded]' : ''}\n`; });
       else msg += '  • (no expense claims fall in this month)\n';
       if (ot.length) ot.forEach(o => { msg += `  • OT: \u20b9${o.amt} — status=${o.status} (${o.c} entries)\n`; });
-      msg += `\nFix: approve any 'pending_final' items, and un-mark any that are Paid, in Final Approvals — then they'll appear here.`;
+      msg += `\nFix: approve any 'pending_final' items, and un-mark any that are Paid, in Final Approvals.\nTo preview the report design with PAID items included, add ?all=1 to the URL.`;
       return res.status(404).type('text/plain').send(msg);
     }
     res.setHeader('Content-Type', 'application/pdf');
