@@ -83,7 +83,7 @@
     }
     async function loadMonth(){
       try{ MONTH=await api('/final/month-items?month='+mrMonth()); renderMonth(); }
-      catch(e){ toast(e.message,'error'); }
+      catch(e){ toast(e.message||'Could not load','error'); document.getElementById('statusLine').textContent='Could not load — '+(e.message||''); document.getElementById('grand').textContent=''; document.getElementById('cats').innerHTML=''; document.getElementById('empty').classList.remove('hidden'); }
     }
     function renderMonth(){
       const fn=document.getElementById('fName').value.trim().toLowerCase();

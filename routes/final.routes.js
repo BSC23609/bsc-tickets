@@ -245,6 +245,7 @@ router.get('/employee-report/:empId/:month', async (req, res) => {
 router.get('/month-items', async (req, res) => {
   if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
+  try {
   const cats = {
     conveyance: { key: 'conveyance', label: 'Local Conveyance', items: [] },
     outstation: { key: 'outstation', label: 'Outstation', items: [] },
@@ -257,7 +258,8 @@ router.get('/month-items', async (req, res) => {
      FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
      WHERE s.status IN ('pending_final','approved','settled_offline') AND ${expInMonth('s', '$1')}
      ORDER BY e.name`, [month])).rows;
-  const mgmtNames = (await q(`SELECT name FROM employees WHERE id = ANY((SELECT string_to_array(COALESCE(value,''),',')::int[] FROM app_settings WHERE key='ot_mgmt_emp_ids'))`)).rows.map(r => r.name);
+  const mids = ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).filter(Boolean);
+  const mgmtNames = mids.length ? (await q(`SELECT name FROM employees WHERE id = ANY($1)`, [mids])).rows.map(r => r.name) : [];
   exp.forEach(r => {
     const state = r.status === 'settled_offline' ? 'offline' : (r.status === 'approved' ? 'approved' : 'pending');
     const paid = !!r.paid_at;
@@ -307,6 +309,7 @@ router.get('/month-items', async (req, res) => {
   let pending = 0, total = 0, count = 0;
   Object.values(cats).forEach(c => c.items.forEach(i => { count++; total += i.amount; if (i.state === 'pending') pending++; }));
   res.json({ month, categories: Object.values(cats).filter(c => c.items.length), pending, count, total, all_approved: count > 0 && pending === 0 });
+  } catch (e) { console.error('[month-items]', e); res.status(500).json({ error: e.message }); }
 });
 
 router.get('/monthly-list', async (req, res) => {
