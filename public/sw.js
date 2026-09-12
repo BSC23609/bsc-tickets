@@ -2,11 +2,11 @@
 // Strategy: API and action/redirect routes are ALWAYS live (never cached, no stale data).
 // Everything else is network-first (so deploys show immediately) with a cache fallback
 // for offline, plus an offline page for navigations. Bump VERSION to force a refresh.
-const VERSION = 'bsc-portal-v48';
+const VERSION = 'bsc-portal-v49';
 const SHELL = [
   '/', '/index.html', '/home.html', '/app.html', '/outpass.html',
   '/expense.html', '/admin.html', '/labour.html', '/final.html',
-  '/css/theme.css?v=3', '/css/console.css', '/js/common.js', '/offline.html',
+  '/css/theme.css?v=4', '/css/console.css', '/js/common.js', '/offline.html',
   '/icon-192.png', '/icon-512.png', '/favicon.ico'
 ];
 // Live routes that must never be served from cache.

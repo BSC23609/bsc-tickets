@@ -189,3 +189,48 @@ th.fieldlabel{ display:table-cell; margin:0; }
   .card { max-width: 100%; }
 
 }
+
+/* ============================================================
+   Mobile: turn a data table into stacked cards (opt-in via .mtable)
+   Each row becomes a card with labelled fields (data-label) and the
+   action buttons stack full-width & prominent — no horizontal scroll.
+   ============================================================ */
+@media (max-width: 640px) {
+  table.mtable { display: block; width: 100%; overflow: visible; white-space: normal; }
+  table.mtable thead { display: none; }
+  table.mtable tbody { display: block; }
+  table.mtable tbody tr {
+    display: block; background: #fff; border: 1px solid var(--line, #e2e8f0);
+    border-radius: 14px; padding: 4px 14px 10px; margin: 0 0 12px;
+    box-shadow: 0 1px 3px rgba(15,37,45,.06);
+  }
+  table.mtable td {
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+    padding: 9px 0 !important; border: 0 !important; text-align: right; width: auto;
+  }
+  table.mtable td + td { border-top: 1px solid #f1f5f9 !important; }
+  table.mtable td::before {
+    content: attr(data-label); text-align: left; flex: 0 0 auto;
+    font-size: 11px; letter-spacing: .04em; text-transform: uppercase;
+    color: #8A97A3; font-weight: 700;
+  }
+  table.mtable td.actions { display: grid; grid-template-columns: 1fr; gap: 8px; padding-top: 12px !important; }
+  table.mtable td.actions::before { content: none; }
+  table.mtable td.actions:empty { display: none; }
+  table.mtable td.actions > button, table.mtable td.actions > a {
+    display: block; width: 100%; text-align: center; margin: 0 !important;
+    padding: 13px 14px; border-radius: 10px; font-size: 15px !important; font-weight: 700;
+    text-decoration: none !important; border: 0;
+  }
+  table.mtable td.actions .btn-edit   { background:#eff6ff; color:#1d4ed8; }
+  table.mtable td.actions .btn-submit { background:#059669; color:#fff; }
+  table.mtable td.actions .btn-remove { background:#fef2f2; color:#dc2626; }
+  table.mtable td.actions .btn-revert { background:#fffbeb; color:#b45309; }
+  /* total row -> a summary bar */
+  table.mtable tfoot { display: block; }
+  table.mtable tfoot tr { display: flex; justify-content: space-between; align-items: center;
+    background:#0A4566; color:#fff; border-radius: 12px; padding: 12px 16px; }
+  table.mtable tfoot td { display: none; padding: 0 !important; border: 0 !important; color:#fff; }
+  table.mtable tfoot td:first-child { display: block; font-weight: 700; }
+  table.mtable tfoot td[id] { display: block; font-size: 16px; font-weight: 700; }
+}
