@@ -167,3 +167,25 @@ th.fieldlabel{ display:table-cell; margin:0; }
   div[class*="fixed"][class*="inset-0"][class*="justify-center"] select,
   div[class*="fixed"][class*="inset-0"][class*="justify-center"] textarea { font-size: 16px; }
 }
+
+/* ============================================================
+   Mobile: nothing clipped off-screen (tables, toolbars, inputs)
+   ============================================================ */
+@media (max-width: 640px) {
+  html, body { overflow-x: hidden; max-width: 100%; }
+
+  /* Wide tables scroll horizontally WITHIN their card, so right-hand
+     columns (row actions like Submit / Edit / Remove) are always reachable
+     even when the card is overflow-hidden. */
+  table { display: block; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+
+  /* Filter / toolbar / action rows wrap instead of pushing content off-screen. */
+  .flex.items-end, .flex.items-center, .flex.justify-between { flex-wrap: wrap; }
+
+  /* Inputs & selects: 16px stops iOS auto-zoom; keep them from overflowing. */
+  input:not([type=checkbox]):not([type=radio]), select, textarea, .field { font-size: 16px !important; max-width: 100%; }
+
+  /* A card holding only a table shouldn't hide the scroll. */
+  .card { max-width: 100%; }
+
+}

@@ -111,3 +111,5 @@ footer{color:var(--steel-200);font-size:11px;font-family:'Space Mono',monospace;
 
 @media(prefers-reduced-motion:reduce){.tile{animation:none;opacity:1;transform:none}}
 .d1{animation-delay:.03s}.d2{animation-delay:.08s}.d3{animation-delay:.13s}
+
+@media (max-width: 640px){ html,body{ overflow-x:hidden; max-width:100%; } table{ display:block; width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; white-space:nowrap; } input:not([type=checkbox]):not([type=radio]),select,textarea{ font-size:16px !important; max-width:100%; } }

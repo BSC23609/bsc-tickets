@@ -125,7 +125,7 @@ async function conveyancePdf(row, status, approver, approvedAt) {
     ref_no: row.ref_no, emp_name: row.emp_name, emp_code: row.emp_code, designation: row.designation || '',
     category: catLabel(cat), period_label: monthLabel(row.period), vehicle_rates: pol.rates,
     entries, total: Number(row.total_amount || 0), log_hours: hours,
-    status, approver, approved_at: approvedAt,
+    status, approver, approved_at: approvedAt ? fmtDateTime(approvedAt) : '',
   });
 }
 function emailHtml(title, row, count) {
@@ -739,7 +739,7 @@ async function outstationPdf(row, status, approver, approvedAt) {
   const summary = await buildOutstationSummary({
     ref_no: row.ref_no, emp_name: row.emp_name, emp_code: row.emp_code, designation: row.designation || '',
     category: catLabel(cat), period_label: monthLabel(row.period), limits: pol.limits[cat],
-    trips, total: Number(row.total_amount || 0), flags: row.flags || [], status, approver, approved_at: approvedAt });
+    trips, total: Number(row.total_amount || 0), flags: row.flags || [], status, approver, approved_at: approvedAt ? fmtDateTime(approvedAt) : '' });
   const bills = [];
   for (const t of trips) for (const it of (t.items || [])) {
     for (const b of itemBills(it)) {
@@ -757,7 +757,7 @@ async function miscPdf(row, status, approver, approvedAt) {
     ref_no: row.ref_no, emp_name: row.emp_name, emp_code: row.emp_code, designation: row.designation || '',
     category: catLabel(row.expense_category === 'CAT1' ? 'CAT1' : 'CAT2'),
     items, total: Number(row.total_amount || 0), generated_at: fmtDateTime(new Date()),
-    status, approver, approved_at: approvedAt });
+    status, approver, approved_at: approvedAt ? fmtDateTime(approvedAt) : '' });
   const bills = [];
   for (const it of items) for (const b of itemBills(it)) if (b && b.drive_item_id) {
     const bytes = await graph.fetchDriveItemContent(b.drive_item_id);
