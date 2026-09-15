@@ -691,7 +691,7 @@
       document.getElementById('gsOverdue').value = d.overdue_min ?? 5;
       document.getElementById('gsMultiday').value = d.multiday_hours ?? 16;
       const sel = document.getElementById('gsHr');
-      sel.innerHTML = '<option value="">— none —</option>' + d.employees.map(e => `<option value="${e.id}" ${e.id===d.hr_emp_id?'selected':''}>${e.name} (${e.emp_no||''})</option>`).join('');
+      sel.innerHTML = '<option value="">— none —</option>' + d.employees.filter(e=>e.active!==false || e.id===d.hr_emp_id).map(e => `<option value="${e.id}" ${e.id===d.hr_emp_id?'selected':''}>${e.name} (${e.emp_no||''})${e.active===false?' — relieved':''}</option>`).join('');
       const st2 = document.getElementById('gsStatus');
       st2.textContent = (d.lat!=null && d.lng!=null) ? '✓ Gate location is set.' : '⚠ Gate location not set — self-return QR will reject all scans until configured.';
       st2.className = 'text-xs mt-2 ' + ((d.lat!=null && d.lng!=null) ? 'text-emerald-600' : 'text-amber-600');
@@ -714,7 +714,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED198, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED199, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1161,7 +1161,7 @@
       else {
         const taken = new Set(subscriptions.map(s=>s.employee_id));
         empPicker = `<label class="lbl">Employee</label><select id="sub_emp" class="inp w-full mb-3">${
-          employees.filter(e=>!taken.has(e.id)).map(e=>`<option value="${e.id}">${esc(e.name)} · ${esc(e.emp_no||'')}</option>`).join('')}</select>`;
+          employees.filter(e=>!taken.has(e.id) && e.active!==false).map(e=>`<option value="${e.id}">${esc(e.name)} · ${esc(e.emp_no||'')}</option>`).join('')}</select>`;
       }
       const catBlocks = cats.map(c=>{
         const trades = c.trades||[];
@@ -1604,7 +1604,8 @@
     function empModal(mode, e){
       const isEdit = mode === 'edit';
       const others = employees.filter(x => x.id !== e.id);
-      const optList = (selId) => others.map(x=>`<option value="${x.id}" ${selId===x.id?'selected':''}>${esc(x.name)} (${esc(x.emp_no)})</option>`).join('');
+      const optList = (selId) => others.filter(x => x.active !== false || x.id===selId)
+        .map(x=>`<option value="${x.id}" ${selId===x.id?'selected':''}>${esc(x.name)} (${esc(x.emp_no)})${x.active===false?' — relieved':''}</option>`).join('');
       // Department dropdown from the known set, plus the current value if it's somehow not listed,
       // plus an "add new" escape hatch so HR isn't blocked when a genuinely new dept appears.
       const deptSet = Array.from(new Set([...(departments||[]), e.department].filter(Boolean)));
