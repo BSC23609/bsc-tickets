@@ -45,10 +45,6 @@
           <div class="text-sm opacity-80"><span id="statusLine" class="font-bold"></span></div>
           <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
         </div>
-        <button id="sendBtn" onclick="clickBusy(this,'Sending…',sendConsolidated)"
-                class="text-sm font-semibold px-4 py-2.5 rounded-lg bg-white text-brand-700 disabled:opacity-40 disabled:cursor-not-allowed">
-          Send consolidated Monthly payment report to Accounts
-        </button>
       </div>
 
 
@@ -92,8 +88,7 @@
       document.getElementById('statusLine').textContent = MONTH.count===0 ? 'No items this month'
         : (MONTH.pending===0 ? '✓ All '+MONTH.count+' items final-approved' : MONTH.pending+' of '+MONTH.count+' still pending final approval');
       document.getElementById('empty').classList.toggle('hidden', (MONTH.count||0)>0);
-      const sb=document.getElementById('sendBtn'); sb.disabled=!MONTH.all_approved;
-      sb.title = MONTH.all_approved ? '' : 'Approve every item first';
+      
       const box=document.getElementById('cats'); box.innerHTML='';
       cats.forEach(c=>{
         const pend=c.items.filter(i=>i.state==='pending').length;
@@ -147,13 +142,6 @@
       if(btn){ btn.disabled=true; }
       try{ await api(desc.url,{method:'POST',body:desc.body||{}}); await loadMonth(); }
       catch(e){ toast(e.message,'error'); if(btn) btn.disabled=false; }
-    }
-    async function sendConsolidated(){
-      if(!MONTH.all_approved) return toast('Approve every item first','error');
-      if(!confirm('Send the consolidated monthly payment report for '+mrMonth()+' to accounts (per company)? Already-sent employees are skipped.')) return;
-      const r=await api('/final/monthly-run',{method:'POST',body:{month:mrMonth()}});
-      const summ=(r.sent||[]).map(x=>x.company+': '+x.employees+' → '+x.accounts).join(' · ');
-      toast(summ?('Sent — '+summ):'Nothing new to send (all already sent)','success');
     }
   </script>
 </body>

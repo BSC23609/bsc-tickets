@@ -212,6 +212,93 @@ router.get('/report/shearing/:company/:month', async (req, res) => {
   } catch (e) { console.error('[shearing report]', e); res.status(500).send(e.message); }
 });
 
+// ---- Send to Accounts: what's ready per company + the send action ----
+async function companyExpenseEmployees(companyKey, month) {
+  const C = COMPANIES[companyKey];
+  return (await q(
+    `SELECT e.id, e.name, e.emp_no,
+       (SELECT COALESCE(SUM(total_amount),0) FROM expense_submissions s
+        WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s', '$2')}) AS total
+     FROM employees e
+     WHERE e.emp_no LIKE $1
+       AND EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s', '$2')})
+     ORDER BY e.emp_no`, [C.staffPrefix + '/%', month])).rows;
+}
+async function companyOtTotal(companyKey, month) {
+  const C = COMPANIES[companyKey];
+  const staff = (await q(`SELECT COALESCE(SUM(amount),0) AS t, count(DISTINCT employee_id) AS c FROM ot_entries o WHERE o.status='mgmt_approved' AND (SELECT emp_no FROM employees WHERE id=o.employee_id) LIKE $1 AND o.ot_date >= ($2||'-01')::date AND o.ot_date < (($2||'-01')::date + interval '1 month')`, [C.staffPrefix + '/%', month])).rows[0];
+  const lab = (await q(`SELECT COALESCE(SUM(lo.amount),0) AS t, count(DISTINCT lo.labour_name) AS c FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved'`, [C.labourCo, month])).rows[0];
+  return { total: Number(staff.t) + Number(lab.t), count: Number(staff.c) + Number(lab.c) };
+}
+async function companyShearingTotal(companyKey, month) {
+  const C = COMPANIES[companyKey];
+  const r = (await q(`SELECT COALESCE(SUM(ls.amount),0) AS t, count(DISTINCT ls.labour_name) AS c FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved'`, [C.labourCo, month])).rows[0];
+  return { total: Number(r.t), count: Number(r.c) };
+}
+
+router.get('/accounts-queue', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
+  const chain = require('../lib/chain'); const cfg = await chain.getChain();
+  const sentRows = (await q(`SELECT company, kind, to_char(sent_at,'DD Mon HH24:MI') AS at FROM accounts_send WHERE period=$1`, [month])).rows;
+  const sentMap = {}; sentRows.forEach(r => { sentMap[r.company + ':' + r.kind] = r.at; });
+  const companies = [];
+  for (const key of ['BSC', 'G2']) {
+    const C = COMPANIES[key];
+    const email = chain.accountsEmailFor(cfg, C.staffPrefix + '/x');
+    const emps = await companyExpenseEmployees(key, month);
+    const ot = await companyOtTotal(key, month);
+    const sh = await companyShearingTotal(key, month);
+    const expTotal = emps.reduce((s, e) => s + Number(e.total), 0);
+    companies.push({
+      key, label: C.label, email,
+      expense: { employees: emps.map(e => ({ id: e.id, name: e.name, emp_no: e.emp_no, total: Number(e.total) })), total: expTotal, sent_at: sentMap[key + ':expense'] || null },
+      ot: { total: ot.total, count: ot.count, sent_at: sentMap[key + ':ot'] || null },
+      shearing: { total: sh.total, count: sh.count, sent_at: sentMap[key + ':shearing'] || null },
+    });
+  }
+  res.json({ month, companies });
+});
+
+router.post('/send-to-accounts', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  const company = COMPANIES[req.body.company] ? req.body.company : null;
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
+  if (!company || !month) return res.status(400).json({ error: 'Bad request' });
+  const C = COMPANIES[company];
+  const chain = require('../lib/chain'); const graph = require('../lib/graph'); const cfg = await chain.getChain();
+  const email = chain.accountsEmailFor(cfg, C.staffPrefix + '/x');
+  if (!email) return res.status(400).json({ error: 'No accounts email configured for ' + company });
+
+  const attachments = []; const done = [];
+  // 1) per-employee expense
+  const emps = await companyExpenseEmployees(company, month);
+  for (const e of emps) { const r = await buildEmployeeConsolidatedPdf(e.id, month); if (r) { attachments.push({ name: `Expense - ${e.name.replace(/[^\w .-]/g, '')} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: r.pdf.toString('base64') }); } }
+  if (emps.length) done.push({ kind: 'expense', total: emps.reduce((s, e) => s + Number(e.total), 0) });
+  // 2) OT combined
+  const otPdf = await buildOtCombinedPdf(company, month);
+  if (otPdf) { attachments.push({ name: `Overtime - ${company} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: otPdf.toString('base64') }); const ot = await companyOtTotal(company, month); done.push({ kind: 'ot', total: ot.total }); }
+  // 3) Shearing combined
+  const shPdf = await buildShearingCombinedPdf(company, month);
+  if (shPdf) { attachments.push({ name: `Shearing - ${company} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: shPdf.toString('base64') }); const sh = await companyShearingTotal(company, month); done.push({ kind: 'shearing', total: sh.total }); }
+
+  if (!attachments.length) return res.status(400).json({ error: 'Nothing approved & unpaid to send for ' + company });
+  await graph.sendMail({
+    to: email,
+    subject: `Payments — ${C.label} — ${monthLabel(month)} — ${attachments.length} report(s)`,
+    html: `<p>Please find attached the approved payment reports for <b>${C.label} — ${monthLabel(month)}</b>:</p>
+           <ul>${emps.length ? `<li>${emps.length} employee expense report(s)</li>` : ''}${otPdf ? '<li>Overtime (consolidated)</li>' : ''}${shPdf ? '<li>Shed-B Shearing (consolidated)</li>' : ''}</ul>
+           <p>Kindly process the payments.</p>`,
+    attachments,
+  });
+  for (const d of done) {
+    await q(`INSERT INTO accounts_send(period,company,kind,total,email,sent_by) VALUES($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (period,company,kind) DO UPDATE SET total=EXCLUDED.total, email=EXCLUDED.email, sent_at=now(), sent_by=EXCLUDED.sent_by`,
+      [month, company, d.kind, Math.round(d.total), email, req.user.name]);
+  }
+  res.json({ ok: true, company, email, attachments: attachments.length, kinds: done.map(d => d.kind) });
+});
+
 async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   const includePaid = !!opts.includePaid;
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
@@ -231,15 +318,6 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   // Regenerate every claim PDF in parallel (was sequential — slow / timed out for heavy employees).
   const claimPdfs = await Promise.all(claims.map(c => expense._internal.claimPdfById(c.id).catch(e => { console.error('[consolidated claimPdf]', c.id, e.message); return null; })));
   const parts = [cover, ...claimPdfs.filter(Boolean)];
-  if (otAmt > 0) {
-    const { buildPaymentReportPDF } = require('../lib/payment_pdf');
-    parts.push(await buildPaymentReportPDF({
-      title: `Overtime — ${emp.name}`, subtitle: `${emp.emp_no} · ${monthLabel(month)}`, approved: true,
-      sections: [{ name: 'Overtime', total: otAmt, cols: [{ label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.4 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
-        rows: [[emp.emp_no || '—', emp.name, (+ot.hours).toFixed(2), money(otAmt)]] }],
-      grandTotal: otAmt,
-    }));
-  }
   return { pdf: await mergePdfs(parts), total, emp, breakdown };
 }
 

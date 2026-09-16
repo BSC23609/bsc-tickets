@@ -571,3 +571,16 @@ CREATE TABLE IF NOT EXISTS payment_run_sent (
   sent_by        TEXT,
   UNIQUE(period, employee_id)
 );
+
+-- Send to Accounts: records when a company's expense/OT/shearing reports were emailed to accounts.
+CREATE TABLE IF NOT EXISTS accounts_send (
+  id        SERIAL PRIMARY KEY,
+  period    TEXT NOT NULL,
+  company   TEXT NOT NULL,            -- 'BSC' | 'G2'
+  kind      TEXT NOT NULL,            -- 'expense' | 'ot' | 'shearing'
+  total     INT NOT NULL DEFAULT 0,
+  email     TEXT,
+  sent_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_by   TEXT,
+  UNIQUE(period, company, kind)
+);
