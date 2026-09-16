@@ -213,6 +213,54 @@ router.get('/report/shearing/:company/:month', async (req, res) => {
 });
 
 // ---- Send to Accounts: what's ready per company + the send action ----
+// Cleanup: list the people in an OT/Shearing report, and remove one person's entries (for
+// duplicate-entry mistakes). Management/admin only. The report regenerates live afterwards.
+async function refreshLabourTotals(company, period) {
+  await q(`UPDATE labour_period SET
+     ot_total = COALESCE((SELECT SUM(amount) FROM labour_ot WHERE company=$1 AND period=$2),0),
+     shearing_total = COALESCE((SELECT SUM(amount) FROM labour_shearing WHERE company=$1 AND period=$2),0),
+     updated_at=now() WHERE company=$1 AND period=$2`, [company, period]);
+}
+router.get('/report-people/:kind/:company/:month', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  const kind = req.params.kind, C = COMPANIES[req.params.company], month = req.params.month;
+  if (!C || !/^\d{4}-\d{2}$/.test(month) || !['ot', 'shearing'].includes(kind)) return res.status(400).json({ error: 'Bad request' });
+  const people = [];
+  if (kind === 'ot') {
+    const staff = (await q(`SELECT e.id, e.emp_no AS code, e.name, COALESCE(SUM(o.hours),0) AS hours, COALESCE(SUM(o.amount),0) AS total
+      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+      WHERE e.emp_no LIKE $1 AND o.status IN ('mgmt_approved','paid') AND o.ot_date >= ($2||'-01')::date AND o.ot_date < (($2||'-01')::date + interval '1 month')
+      GROUP BY e.id, e.emp_no, e.name ORDER BY e.name`, [C.staffPrefix + '/%', month])).rows;
+    const lab = (await q(`SELECT lo.labour_name AS name, MAX(lo.labour_code) AS code, COALESCE(SUM(lo.hours),0) AS hours, COALESCE(SUM(lo.amount),0) AS total
+      FROM labour_ot lo WHERE lo.company=$1 AND lo.period=$2 GROUP BY lo.labour_name ORDER BY lo.labour_name`, [C.labourCo, month])).rows;
+    staff.forEach(r => people.push({ key: 'emp:' + r.id, name: r.name, code: r.code, kind: 'staff', qty: Number(r.hours), total: Number(r.total) }));
+    lab.forEach(r => people.push({ key: 'lab:' + r.name, name: r.name, code: r.code || '\u2014', kind: 'labour', qty: Number(r.hours), total: Number(r.total) }));
+  } else {
+    const lab = (await q(`SELECT ls.labour_name AS name, MAX(ls.labour_code) AS code, COALESCE(SUM(ls.days),0) AS days, COALESCE(SUM(ls.amount),0) AS total
+      FROM labour_shearing ls WHERE ls.company=$1 AND ls.period=$2 GROUP BY ls.labour_name ORDER BY ls.labour_name`, [C.labourCo, month])).rows;
+    lab.forEach(r => people.push({ key: 'lab:' + r.name, name: r.name, code: r.code || '\u2014', kind: 'labour', qty: Number(r.days), total: Number(r.total) }));
+  }
+  res.json({ people, unit: kind === 'ot' ? 'hrs' : 'days' });
+});
+router.post('/report-remove', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  const kind = req.body.kind, C = COMPANIES[req.body.company], month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
+  const key = String(req.body.key || '');
+  if (!C || !month || !key || !['ot', 'shearing'].includes(kind)) return res.status(400).json({ error: 'Bad request' });
+  let changed = 0;
+  if (kind === 'ot' && key.startsWith('emp:')) {
+    const r = await q(`DELETE FROM ot_entries WHERE employee_id=$1 AND status IN ('mgmt_approved','paid') AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month') RETURNING id`, [+key.slice(4), month]);
+    changed = r.rows.length;
+  } else if (kind === 'ot' && key.startsWith('lab:')) {
+    const r = await q(`DELETE FROM labour_ot WHERE company=$1 AND period=$2 AND labour_name=$3 RETURNING id`, [C.labourCo, month, key.slice(4)]);
+    changed = r.rows.length; await refreshLabourTotals(C.labourCo, month);
+  } else if (kind === 'shearing') {
+    const r = await q(`DELETE FROM labour_shearing WHERE company=$1 AND period=$2 AND labour_name=$3 RETURNING id`, [C.labourCo, month, key.replace(/^lab:/, '')]);
+    changed = r.rows.length; await refreshLabourTotals(C.labourCo, month);
+  } else return res.status(400).json({ error: 'Bad key' });
+  res.json({ ok: true, changed });
+});
+
 async function companyExpenseEmployees(companyKey, month) {
   const C = COMPANIES[companyKey];
   return (await q(
