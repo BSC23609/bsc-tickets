@@ -66,7 +66,7 @@
       catch(e){ toast(e.message,'error'); }
     }
     function reportRow(label, total, count, sentAt, previewUrl, manage){
-      if(!total && !count) return '';
+      if(!Number(total)) return '';
       return `<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">
         <div class="text-sm"><b>${label}</b> <span class="text-slate-400 text-xs">${count?('· '+count+' '):''}</span> · ${rupee(total)}
           ${sentAt?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(sentAt)}</span>`:''}</div>
@@ -98,7 +98,7 @@
     }
     function render(){
       const box=document.getElementById('companies'); box.innerHTML='';
-      (DATA.companies||[]).forEach(c=>{
+      (DATA.companies||[]).filter(c=>(c.expense.total||0)+(c.ot.total||0)+(c.shearing.total||0)>0).forEach(c=>{
         const anything = c.expense.total || c.ot.total || c.shearing.total;
         const allSent = (!c.expense.total || c.expense.sent_at) && (!c.ot.total || c.ot.sent_at) && (!c.shearing.total || c.shearing.sent_at);
         const grand = c.expense.total + c.ot.total + c.shearing.total;
