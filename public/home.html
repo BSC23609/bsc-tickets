@@ -137,6 +137,32 @@
       if(me.is_accounts){ const at=document.getElementById('acctPortalTile'); if(at) at.classList.remove('hidden'); }
       document.querySelectorAll('[data-app]').forEach(el=>{ if(me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden'); });
       hideEmptySections();
+      if(me.simple_home) applySimpleHome();
+    }
+    function applySimpleHome(){
+      const main = document.querySelector('main') || document.body;
+      // hero: big Final Approvals CTA at the very top
+      const hero = document.createElement('a');
+      hero.href = '/final.html';
+      hero.style.cssText = 'display:flex;align-items:center;gap:16px;background:#0A4566;color:#fff;border-radius:18px;padding:22px 24px;margin:6px 0 18px;text-decoration:none;box-shadow:0 8px 24px rgba(10,69,102,.25)';
+      hero.innerHTML = `<div style="flex:0 0 auto;width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.12);display:flex;align-items:center;justify-content:center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>
+        <div style="flex:1 1 auto"><div style="font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;line-height:1.1">Final Approvals</div>
+          <div style="opacity:.8;font-size:13px;margin-top:3px">Approve pending expense, overtime &amp; labour payments</div></div>
+        <div style="font-size:26px;opacity:.9">&rarr;</div>`;
+      const firstSection = document.querySelector('.section');
+      if(firstSection) firstSection.parentNode.insertBefore(hero, firstSection);
+      else main.prepend(hero);
+      // collapse everything else that's currently visible
+      const visible = [...document.querySelectorAll('.section')].filter(s=>!s.classList.contains('hidden'));
+      visible.forEach(s=>s.classList.add('hidden'));
+      const bar = document.createElement('button');
+      bar.type='button';
+      bar.style.cssText='display:block;margin:0 auto 8px;font-size:13px;font-weight:600;color:#64748b;background:transparent;border:0;cursor:pointer';
+      let open=false;
+      bar.textContent='Other apps ▾';
+      bar.onclick=()=>{ open=!open; visible.forEach(s=>s.classList.toggle('hidden', !open)); bar.textContent = open?'Hide other apps ▴':'Other apps ▾'; };
+      hero.parentNode.insertBefore(bar, hero.nextSibling);
     }
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
     api('/inbox').then(d=>{

@@ -421,6 +421,7 @@
           <div><label class="lbl">Accounts contact (WhatsApp)</label><select id="otAcc" class="inp"></select></div>
           <div><label class="lbl">Accounts email (for report)</label><input id="otAccEmail" class="inp" placeholder="accounts@bharatsteels.in"></div>
           <div><label class="lbl">Labour accounts contact (WhatsApp — Lakshmi)</label><select id="labAcc" class="inp"><option value="">— none —</option></select></div>
+          <div class="sm:col-span-2"><label class="lbl">Simplified home — Final Approvals only (e.g. CMD)</label><select id="simpleHome" class="inp" multiple size="4"></select><div class="text-[11px] text-slate-400 mt-1">Ctrl/Cmd-click to pick. These users see just Final Approvals on their home; everything else collapses under a toggle.</div></div>
         </div>
         <button onclick="saveOtApprovers()" class="btn text-sm mt-3">Save OT approvers</button>
         <span id="otApprMsg" class="text-xs ml-2"></span>
@@ -714,7 +715,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED205, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED206, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1002,6 +1003,7 @@
       document.getElementById('otAcc').innerHTML=opts(d.accounts);
       document.getElementById('otAccEmail').value=d.accounts_email||'';
       document.getElementById('labAcc').innerHTML='<option value="">— none —</option>'+(d.people||[]).map(p=>`<option value="${p.id}" ${d.labour_accounts===p.id?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`).join('');
+      document.getElementById('simpleHome').innerHTML=(d.people||[]).map(p=>`<option value="${p.id}" ${(d.simple_home||[]).includes(p.id)?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`).join('');
       // multi-select for management
       const mg=new Set((d.mgmt||[]).map(Number));
       document.getElementById('otMgmt').innerHTML=(d.people||[]).map(p=>`<option value="${p.id}" ${mg.has(p.id)?'selected':''}>${p.name}${p.department?' · '+p.department:''}</option>`).join('');
@@ -1012,7 +1014,7 @@
       const msg=document.getElementById('otApprMsg');
       try{ await api('/admin/ot-approvers',{method:'POST',body:{
         production:val('otProd'), dispatch:val('otDisp'), hr:val('otHr'),
-        mgmt, accounts:val('otAcc'), accounts_email:document.getElementById('otAccEmail').value, labour_accounts:val('labAcc') }});
+        mgmt, accounts:val('otAcc'), accounts_email:document.getElementById('otAccEmail').value, labour_accounts:val('labAcc'), simple_home:[...document.getElementById('simpleHome').selectedOptions].map(o=>+o.value) }});
         msg.textContent='Saved ✓'; msg.className='text-xs ml-2 text-emerald-600'; }
       catch(e){ msg.textContent=e.message; msg.className='text-xs ml-2 text-red-600'; }
     }

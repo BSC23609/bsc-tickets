@@ -96,6 +96,8 @@ router.get('/me', auth.requireAuth, async (req, res) => {
     ot_mgmt: ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).includes(u.id),
     expense_final: u.is_admin || ((await require('../lib/chain').getChain()).final_approver_ids || []).includes(u.id),
     is_accounts: u.is_admin || /account/i.test(u.department || ''),
+    simple_home: ((await q(`SELECT value FROM app_settings WHERE key='simple_home_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).filter(Boolean).includes(u.id),
+
     apps: require('../lib/apps').appAccessFor(u),
     token,
   });
