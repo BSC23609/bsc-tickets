@@ -138,7 +138,7 @@ async function buildOtCombinedPdf(companyKey, month, opts = {}) {
   const labour = (await q(
     `SELECT lo.labour_code AS code, lo.labour_name AS name, to_char(lo.ot_date,'DD Mon') AS d, lo.hours, lo.amount
      FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period
-     WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved'
+     WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved' AND lo.paid_at IS NULL
      ORDER BY lo.labour_name, lo.ot_date`, [C.labourCo, month])).rows;
 
   const people = new Map();
@@ -171,7 +171,7 @@ async function buildShearingCombinedPdf(companyKey, month) {
   const sh = (await q(
     `SELECT ls.labour_code AS code, ls.labour_name AS name, to_char(ls.sh_date,'DD Mon') AS d, ls.days, ls.amount
      FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period
-     WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved'
+     WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved' AND ls.paid_at IS NULL
      ORDER BY ls.labour_name, ls.sh_date`, [C.labourCo, month])).rows;
   const people = new Map();
   sh.forEach(r => { const k = r.name + (r.code || ''); if (!people.has(k)) people.set(k, { code: r.code || '\u2014', name: r.name, rows: [], total: 0, days: 0 }); const p = people.get(k); p.rows.push([r.d, (+r.days).toFixed(1), money(r.amount)]); p.total += Number(r.amount); p.days += Number(r.days); });
@@ -227,12 +227,12 @@ async function companyExpenseEmployees(companyKey, month) {
 async function companyOtTotal(companyKey, month) {
   const C = COMPANIES[companyKey];
   const staff = (await q(`SELECT COALESCE(SUM(amount),0) AS t, count(DISTINCT employee_id) AS c FROM ot_entries o WHERE o.status='mgmt_approved' AND (SELECT emp_no FROM employees WHERE id=o.employee_id) LIKE $1 AND o.ot_date >= ($2||'-01')::date AND o.ot_date < (($2||'-01')::date + interval '1 month')`, [C.staffPrefix + '/%', month])).rows[0];
-  const lab = (await q(`SELECT COALESCE(SUM(lo.amount),0) AS t, count(DISTINCT lo.labour_name) AS c FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved'`, [C.labourCo, month])).rows[0];
+  const lab = (await q(`SELECT COALESCE(SUM(lo.amount),0) AS t, count(DISTINCT lo.labour_name) AS c FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved' AND lo.paid_at IS NULL`, [C.labourCo, month])).rows[0];
   return { total: Number(staff.t) + Number(lab.t), count: Number(staff.c) + Number(lab.c) };
 }
 async function companyShearingTotal(companyKey, month) {
   const C = COMPANIES[companyKey];
-  const r = (await q(`SELECT COALESCE(SUM(ls.amount),0) AS t, count(DISTINCT ls.labour_name) AS c FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved'`, [C.labourCo, month])).rows[0];
+  const r = (await q(`SELECT COALESCE(SUM(ls.amount),0) AS t, count(DISTINCT ls.labour_name) AS c FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved' AND ls.paid_at IS NULL`, [C.labourCo, month])).rows[0];
   return { total: Number(r.t), count: Number(r.c) };
 }
 
@@ -513,4 +513,4 @@ router.get('/monthly-list', async (req, res) => {
   res.json({ month, employees: rows });
 });
 
-module.exports._internal = { runMonthlyAccounts, buildEmployeeConsolidatedPdf, prevMonth };
+module.exports._internal = { runMonthlyAccounts, buildEmployeeConsolidatedPdf, prevMonth, expInMonth, COMPANIES };

@@ -62,6 +62,9 @@
         <a id="sendAcctTile" href="/send-accounts.html" class="tile d1 hidden"><span class="ref">ACC</span>
           <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4Z"/></svg></div>
           <h3>Send to Accounts</h3><p>Review approved reports and email them to accounts &mdash; per company.</p><span class="arrow">Open &rarr;</span></a>
+        <a id="acctPortalTile" href="/accounts.html" class="tile d1 hidden"><span class="ref">PAY</span>
+          <div class="icon"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="#0A4566" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div>
+          <h3>Pending Payments</h3><p>Accounts: see approved payments and mark them paid.</p><span class="arrow">Open &rarr;</span></a>
       </div>
     </section>
 
@@ -131,6 +134,7 @@
       if(otDept||me.ot_approver||me.ot_hr||me.ot_mgmt||me.is_admin) document.getElementById('otTile').classList.remove('hidden');
       if(me.ot_hr||me.ot_mgmt||me.is_admin){ const lt=document.getElementById('labourTile'); if(lt) lt.classList.remove('hidden'); }
       if(me.ot_mgmt){ const ft=document.getElementById('finalTile'); if(ft) ft.classList.remove('hidden'); const sa=document.getElementById('sendAcctTile'); if(sa) sa.classList.remove('hidden'); }
+      if(me.is_accounts){ const at=document.getElementById('acctPortalTile'); if(at) at.classList.remove('hidden'); }
       document.querySelectorAll('[data-app]').forEach(el=>{ if(me.apps && me.apps[el.dataset.app]) el.classList.remove('hidden'); });
       hideEmptySections();
     }

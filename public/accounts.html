@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Accounts — Pending Payments</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css?v=4">
+  <style>body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}</style>
+</head>
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-3xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <button onclick="logout()" class="deck-out">Sign out</button>
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Accounts</div>
+      <h1 class="text-2xl font-bold" style="font-family:'Space Grotesk'">Pending Payments</h1>
+      <p class="text-sm text-slate-500 mt-1">Approved payments awaiting disbursement — mark each as paid once done.</p>
+    </div>
+
+    <div id="denied" class="hidden card p-8 text-center text-slate-500">This portal is for the accounts team and admins only.</div>
+
+    <div id="ui" class="hidden">
+      <div class="flex items-end gap-2 mb-4 flex-wrap">
+        <div><label class="fieldlabel">Month</label><input id="month" type="month" class="field !w-auto text-sm" onchange="load()"></div>
+        <button onclick="load()" class="btn-ghost text-sm">↻ Refresh</button>
+      </div>
+      <div class="card p-4 mb-4 flex items-center justify-between" style="background:#0A4566;color:#fff">
+        <div class="text-sm opacity-80">Total pending</div>
+        <div class="text-xl font-bold" style="font-family:'Space Grotesk'" id="grand"></div>
+      </div>
+      <div id="companies"></div>
+      <div id="empty" class="hidden card p-10 text-center text-slate-400"><div class="text-3xl mb-2">✅</div>No pending payments for this month.</div>
+    </div>
+  </main>
+
+  <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 hidden px-4 py-2 rounded-lg text-white text-sm shadow-lg z-50"></div>
+
+  <script src="/js/common.js?v=89"></script>
+  <script>
+    const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const rupee = n => '\u20b9' + Number(n||0).toLocaleString('en-IN');
+    let me=null, DATA=null;
+    (async function init(){
+      try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
+      if(!me.is_accounts){ document.getElementById('denied').classList.remove('hidden'); return; }
+      document.getElementById('ui').classList.remove('hidden');
+      const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
+      document.getElementById('month').value=d.toISOString().slice(0,7);
+      await load();
+    })();
+    async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    const M=()=>document.getElementById('month').value||new Date().toISOString().slice(0,7);
+    const typeBadge=t=>({expense:['bg-blue-100 text-blue-700','Expenses'],ot:['bg-amber-100 text-amber-700','Overtime'],shearing:['bg-emerald-100 text-emerald-700','Shearing']}[t]||['bg-slate-100','']);
+
+    async function load(){ try{ DATA=await api('/accounts/pending?month='+M()); render(); }catch(e){ toast(e.message,'error'); } }
+    function render(){
+      document.getElementById('grand').textContent=rupee(DATA.grand);
+      document.getElementById('empty').classList.toggle('hidden',(DATA.companies||[]).length>0);
+      const box=document.getElementById('companies'); box.innerHTML='';
+      (DATA.companies||[]).forEach(c=>{
+        const card=document.createElement('div'); card.className='card p-4 mb-4';
+        let html=`<div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-line">
+          <div class="font-bold text-lg" style="font-family:'Space Grotesk'">${esc(c.label)}</div>
+          <div class="text-right"><div class="text-xs text-slate-400">Pending</div><div class="font-bold text-emerald-700">${rupee(c.total)}</div></div></div>`;
+        c.types.forEach(t=>{
+          const b=typeBadge(t.type); const tt=t.rows.reduce((a,r)=>a+r.total,0);
+          html+=`<div class="mt-2 mb-1 flex items-center justify-between">
+            <div><span class="pill ${b[0]}">${b[1]}</span> <span class="text-xs text-slate-400">${t.rows.length} · ${rupee(tt)}</span></div>
+            <button onclick="markType('${c.company}','${t.type}',this)" class="text-[11px] text-slate-500 hover:text-emerald-700 hover:underline">Mark all paid</button></div>`;
+          t.rows.forEach(r=>{
+            html+=`<div class="flex items-center justify-between gap-3 py-1.5 border-b border-line/40 last:border-0">
+              <div class="text-sm"><b>${esc(r.name)}</b> <span class="text-xs text-slate-400 mono">${esc(r.code||'')}</span> · ${rupee(r.total)}</div>
+              <button onclick="clickBusy(this,'…',()=>markPaid('${c.company}','${t.type}','${String(r.key).replace(/'/g,"\\'")}'))" class="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Mark paid</button></div>`;
+          });
+        });
+        card.innerHTML=html; box.appendChild(card);
+      });
+    }
+    async function clickBusy(btn,label,fn){ if(!btn||btn.dataset.busy)return; btn.dataset.busy='1'; const o=btn.innerHTML; btn.disabled=true; btn.innerHTML=label; try{ await fn(); }catch(e){ toast(e.message||'Error','error'); } finally{ delete btn.dataset.busy; btn.disabled=false; btn.innerHTML=o; } }
+    async function markPaid(company,type,key){
+      await api('/accounts/mark-paid',{method:'POST',body:{company,type,key,month:M()}});
+      toast('Marked paid','success'); await load();
+    }
+    async function markType(company,type,btn){
+      if(!confirm('Mark ALL '+type+' payments for '+company+' as paid?')) return;
+      try{ const r=await api('/accounts/mark-type-paid',{method:'POST',body:{company,type,month:M()}}); toast('Marked paid ('+r.changed+' entries)','success'); await load(); }
+      catch(e){ toast(e.message,'error'); }
+    }
+  </script>
+</body>
+</html>

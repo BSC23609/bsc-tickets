@@ -584,3 +584,7 @@ CREATE TABLE IF NOT EXISTS accounts_send (
   sent_by   TEXT,
   UNIQUE(period, company, kind)
 );
+
+-- Accounts portal: labour OT/shearing get a per-entry paid stamp (expense + staff OT already have one).
+ALTER TABLE labour_ot       ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
