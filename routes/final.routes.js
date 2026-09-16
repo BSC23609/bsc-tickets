@@ -117,6 +117,101 @@ function otInMonth(o, p) {
 }
 
 // Build one employee's consolidated PDF: breakdown cover + each approved claim + OT summary.
+// ---- Restructured reports for accounts (per company) ----
+const COMPANIES = {
+  BSC: { label: 'Bharat Steel (Chennai)', staffPrefix: 'BSC', labourCo: 'BSC', logo: 'BSC' },
+  G2: { label: 'G2 Steel Services', staffPrefix: 'G2S', labourCo: 'G2', logo: 'G2' },
+};
+const otStatusClause = (inc) => inc ? "IN ('mgmt_approved','paid')" : "= 'mgmt_approved'";
+
+// Overtime consolidated report for a company: summary table (staff + labour) then per-person per-day.
+async function buildOtCombinedPdf(companyKey, month, opts = {}) {
+  const C = COMPANIES[companyKey]; if (!C) return null;
+  const { buildCombinedReportPDF, money } = require('../lib/reports');
+  const inc = !!opts.includePaid;
+  const staff = (await q(
+    `SELECT e.emp_no AS code, e.name, to_char(o.ot_date,'DD Mon') AS d, o.end_time, o.hours, o.amount
+     FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+     WHERE e.emp_no LIKE $1 AND o.status ${otStatusClause(inc)}
+       AND o.ot_date >= ($2||'-01')::date AND o.ot_date < (($2||'-01')::date + interval '1 month')
+     ORDER BY e.name, o.ot_date`, [C.staffPrefix + '/%', month])).rows;
+  const labour = (await q(
+    `SELECT lo.labour_code AS code, lo.labour_name AS name, to_char(lo.ot_date,'DD Mon') AS d, lo.hours, lo.amount
+     FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period
+     WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved'
+     ORDER BY lo.labour_name, lo.ot_date`, [C.labourCo, month])).rows;
+
+  const people = new Map();
+  const add = (key, code, name, kind) => { if (!people.has(key)) people.set(key, { code: code || '\u2014', name, kind, rows: [], total: 0, hours: 0 }); return people.get(key); };
+  staff.forEach(r => { const p = add('s:' + r.name + (r.code || ''), r.code, r.name, 'staff'); p.rows.push([r.d, r.end_time, (+r.hours).toFixed(2), money(r.amount)]); p.total += Number(r.amount); p.hours += Number(r.hours); });
+  labour.forEach(r => { const p = add('l:' + r.name + (r.code || ''), r.code, r.name, 'labour'); p.rows.push([r.d, '\u2014', (+r.hours).toFixed(2), money(r.amount)]); p.total += Number(r.amount); p.hours += Number(r.hours); });
+  const list = [...people.values()];
+  if (!list.length) return null;
+  const grand = list.reduce((s, p) => s + p.total, 0);
+
+  return buildCombinedReportPDF({
+    companyKey, title: `Overtime — ${C.label}`, subtitle: `${monthLabel(month)} · consolidated`,
+    summary: {
+      cols: [{ label: '#', width: 0.08 }, { label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.42 }, { label: 'Total OT hrs', width: 0.15, align: 'right' }, { label: 'Amount', width: 0.15, align: 'right' }],
+      rows: list.map((p, i) => [String(i + 1), p.code, p.name, p.hours.toFixed(2), money(p.total)]),
+      totalRow: ['', '', 'TOTAL', '', money(grand)],
+    },
+    people: list.map(p => ({
+      heading: `Overtime — ${p.name}`, sub: `${p.code} · ${monthLabel(month)}`,
+      cols: [{ label: 'Date', width: 0.34 }, { label: 'End time', width: 0.22 }, { label: 'Hours', width: 0.22, align: 'right' }, { label: 'Amount', width: 0.22, align: 'right' }],
+      rows: p.rows, totalRow: ['Total', '', p.hours.toFixed(2), money(p.total)],
+    })),
+  });
+}
+
+// Shearing consolidated report (labour only) for a company.
+async function buildShearingCombinedPdf(companyKey, month) {
+  const C = COMPANIES[companyKey]; if (!C) return null;
+  const { buildCombinedReportPDF, money } = require('../lib/reports');
+  const sh = (await q(
+    `SELECT ls.labour_code AS code, ls.labour_name AS name, to_char(ls.sh_date,'DD Mon') AS d, ls.days, ls.amount
+     FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period
+     WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved'
+     ORDER BY ls.labour_name, ls.sh_date`, [C.labourCo, month])).rows;
+  const people = new Map();
+  sh.forEach(r => { const k = r.name + (r.code || ''); if (!people.has(k)) people.set(k, { code: r.code || '\u2014', name: r.name, rows: [], total: 0, days: 0 }); const p = people.get(k); p.rows.push([r.d, (+r.days).toFixed(1), money(r.amount)]); p.total += Number(r.amount); p.days += Number(r.days); });
+  const list = [...people.values()];
+  if (!list.length) return null;
+  const grand = list.reduce((s, p) => s + p.total, 0);
+  return buildCombinedReportPDF({
+    companyKey, title: `Shed-B Shearing — ${C.label}`, subtitle: `${monthLabel(month)} · consolidated`,
+    summary: {
+      cols: [{ label: '#', width: 0.08 }, { label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.42 }, { label: 'Total days', width: 0.15, align: 'right' }, { label: 'Amount', width: 0.15, align: 'right' }],
+      rows: list.map((p, i) => [String(i + 1), p.code, p.name, p.days.toFixed(1), money(p.total)]),
+      totalRow: ['', '', 'TOTAL', '', money(grand)],
+    },
+    people: list.map(p => ({
+      heading: `Shearing — ${p.name}`, sub: `${p.code} · ${monthLabel(month)}`,
+      cols: [{ label: 'Date', width: 0.5 }, { label: 'Days', width: 0.25, align: 'right' }, { label: 'Amount', width: 0.25, align: 'right' }],
+      rows: p.rows, totalRow: ['Total', p.days.toFixed(1), money(p.total)],
+    })),
+  });
+}
+
+router.get('/report/ot/:company/:month', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+  if (!/^\d{4}-\d{2}$/.test(req.params.month) || !COMPANIES[req.params.company]) return res.status(400).send('Bad request');
+  try {
+    const pdf = await buildOtCombinedPdf(req.params.company, req.params.month, { includePaid: req.query.all === '1' });
+    if (!pdf) return res.status(404).send('No approved OT for this company/month.');
+    res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="OT_${req.params.company}_${req.params.month}.pdf"`); res.end(pdf);
+  } catch (e) { console.error('[ot report]', e); res.status(500).send(e.message); }
+});
+router.get('/report/shearing/:company/:month', async (req, res) => {
+  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+  if (!/^\d{4}-\d{2}$/.test(req.params.month) || !COMPANIES[req.params.company]) return res.status(400).send('Bad request');
+  try {
+    const pdf = await buildShearingCombinedPdf(req.params.company, req.params.month);
+    if (!pdf) return res.status(404).send('No approved shearing for this company/month.');
+    res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="Shearing_${req.params.company}_${req.params.month}.pdf"`); res.end(pdf);
+  } catch (e) { console.error('[shearing report]', e); res.status(500).send(e.message); }
+});
+
 async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   const includePaid = !!opts.includePaid;
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
@@ -125,14 +220,8 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
     `SELECT id, form_type, total_amount, final_by_name, to_char(final_at AT TIME ZONE 'Asia/Kolkata','DD Mon YYYY, HH12:MI AM') AS final_at_fmt FROM expense_submissions s
      WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonth('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
-  const otStatus = includePaid ? "status IN ('mgmt_approved','paid')" : "status = 'mgmt_approved'";
-  const ot = (await q(`SELECT COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
-     FROM ot_entries WHERE employee_id=$1 AND ${otStatus}
-       AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month')`, [empId, month])).rows[0];
   const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation', misc: 'Miscellaneous' };
-  const otAmt = Number(ot.amount || 0);
   const breakdown = claims.map(c => ({ label: FORM_LABEL[c.form_type] || c.form_type, amount: Number(c.total_amount || 0), by: c.final_by_name || '\u2014', at: c.final_at_fmt || '' }));
-  if (otAmt > 0) breakdown.push({ label: 'Overtime', amount: otAmt, by: 'Management', at: '' });
   const total = breakdown.reduce((s, b) => s + b.amount, 0);
   if (total <= 0) return null;
 
