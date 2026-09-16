@@ -779,7 +779,7 @@ router.put('/approvers/leavecover', async (req, res) => {
 // ---- Gate geofence + overdue settings (for outpass return tracking) ----
 // OT approvers: Production → Kannan, Dispatch → Kumar N (picked from employee list).
 router.get('/ot-approvers', async (req, res) => {
-  const rows = (await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch','ot_hr_emp_id','ot_mgmt_emp_ids','ot_accounts_emp_id','ot_accounts_email','labour_accounts_emp_id','simple_home_emp_ids')`)).rows;
+  const rows = (await q(`SELECT key,value FROM app_settings WHERE key IN ('ot_approver_production','ot_approver_dispatch','ot_hr_emp_id','ot_mgmt_emp_ids','ot_accounts_emp_id','ot_accounts_email','labour_accounts_emp_id','simple_home_emp_ids','accounts_email_bsc','accounts_email_g2','accounts_emp_bsc','accounts_emp_g2')`)).rows;
   const m = Object.fromEntries(rows.map(r => [r.key, r.value]));
   const people = (await q(`SELECT id,name,emp_no,department FROM employees WHERE active=TRUE ORDER BY name`)).rows;
   res.json({
@@ -787,6 +787,8 @@ router.get('/ot-approvers', async (req, res) => {
     hr: +m.ot_hr_emp_id || null,
     mgmt: (m.ot_mgmt_emp_ids || '').split(',').map(Number).filter(Boolean),
     accounts: +m.ot_accounts_emp_id || null, accounts_email: m.ot_accounts_email || '',
+    accounts_email_bsc: m.accounts_email_bsc || 'accounts@bharatsteels.in', accounts_email_g2: m.accounts_email_g2 || 'g2@bharatsteels.in',
+    accounts_emp_bsc: +m.accounts_emp_bsc || null, accounts_emp_g2: +m.accounts_emp_g2 || null,
     labour_accounts: +m.labour_accounts_emp_id || null,
     simple_home: (m.simple_home_emp_ids || '').split(',').map(Number).filter(Boolean),
     people,
@@ -806,6 +808,10 @@ router.post('/ot-approvers', async (req, res) => {
   await setStr('ot_accounts_email', (b.accounts_email || '').trim() || null);
   await setStr('labour_accounts_emp_id', +b.labour_accounts || null);
   await setStr('simple_home_emp_ids', Array.isArray(b.simple_home) ? b.simple_home.map(Number).filter(Boolean).join(',') : null);
+  await setStr('accounts_email_bsc', (b.accounts_email_bsc || '').trim() || null);
+  await setStr('accounts_email_g2', (b.accounts_email_g2 || '').trim() || null);
+  await setStr('accounts_emp_bsc', +b.accounts_emp_bsc || null);
+  await setStr('accounts_emp_g2', +b.accounts_emp_g2 || null);
   res.json({ ok: true });
 });
 
@@ -998,7 +1004,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED206', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED207', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

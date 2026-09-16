@@ -284,16 +284,28 @@ async function companyShearingTotal(companyKey, month) {
   return { total: Number(r.t), count: Number(r.c) };
 }
 
+// Per-company accounts email + WhatsApp contact (configured in Admin → OT approvers).
+async function companyEmail(companyKey) {
+  const key = companyKey === 'G2' ? 'accounts_email_g2' : 'accounts_email_bsc';
+  const v = (await q(`SELECT value FROM app_settings WHERE key=$1`, [key])).rows[0]?.value;
+  return (v && v.trim()) || (companyKey === 'G2' ? 'g2@bharatsteels.in' : 'accounts@bharatsteels.in');
+}
+async function companyAccountsContact(companyKey) {
+  const key = companyKey === 'G2' ? 'accounts_emp_g2' : 'accounts_emp_bsc';
+  const id = +((await q(`SELECT value FROM app_settings WHERE key=$1`, [key])).rows[0]?.value || 0);
+  if (!id) return null;
+  return (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [id])).rows[0] || null;
+}
+
 router.get('/accounts-queue', async (req, res) => {
   if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
-  const chain = require('../lib/chain'); const cfg = await chain.getChain();
   const sentRows = (await q(`SELECT company, kind, to_char(sent_at,'DD Mon HH24:MI') AS at FROM accounts_send WHERE period=$1`, [month])).rows;
   const sentMap = {}; sentRows.forEach(r => { sentMap[r.company + ':' + r.kind] = r.at; });
   const companies = [];
   for (const key of ['BSC', 'G2']) {
     const C = COMPANIES[key];
-    const email = chain.accountsEmailFor(cfg, C.staffPrefix + '/x');
+    const email = await companyEmail(key);
     const emps = await companyExpenseEmployees(key, month);
     const ot = await companyOtTotal(key, month);
     const sh = await companyShearingTotal(key, month);
@@ -314,8 +326,8 @@ router.post('/send-to-accounts', async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
   if (!company || !month) return res.status(400).json({ error: 'Bad request' });
   const C = COMPANIES[company];
-  const chain = require('../lib/chain'); const graph = require('../lib/graph'); const cfg = await chain.getChain();
-  const email = chain.accountsEmailFor(cfg, C.staffPrefix + '/x');
+  const graph = require('../lib/graph');
+  const email = await companyEmail(company);
   if (!email) return res.status(400).json({ error: 'No accounts email configured for ' + company });
 
   const attachments = []; const done = [];
@@ -344,6 +356,15 @@ router.post('/send-to-accounts', async (req, res) => {
              ON CONFLICT (period,company,kind) DO UPDATE SET total=EXCLUDED.total, email=EXCLUDED.email, sent_at=now(), sent_by=EXCLUDED.sent_by`,
       [month, company, d.kind, Math.round(d.total), email, req.user.name]);
   }
+  // Notify the company's accounts contact on WhatsApp (if configured).
+  try {
+    const acc = await companyAccountsContact(company);
+    if (acc && acc.phone) {
+      const wati = require('../lib/wati');
+      const grand = done.reduce((s, d) => s + d.total, 0);
+      await wati.notify.ot.accounts(acc, { period: `${C.label} · ${monthLabel(month)}`, employees: attachments.length, total: String(Math.round(grand)) });
+    }
+  } catch (e) { console.error('[accounts contact wa]', e.message); }
   res.json({ ok: true, company, email, attachments: attachments.length, kinds: done.map(d => d.kind) });
 });
 
