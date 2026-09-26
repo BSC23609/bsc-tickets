@@ -38,6 +38,9 @@
         <div class="flex-1 min-w-[120px]"><label class="fieldlabel">Search payee</label>
           <input id="fName" oninput="renderMonth()" placeholder="Name…" class="field text-sm"></div>
         <button onclick="loadMonth()" class="btn-ghost text-sm">↻ Refresh</button>
+        <label class="flex items-center gap-1.5 text-xs text-slate-500 pb-1 select-none cursor-pointer">
+          <input id="showPaid" type="checkbox" onchange="renderMonth()" class="rounded border-slate-300"> Show paid &amp; settled-offline
+        </label>
       </div>
 
       <div class="card p-4 mb-4 flex items-center justify-between gap-3 flex-wrap" style="background:#0A4566;color:#fff">
@@ -83,7 +86,9 @@
     }
     function renderMonth(){
       const fn=document.getElementById('fName').value.trim().toLowerCase();
-      const cats=(MONTH.categories||[]).map(c=>({...c, items:c.items.filter(i=>!fn||i.payee.toLowerCase().includes(fn))})).filter(c=>c.items.length);
+      const showPaid = document.getElementById('showPaid').checked;
+      const visible = (i)=> showPaid || !((i.state==='approved' && i.paid) || i.state==='offline');
+      const cats=(MONTH.categories||[]).map(c=>({...c, items:c.items.filter(i=>(!fn||i.payee.toLowerCase().includes(fn)) && visible(i))})).filter(c=>c.items.length);
       document.getElementById('grand').textContent=rupee(MONTH.total);
       document.getElementById('statusLine').textContent = MONTH.count===0 ? 'No items this month'
         : (MONTH.pending===0 ? '✓ All '+MONTH.count+' items final-approved' : MONTH.pending+' of '+MONTH.count+' still pending final approval');
