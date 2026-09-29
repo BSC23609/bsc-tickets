@@ -717,11 +717,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-<<<<<<< HEAD
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED209, the new code is NOT deployed yet)\n\n' +
-=======
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED208, the new code is NOT deployed yet)\n\n' +
->>>>>>> ba6e2ae27a6031c6f3ec3ebb4f2508fd585d17b7
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED210, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +

@@ -27,6 +27,7 @@ function pdfData(o) {
     emp_code: o.req_code, name: o.req_name, designation: o.designation || '',
     purpose: o.purpose, out_time: o.out_time, in_time: o.in_time,
     ref_no: o.ref_no, approver: o.actioned_by_name, approved_at: fmtDateTime(o.actioned_at),
+    keka_proof: (!o.on_duty ? (o.keka_proof || null) : null),
   };
 }
 
