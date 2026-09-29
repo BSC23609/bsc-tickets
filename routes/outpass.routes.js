@@ -18,7 +18,7 @@ router.use(auth.requireAuth);
 const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
 const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const typeLabel = (t) => (t === 'gatepass' ? 'Gatepass' : 'Outpass');
-const decorate = (o) => ({ ...o, type_label: typeLabel(o.type) });
+const decorate = (o) => { const { keka_proof, ...rest } = o; return { ...rest, type_label: typeLabel(o.type), has_keka_proof: !!keka_proof }; };
 
 // PDF field set from a full request row.
 function pdfData(o) {
@@ -111,12 +111,29 @@ router.get('/meta', async (req, res) => {
 });
 
 // ---- submit a request ----
+// Serve the Keka permission-proof image for a request (requester, its approver, or admin).
+router.get('/:id/keka-proof', async (req, res) => {
+  const o = (await q(`SELECT requester_id, approver_id, keka_proof FROM outpass_requests WHERE id=$1`, [req.params.id])).rows[0];
+  if (!o) return res.status(404).send('Not found');
+  if (!(req.user.is_admin || o.requester_id === req.user.id || o.approver_id === req.user.id)) return res.status(403).send('Not allowed');
+  const m = /^data:([^;]+);base64,(.*)$/.exec(o.keka_proof || '');
+  if (!m) return res.status(404).send('No proof on file');
+  res.setHeader('Content-Type', m[1]);
+  res.setHeader('Content-Disposition', 'inline; filename="keka-proof.png"');
+  res.end(Buffer.from(m[2], 'base64'));
+});
+
 router.post('/', async (req, res) => {
-  const { type, on_duty, req_date, purpose, out_time, in_time, manager_on_leave } = req.body || {};
+  const { type, on_duty, req_date, purpose, out_time, in_time, manager_on_leave, keka_proof } = req.body || {};
   if (!['outpass', 'gatepass'].includes(type)) return res.status(400).json({ error: 'Choose Outpass or Gatepass' });
   if (!purpose || !purpose.trim()) return res.status(400).json({ error: 'Purpose is required' });
   if (!out_time) return res.status(400).json({ error: 'Out-time is required' });
   if (type === 'gatepass' && !in_time) return res.status(400).json({ error: 'In-time is required for a gatepass' });
+  const proof = String(keka_proof || '');
+  if (!on_duty) {
+    if (!/^data:image\/(png|jpe?g|webp|gif);base64,/.test(proof)) return res.status(400).json({ error: 'Please upload the Keka permission proof screenshot (required when not on duty).' });
+    if (proof.length > 8000000) return res.status(400).json({ error: 'Proof image is too large — please upload one under ~5 MB.' });
+  }
 
   const onLeave = !!manager_on_leave;
   const approver = await resolveApprover(req.user, { onLeave });
@@ -129,10 +146,10 @@ router.post('/', async (req, res) => {
     ref = await nextOutpassRefNo();
     try {
       const { rows } = await q(
-        `INSERT INTO outpass_requests(ref_no,type,on_duty,req_date,requester_id,purpose,out_time,in_time,approver_id,approver_label,manager_on_leave,action_token)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+        `INSERT INTO outpass_requests(ref_no,type,on_duty,req_date,requester_id,purpose,out_time,in_time,approver_id,approver_label,manager_on_leave,action_token,keka_proof)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [ref, type, !!on_duty, req_date || new Date(), req.user.id, purpose.trim(),
-         out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken]);
+         out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken, (!on_duty ? proof : null)]);
       id = rows[0].id;
       break;
     } catch (e) {

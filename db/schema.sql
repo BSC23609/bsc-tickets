@@ -588,3 +588,6 @@ CREATE TABLE IF NOT EXISTS accounts_send (
 -- Accounts portal: labour OT/shearing get a per-entry paid stamp (expense + staff OT already have one).
 ALTER TABLE labour_ot       ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
 ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
+
+-- Outpass/gatepass: Keka permission-proof screenshot (required when NOT on-duty). Stored as a data URL.
+ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS keka_proof TEXT;

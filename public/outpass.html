@@ -57,7 +57,7 @@
         </div>
 
         <label class="flex items-center gap-2 text-sm mb-4 select-none">
-          <input id="og_onduty" type="checkbox" class="rounded border-slate-300" />
+          <input id="og_onduty" type="checkbox" class="rounded border-slate-300" onchange="toggleKeka()" />
           <span class="font-medium">On duty</span>
           <span class="text-slate-400">— official outing</span>
         </label>
@@ -117,6 +117,12 @@
           <div class="sm:col-span-2">
             <label class="fieldlabel">Purpose</label>
             <textarea id="og_purpose" rows="2" class="field" placeholder="Reason for leaving the premises"></textarea>
+          </div>
+          <div class="sm:col-span-2" id="kekaWrap">
+            <label class="fieldlabel">Keka permission proof <span class="text-red-500">*</span> <span class="text-slate-400 normal-case font-normal">— screenshot of your Keka permission application</span></label>
+            <input id="og_keka" type="file" accept="image/*" class="field" onchange="previewKeka()" />
+            <div id="kekaPreview" class="mt-2"></div>
+            <p class="text-[11px] text-slate-400 mt-1">Required when the outing is not on duty. Tick "On duty" above for official outings (no proof needed).</p>
           </div>
         </div>
 
@@ -240,6 +246,20 @@
         a ? `${a.name} (${a.label})` : 'No approver set — contact admin';
     }
 
+    let kekaDataUrl = '';
+    function toggleKeka() {
+      const onDuty = document.getElementById('og_onduty').checked;
+      document.getElementById('kekaWrap').classList.toggle('hidden', onDuty);
+    }
+    function previewKeka() {
+      const f = document.getElementById('og_keka').files[0];
+      kekaDataUrl = ''; document.getElementById('kekaPreview').innerHTML = '';
+      if (!f) return;
+      if (f.size > 5 * 1024 * 1024) { toast('Image too large — max 5 MB', 'error'); document.getElementById('og_keka').value = ''; return; }
+      const rd = new FileReader();
+      rd.onload = () => { kekaDataUrl = rd.result; document.getElementById('kekaPreview').innerHTML = '<img src="' + rd.result + '" style="max-height:130px;border-radius:8px;border:1px solid #e2e8f0" />'; };
+      rd.readAsDataURL(f);
+    }
     async function submitReq() {
       const onLeave = document.getElementById('og_onleave').checked;
       const approver = onLeave ? leaveApprover : autoApprover;
@@ -248,6 +268,8 @@
       const in_time = readPicker('og_in_pick');
       if (!approver) return toast('No approver is set for your department — contact admin', 'error');
       if (!purpose) return toast('Enter the purpose', 'error');
+      const onDutyChk = document.getElementById('og_onduty').checked;
+      if (!onDutyChk && !kekaDataUrl) return toast('Upload the Keka permission proof screenshot', 'error');
       const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return toast(outErr, 'error');
       if (ogType === 'gatepass') { const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error'); }
 
@@ -257,12 +279,13 @@
         const r = await api('/outpass', { method: 'POST', body: {
           type: ogType, on_duty: document.getElementById('og_onduty').checked,
           req_date: document.getElementById('og_date').value,
-          purpose, out_time, in_time, manager_on_leave: onLeave } });
+          purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: onDutyChk ? null : kekaDataUrl } });
         toast(`Request ${r.ref_no} sent for approval`, 'success');
         document.getElementById('og_purpose').value = '';
         resetPicker('og_out_pick');
         resetPicker('og_in_pick');
         document.getElementById('og_onduty').checked = false;
+        kekaDataUrl = ''; const kf=document.getElementById('og_keka'); if(kf) kf.value=''; const kp=document.getElementById('kekaPreview'); if(kp) kp.innerHTML=''; toggleKeka();
         document.getElementById('og_onleave').checked = false;
         onLeaveToggle();
         switchTab('mine');
@@ -375,6 +398,8 @@
             ${o.type === 'gatepass' ? field('In-time', o.in_time || '—') : ''}
           </div>
           <div>${label('Purpose')}<p class="text-ink">${o.purpose}</p></div>
+          ${(!o.on_duty && o.has_keka_proof) ? `<div>${label('Keka permission proof')}<a href="/api/outpass/${o.id}/keka-proof" target="_blank" class="block mt-1"><img src="/api/outpass/${o.id}/keka-proof" alt="Keka proof" style="max-height:220px;border:1px solid #e2e8f0;border-radius:10px" /></a><a href="/api/outpass/${o.id}/keka-proof" target="_blank" class="text-xs text-brand-600 hover:underline">Open full image ↗</a></div>` : ''}
+          ${(!o.on_duty && !o.has_keka_proof) ? `<div class="text-xs text-amber-600">⚠ No Keka permission proof was attached.</div>` : ''}
           ${o.actioned_at ? `<div class="text-xs text-slate-500">${o.status === 'approved' ? 'Approved' : 'Rejected'} by ${o.actioned_by_name} · ${fmtDateTime(o.actioned_at)}</div>` : ''}
           ${rejBox}
           ${dl}
