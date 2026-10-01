@@ -135,6 +135,19 @@ th.fieldlabel{ display:table-cell; margin:0; }
 .tablewrap{ overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:#fff; }
 
 /* ============================================================
+   Modal dialogs: never taller than the visible screen, always
+   scroll inside — applies at EVERY width (short desktop windows too).
+   dvh tracks the real viewport under mobile browser chrome.
+   ============================================================ */
+div[class*="fixed"][class*="inset-0"][class*="justify-center"] { overflow-y: auto !important; }
+div[class*="fixed"][class*="inset-0"][class*="justify-center"] > * {
+  max-height: calc(100vh - 1.5rem) !important;
+  max-height: calc(100dvh - 1.5rem) !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ============================================================
    Mobile-friendly pop-out dialogs
    On short screens a vertically-centred modal clips its top/bottom
    fields off-screen. Make every modal overlay scroll and pin its
