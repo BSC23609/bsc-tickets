@@ -641,20 +641,28 @@ app.all('/api/cron/escalate', async (req, res) => {
   const DEADLINE = Date.now() + Number(process.env.CRON_BUDGET_MS || 20000);
   const outOfTime = () => Date.now() > DEADLINE;
 
+  // Resolve the CURRENT handler for each ticket (category/trade/location now), not the stale
+  // snapshot taken at creation, and only ACTIVE employees — so replaced or deactivated handlers
+  // stop getting nudged and the person who holds the role today is notified instead.
+  // Also exclude anything already closed (closed_at) as a belt-and-suspenders on top of status.
   const { rows: tickets } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.priority, t.status, t.escalation_level,
-            t.l1_emp_id, t.l2_emp_id, t.l3_emp_id, t.raised_at, t.last_reminder_at,
+            t.is_self, t.raised_at, t.last_reminder_at,
             t.external_hold, t.external_set_at, t.external_hours,
             c.name AS category_name, c.wait_cycle_mins, c.wait_l3_mins, r.name AS requester_name,
-            l1.name AS l1_name, l1.phone AS l1_phone, l2.name AS l2_name, l2.phone AS l2_phone,
-            l3.name AS l3_name, l3.phone AS l3_phone
+            cl1.name AS l1_name, cl1.phone AS l1_phone,
+            cl2.name AS l2_name, cl2.phone AS l2_phone,
+            cl3.name AS l3_name, cl3.phone AS l3_phone,
+            c.l3_emp_id AS cur_l3_id
      FROM tickets t
      JOIN categories c ON c.id = t.category_id
      JOIN employees r ON r.id = t.requester_id
-     LEFT JOIN employees l1 ON l1.id = t.l1_emp_id
-     LEFT JOIN employees l2 ON l2.id = t.l2_emp_id
-     LEFT JOIN employees l3 ON l3.id = t.l3_emp_id
-     WHERE t.status IN ('open','in_progress','reopened') AND NOT COALESCE(t.reminders_off, false)`);
+     LEFT JOIN trades tr ON tr.id = t.trade_id
+     LEFT JOIN trade_location_l1 tll ON tll.trade_id = t.trade_id AND tll.location_id = t.location_id
+     LEFT JOIN employees cl1 ON cl1.id = (CASE WHEN t.is_self THEN t.l1_emp_id ELSE COALESCE(tll.l1_emp_id, tr.l1_emp_id, c.l1_emp_id) END) AND cl1.active = TRUE
+     LEFT JOIN employees cl2 ON cl2.id = c.l2_emp_id AND cl2.active = TRUE
+     LEFT JOIN employees cl3 ON cl3.id = c.l3_emp_id AND cl3.active = TRUE
+     WHERE t.status IN ('open','in_progress','reopened') AND t.closed_at IS NULL AND NOT COALESCE(t.reminders_off, false)`);
 
   // Uniform escalation for every category/trade:
   //   >= 2h unresolved -> remind L1 + L2      (level 2)
@@ -691,7 +699,7 @@ app.all('/api/cron/escalate', async (req, res) => {
     const L3_AFTER = t.wait_l3_mins || S.remind_l3_mins || 240;
     const sinceRaised = businessMinutesBetween(t.raised_at, now, holidaySet);
     let newLevel = 0;
-    if (sinceRaised >= L3_AFTER && t.l3_emp_id) newLevel = 3;
+    if (sinceRaised >= L3_AFTER && t.cur_l3_id) newLevel = 3;
     else if (sinceRaised >= L2_AFTER) newLevel = 2;
     if (newLevel === 0) continue;
 
