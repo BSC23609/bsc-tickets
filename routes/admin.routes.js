@@ -111,8 +111,37 @@ router.put('/employees/:id', async (req, res) => {
 
 // Deactivate (soft) — preserves ticket history.
 router.post('/employees/:id/deactivate', async (req, res) => {
-  await q('UPDATE employees SET active=FALSE WHERE id=$1', [req.params.id]);
-  res.json({ ok: true });
+  const id = +req.params.id;
+  await q('UPDATE employees SET active=FALSE WHERE id=$1', [id]);
+  // Auto-reassign this person's OPEN tickets to the current resolved handler for each ticket's
+  // category/trade/location, so nothing stays pointed at a deactivated handler.
+  let reassigned = 0;
+  try {
+    const open = (await q(
+      `SELECT id, category_id, trade_id, location_id, is_self, l1_emp_id, l2_emp_id, l3_emp_id
+       FROM tickets WHERE status IN ('open','in_progress','reopened')
+         AND (l1_emp_id=$1 OR l2_emp_id=$1 OR l3_emp_id=$1)`, [id])).rows;
+    for (const t of open) {
+      const cur = (await q(
+        `SELECT COALESCE(tll.l1_emp_id, tr.l1_emp_id, c.l1_emp_id) AS l1, c.l2_emp_id AS l2, c.l3_emp_id AS l3
+         FROM categories c
+         LEFT JOIN trades tr ON tr.id=$2
+         LEFT JOIN trade_location_l1 tll ON tll.trade_id=$2 AND tll.location_id=$3
+         WHERE c.id=$1`, [t.category_id, t.trade_id, t.location_id])).rows[0] || {};
+      const sets = [], vals = [t.id]; let i = 2; const moved = [];
+      // L1: skip self-tickets (their L1 is the requester, not a category handler)
+      if (t.l1_emp_id === id && !t.is_self && cur.l1 && cur.l1 !== id) { sets.push(`l1_emp_id=$${i}`); vals.push(cur.l1); i++; moved.push('L1'); }
+      if (t.l2_emp_id === id && cur.l2 && cur.l2 !== id) { sets.push(`l2_emp_id=$${i}`); vals.push(cur.l2); i++; moved.push('L2'); }
+      if (t.l3_emp_id === id && cur.l3 && cur.l3 !== id) { sets.push(`l3_emp_id=$${i}`); vals.push(cur.l3); i++; moved.push('L3'); }
+      if (sets.length) {
+        await q(`UPDATE tickets SET ${sets.join(',')} WHERE id=$1`, vals);
+        await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'reassigned',$2)`,
+          [t.id, `${moved.join('/')} reassigned to current handler after deactivation`]);
+        reassigned++;
+      }
+    }
+  } catch (e) { console.error('[deactivate reassign]', e.message); }
+  res.json({ ok: true, reassigned });
 });
 router.post('/employees/:id/activate', async (req, res) => {
   await q('UPDATE employees SET active=TRUE WHERE id=$1', [req.params.id]);
@@ -1004,7 +1033,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED212', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED213', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
