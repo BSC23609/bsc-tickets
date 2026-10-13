@@ -430,7 +430,10 @@
     $('#importBtn').onclick=async()=>{
       const btn=$('#importBtn'); btn.disabled=true; btn.textContent='Importing…';
       try{ const r=await api('/canteen/import-seed',{method:'POST'}); toast('Imported '+r.items+' items and '+r.entries+' entries','success'); await loadBoot(); loadDay(); }
-      catch(e){ toast(e.message,'error'); btn.disabled=false; btn.textContent='Import Jan–Sep 2026'; }
+      catch(e){
+        // A slow first request can time out in the browser while the server still finishes — check before calling it failed.
+        try{ const b=await loadBoot(); if(b.has_data){ toast('History imported','success'); loadDay(); return; } }catch(_){}
+        toast('Import did not finish: '+e.message,'error'); btn.disabled=false; btn.textContent='Import Jan–Sep 2026'; }
     };
     window.logout=async()=>{ await api('/logout',{method:'POST'}); location.href='/'; };
 

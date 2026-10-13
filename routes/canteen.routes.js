@@ -219,36 +219,39 @@ router.post('/import-seed', requireAdmin, async (req, res) => {
   const file = path.join(__dirname, '..', 'db', 'canteen_seed.json');
   if (!fs.existsSync(file)) return res.status(404).json({ error: 'No seed file in this deployment' });
   const seed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  // Three bulk statements (not ~1,200 single inserts): on Vercel every query is a network round
+  // trip to Neon, and row-by-row inserts ran past the function time limit.
+  const t0 = Date.now();
   const client = await pool.connect();
   let items = 0, entries = 0, cook = 0;
   try {
     await client.query('BEGIN');
-    for (const it of seed.items) {
-      const r = await client.query(
-        `INSERT INTO canteen_items (name,category,rate,sort_order,hidden) VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (name) DO NOTHING RETURNING id`, [it.name, it.category, it.rate || 0, it.sort_order || 0, !!it.hidden]);
-      items += r.rowCount;
-    }
-    const idOf = {};
-    (await client.query(`SELECT id, name FROM canteen_items`)).rows.forEach((r) => { idOf[r.name] = r.id; });
-    for (const [d, name, qty, amount] of seed.entries) {
-      if (!idOf[name]) continue;
-      const r = await client.query(
-        `INSERT INTO canteen_entries (entry_date,item_id,qty,amount,updated_by_name)
-         VALUES ($1,$2,$3,$4,'Imported from Canteen_MIS.xlsx') ON CONFLICT (entry_date,item_id) DO NOTHING`,
-        [d, idOf[name], qty, amount]);
-      entries += r.rowCount;
-    }
-    for (const [m, amt] of Object.entries(seed.cook || {})) {
-      const r = await client.query(`INSERT INTO canteen_cook_salary(month,amount) VALUES($1,$2) ON CONFLICT(month) DO NOTHING`, [m, amt]);
-      cook += r.rowCount;
-    }
+    const I = seed.items;
+    items = (await client.query(
+      `INSERT INTO canteen_items (name, category, rate, sort_order)
+       SELECT * FROM unnest($1::text[], $2::text[], $3::numeric[], $4::int[])
+       ON CONFLICT (name) DO NOTHING`,
+      [I.map((i) => i.name), I.map((i) => i.category), I.map((i) => i.rate || 0), I.map((i) => i.sort_order || 0)])).rowCount;
+    const E = seed.entries;
+    entries = (await client.query(
+      `INSERT INTO canteen_entries (entry_date, item_id, qty, amount, updated_by_name)
+       SELECT s.d::date, i.id, s.q, s.a, 'Imported from Canteen_MIS.xlsx'
+         FROM unnest($1::text[], $2::text[], $3::numeric[], $4::numeric[]) AS s(d, n, q, a)
+         JOIN canteen_items i ON i.name = s.n
+       ON CONFLICT (entry_date, item_id) DO NOTHING`,
+      [E.map((e) => e[0]), E.map((e) => e[1]), E.map((e) => e[2]), E.map((e) => e[3])])).rowCount;
+    const K = Object.entries(seed.cook || {});
+    if (K.length) cook = (await client.query(
+      `INSERT INTO canteen_cook_salary (month, amount)
+       SELECT * FROM unnest($1::text[], $2::numeric[]) ON CONFLICT (month) DO NOTHING`,
+      [K.map((k) => k[0]), K.map((k) => k[1])])).rowCount;
     await client.query('COMMIT');
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[canteen import]', e);
     return res.status(500).json({ error: 'Import failed: ' + e.message });
   } finally { client.release(); }
+  console.log(`[canteen import] items ${items}, entries ${entries}, cook ${cook} in ${Date.now() - t0} ms`);
   syncLog();
   res.json({ ok: true, items, entries, cook_months: cook });
 });
