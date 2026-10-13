@@ -61,6 +61,9 @@
     .banner.warn{background:#FDECEC;color:#9B1C1C}
     .status{font-size:.8rem;color:var(--ink-mute);min-height:1.1rem}
     /* print preview mirrors the A4 sheet */
+    .dayrow td{background:var(--mist);font-weight:700}
+    .dayrow a{color:var(--steel);text-decoration:none}
+    .dayrow a:hover{text-decoration:underline}
     .sheetwrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
     table.sheet{border-collapse:collapse;width:100%;min-width:620px;font-size:.78rem;font-variant-numeric:tabular-nums;color:#111}
     table.sheet td,table.sheet th{border:1px solid #333;padding:2px 6px;text-align:center;height:21px}
@@ -100,6 +103,7 @@
 
     <div class="tabs" role="tablist">
       <button class="tab" data-tab="entry" data-active="true">Daily entry</button>
+      <button class="tab" data-tab="saved">Entries</button>
       <button class="tab" data-tab="print">Print</button>
       <button class="tab" data-tab="summary">Summary</button>
       <button class="tab" data-tab="items">Items</button>
@@ -167,6 +171,17 @@
         <div id="rows"><div class="empty">Loading items…</div></div>
       </div>
       <p class="note" style="margin-top:10px">Type the quantity and the amount fills in from the item's last price. Change it if the bill differs. Each entry saves on its own when you move to the next box.</p>
+    </section>
+
+    <!-- SAVED ENTRIES (date-wise, read-only) -->
+    <section id="s-saved" hidden>
+      <div class="row" style="margin-bottom:12px">
+        <select id="eMonth" class="field" style="width:auto" aria-label="Month"></select>
+        <input type="text" id="eSearch" class="field grow" placeholder="Filter by item…" autocomplete="off">
+        <span class="note" id="eInfo"></span>
+      </div>
+      <div class="tablewrap" id="eTable"><div class="empty">Pick a month.</div></div>
+      <p class="note" style="margin-top:10px">Tap a date to open that day in Daily entry and correct it.</p>
     </section>
 
     <!-- PRINT -->
@@ -336,6 +351,49 @@
       catch(e){ setStatus(''); toast(e.message,'error'); updateMulti(); }
     };
 
+    /* ---------- saved entries, date-wise ---------- */
+    async function fillMonthSelect(sel){
+      const ms=await api('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
+      const keep=sel.value; sel.innerHTML='';
+      ms.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=mLabel(m); sel.append(o); });
+      sel.value=keep&&ms.includes(keep)?keep:cur;
+    }
+    let eData={};
+    async function loadSaved(){
+      const mk=$('#eMonth').value; if(!mk) return;
+      const y=+mk.slice(0,4), m=+mk.slice(5,7), last=new Date(y,m,0).getDate();
+      $('#eTable').innerHTML='<div class="empty">Loading…</div>';
+      eData=await api('/canteen/entries?from='+mk+'-01&to='+mk+'-'+pad(last));
+      if($('#eMonth').value===mk) renderSaved();
+    }
+    function renderSaved(){
+      const q=$('#eSearch').value.trim().toUpperCase();
+      const dates=Object.keys(eData).sort();
+      let h='<table class="dtable"><thead><tr><th>Date</th><th>Item</th><th class="num">Qty</th><th class="num">Amount (₹)</th></tr></thead><tbody>';
+      let n=0, tot=0, days=0;
+      dates.forEach(d=>{
+        const ids=Object.keys(eData[d]).filter(id=>!q||((items[id]&&items[id].name)||'').includes(q))
+          .sort((a,b)=>((items[a]||{}).sort_order||0)-((items[b]||{}).sort_order||0));
+        if(!ids.length) return;
+        const dt=new Date(d+'T00:00:00'); const dayTot=ids.reduce((s,id)=>s+(+eData[d][id][1]||0),0);
+        days++; n+=ids.length; tot+=dayTot;
+        h+='<tr class="dayrow"><td colspan="2"><a href="#" data-day="'+d+'">'+dt.getDate()+' '+MON[dt.getMonth()]+' '+dt.getFullYear()+' · '+DOW[dt.getDay()]+'</a> <span class="note">('+ids.length+' item'+(ids.length===1?'':'s')+')</span></td><td></td><td class="num">'+num(dayTot)+'</td></tr>';
+        ids.forEach(id=>{ const l=eData[d][id];
+          h+='<tr><td class="note">'+pad(dt.getDate())+'-'+pad(dt.getMonth()+1)+'-'+dt.getFullYear()+'</td><td>'+esc((items[id]&&items[id].name)||('Item #'+id))+'</td><td class="num">'+qn(l[0])+'</td><td class="num">'+num(l[1])+'</td></tr>'; });
+      });
+      if(!n) h+='<tr><td colspan="4" class="empty">'+(q?'No entries match “'+esc($('#eSearch').value)+'” this month.':'Nothing saved for this month yet.')+'</td></tr>';
+      else h+='<tr class="dayrow"><td colspan="2">Month total</td><td></td><td class="num">'+num(tot)+'</td></tr>';
+      $('#eTable').innerHTML=h+'</tbody></table>';
+      $('#eInfo').textContent=n?days+' day'+(days===1?'':'s')+' · '+n+' entr'+(n===1?'y':'ies')+' · '+fmt(tot):'';
+      document.querySelectorAll('[data-day]').forEach(a=>a.onclick=e=>{ e.preventDefault(); openDay(a.dataset.day); });
+    }
+    function openDay(d){
+      if(mode!=='one') setMode('one');
+      document.querySelector('.tabs .tab[data-tab="entry"]').click(); setDate(d); window.scrollTo(0,0);
+    }
+    $('#eMonth').addEventListener('change',()=>loadSaved().catch(e=>toast(e.message,'error')));
+    let eT; $('#eSearch').addEventListener('input',()=>{ clearTimeout(eT); eT=setTimeout(renderSaved,120); });
+
     /* ---------- print ---------- */
     async function fillMonths(){
       const ms=await api('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
@@ -414,7 +472,8 @@
     let tab='entry';
     document.querySelectorAll('.tabs .tab').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab;
       document.querySelectorAll('.tabs .tab').forEach(x=>x.dataset.active=String(x===b));
-      ['entry','print','summary','items'].forEach(s=>$('#s-'+s).hidden=s!==tab);
+      ['entry','saved','print','summary','items'].forEach(s=>$('#s-'+s).hidden=s!==tab);
+      if(tab==='saved') fillMonthSelect($('#eMonth')).then(loadSaved).catch(e=>toast(e.message,'error'));
       if(tab==='print') fillMonths().then(renderSheet).catch(e=>toast(e.message,'error'));
       else if(tab==='summary') renderSummary().catch(e=>toast(e.message,'error'));
       else if(tab==='items') renderItems();
