@@ -464,6 +464,52 @@ const graph = require('../lib/graph'); const cfg = await chain.getChain();
 });
 
 // Employees who have approved payments in a month (for the catch-up picker).
+// Per-employee OT detail report (per-day rows) — used by the Final Approvals "PDF" on an OT row.
+// Includes PENDING entries (mgmt_pending) so management can preview exactly what they are about to
+// approve, as well as mgmt_approved / paid. Works before final approval.
+async function buildOtEmployeePdf(empId, month) {
+  const { buildPaymentReportPDF } = require('../lib/payment_pdf');
+  const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
+  if (!emp) return null;
+  const rows = (await q(
+    `SELECT to_char(ot_date,'DD Mon YYYY') AS d, end_time, hours, amount, status
+     FROM ot_entries
+     WHERE employee_id=$1 AND status IN ('mgmt_pending','mgmt_approved','paid')
+       AND ot_date >= ($2||'-01')::date AND ot_date < (($2||'-01')::date + interval '1 month')
+     ORDER BY ot_date`, [empId, month])).rows;
+  if (!rows.length) return null;
+  const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+  const allApproved = rows.every(r => r.status === 'mgmt_approved' || r.status === 'paid');
+  const stLabel = { mgmt_pending: 'Pending', mgmt_approved: 'Approved', paid: 'Paid' };
+  const pdf = await buildPaymentReportPDF({
+    title: `Overtime — ${emp.name}`,
+    subtitle: `${emp.emp_no} · ${monthLabel(month)}${allApproved ? '' : ' · PREVIEW (awaiting approval)'}`,
+    approved: allApproved,
+    sections: [{ name: 'Overtime — day-wise', total,
+      cols: [{ label: 'Date', width: 0.3 }, { label: 'End time', width: 0.18 }, { label: 'Hours', width: 0.17, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }, { label: 'Status', width: 0.15 }],
+      rows: rows.map(r => [r.d, r.end_time || '\u2014', (+r.hours).toFixed(2), money(r.amount), stLabel[r.status] || r.status]) }],
+    grandTotal: total,
+  });
+  return { pdf, total, emp };
+}
+router.get('/ot-employee/:empId/:month', async (req, res) => {
+  try {
+    if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+    if (!/^\d{4}-\d{2}$/.test(req.params.month)) return res.status(400).send('Bad month');
+    let empId = +req.params.empId;
+    if (!empId) {
+      const no = String(req.params.empId).replace(/_/g, '/');
+      empId = (await q(`SELECT id FROM employees WHERE emp_no=$1 OR emp_no=$2 LIMIT 1`, [no, req.params.empId])).rows[0]?.id || 0;
+    }
+    if (!empId) return res.status(404).send('Employee not found.');
+    const r = await buildOtEmployeePdf(empId, req.params.month);
+    if (!r) return res.status(404).type('text/plain').send('No overtime entries for this employee in ' + req.params.month + '.');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="OT - ${r.emp.name.replace(/[^\w .-]/g, '')} - ${req.params.month}.pdf"`);
+    res.end(r.pdf);
+  } catch (e) { console.error('[ot-employee report]', e); res.status(500).send('Could not build the report: ' + e.message); }
+});
+
 // Preview an employee's consolidated report (breakdown + each claim/OT) before it's emailed.
 router.get('/employee-report/:empId/:month', async (req, res) => {
   try {
@@ -541,7 +587,7 @@ router.get('/month-items', async (req, res) => {
     const paid = !r.has_pending && !r.has_unpaid; // all final entries are 'paid'
     cats.ot.items.push({
       payee: r.name, emp_no: r.emp_no, amount: Number(r.amount || 0), state, paid,
-      report_url: `/api/final/employee-report/${r.emp_id}/${month}`,
+      report_url: `/api/final/ot-employee/${r.emp_id}/${month}`,
       approve: state === 'pending' ? { url: '/ot/mgmt-employee-approve', body: { emp_id: r.emp_id, month } } : null,
       paidToggle: state === 'approved' ? { url: '/ot/mgmt-employee-paid', body: { emp_id: r.emp_id, month, paid: !paid } } : null,
       reopen: (state === 'approved' && !paid) ? { url: '/ot/mgmt-employee-unapprove', body: { emp_id: r.emp_id, month } } : null,

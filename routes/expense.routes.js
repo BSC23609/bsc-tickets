@@ -596,10 +596,7 @@ router.post('/:id/hr-approve', async (req, res) => {
   await q(`UPDATE expense_submissions SET status='pending_final', hr_by_id=$2, hr_by_name=$3, hr_at=now(), final_approver_id=$4 WHERE id=$1`,
     [row.id, req.user.id, req.user.name, finalId]);
   res.json({ ok: true });
-  background((async () => {
-    const ap = await empById(finalId); const full = await loadRow(row.id);
-    if (ap && ap.phone) await wati.notify.expense.finalReview(ap, chainSummary(full));
-  })());
+  // WhatsApp ping to management for final approval is intentionally disabled (no final-approval notifications).
 });
 router.post('/:id/hr-return', async (req, res) => {
   if (!(await isHrApprover(req.user))) return res.status(403).json({ error: 'HR only' });
@@ -636,14 +633,10 @@ async function applyFinalApprove(row, byName) {
   background((async () => {
     const c = await chain.getChain();
     const full = await loadRow(row.id);
-    const pdf = await uploadChainPdf(full, 'approved', full.final_by_name || byName, fmtDateTime(new Date()));
-    const acctEmail = chain.accountsEmailFor(c, full.emp_code);
-    if (acctEmail) await graph.sendMail({
-      to: acctEmail,
-      subject: `Approved expense — ${full.emp_name} — ${FORM_LABEL[full.form_type]} ${full.period ? monthLabel(full.period) : ''} — ${fmtMoney(full.total_amount)}`,
-      html: emailHtml(`${FORM_LABEL[full.form_type]} — approved for payment`, full, ''),
-      attachments: [{ name: chainPdfName(full), contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
-    });
+    // Store the approved-stamped PDF (download link / audit). We no longer email accounts per claim:
+    // approved expenses reach accounts ONLY via the monthly CONSOLIDATED run
+    // (one email per company, one consolidated PDF per employee). See final.routes.js runMonthlyAccounts.
+    await uploadChainPdf(full, 'approved', full.final_by_name || byName, fmtDateTime(new Date()));
     if (c.accounts_notify_id) { const acc = await empById(c.accounts_notify_id); if (acc && acc.phone) await wati.notify.expense.paid(acc, chainSummary(full)); }
     if (c.cmd_notify_id) { const cmd = await empById(c.cmd_notify_id); if (cmd && cmd.phone) await wati.notify.expense.cmd(cmd, chainSummary(full), 'Approved for payment'); }
     if (CMD_TEST_PHONE) await wati.notify.expense.cmd({ name: 'Test', phone: CMD_TEST_PHONE }, chainSummary(full), 'Approved for payment');

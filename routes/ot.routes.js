@@ -418,13 +418,7 @@ router.post('/hr-generate', requireOtHr, async (req, res) => {
   await q(`UPDATE ot_entries SET status='mgmt_pending', batch_id=$2, updated_at=now() WHERE period=$1 AND status='hr_verified' AND batch_id IS NULL`,
     [period, batch.id]);
   res.json({ ok: true, batch_id: batch.id, entries: verified.length, employees: empCount, total });
-
-  background((async () => {
-    for (const mid of mgmtIds) {
-      const m = (await q(`SELECT id,name,phone FROM employees WHERE id=$1`, [mid])).rows[0];
-      if (m && m.phone) { try { await wati.notify.ot.mgmt(m, { period, employees: empCount, total }); } catch (e) { console.error('[ot mgmt notify]', e.message); } }
-    }
-  })());
+  // WhatsApp ping to management for final approval is intentionally disabled (no final-approval notifications).
 });
 
 // ---- Management (Goverdhan / Gourav / Shivam) ----

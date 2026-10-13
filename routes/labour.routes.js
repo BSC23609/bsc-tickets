@@ -296,13 +296,17 @@ router.get('/report-pdf/:company/:month/:part', async (req, res) => {
 // PDF version (consolidated, no dates) — per part ('ot' or 'shearing'), for the accounts email.
 async function buildReportPdf(company, month, part) {
   const { buildPaymentReportPDF } = require('../lib/payment_pdf');
+  // Reflect the real approval state so a pre-approval PREVIEW doesn't wrongly stamp "APPROVED".
+  const _lp = (await q(`SELECT ot_status, shearing_status FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0] || {};
+  const _isApproved = (part === 'shearing' ? _lp.shearing_status : _lp.ot_status) === 'approved';
+  const _note = _isApproved ? '' : ' \u00b7 PREVIEW (awaiting approval)';
   if (part === 'shearing') {
     const sh = (await q(`SELECT labour_name, COALESCE(SUM(days),0) AS days, COALESCE(SUM(amount),0) AS amount
                          FROM labour_shearing WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
     const total = sh.reduce((s, r) => s + Number(r.amount), 0);
     const pdf = await buildPaymentReportPDF({
       title: `Labour Shearing — ${LABOUR_CO[company].label}`,
-      subtitle: `${monthName(month)} · Shed B · consolidated monthly report`, approved: true,
+      subtitle: `${monthName(month)} · Shed B · consolidated monthly report${_note}`, approved: _isApproved,
       sections: [{ name: 'Shed B — Shearing', total, cols: [{ label: 'Name', width: 0.6 }, { label: 'Days', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
         rows: sh.map(r => [r.labour_name, (+r.days).toFixed(1), money(r.amount)]) }],
       grandTotal: total,
@@ -314,7 +318,7 @@ async function buildReportPdf(company, month, part) {
   const total = ot.reduce((s, r) => s + Number(r.amount), 0);
   const pdf = await buildPaymentReportPDF({
     title: `Labour Overtime — ${LABOUR_CO[company].label}`,
-    subtitle: `${monthName(month)} · consolidated monthly report`, approved: true,
+    subtitle: `${monthName(month)} · consolidated monthly report${_note}`, approved: _isApproved,
     sections: [{ name: 'Overtime', total, cols: [{ label: 'Name', width: 0.6 }, { label: 'Total hours', width: 0.2, align: 'right' }, { label: 'Amount', width: 0.2, align: 'right' }],
       rows: ot.map(r => [r.labour_name, (+r.hours).toFixed(2), money(r.amount)]) }],
     grandTotal: total,
