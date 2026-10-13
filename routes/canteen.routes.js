@@ -121,6 +121,52 @@ router.put('/entries', async (req, res) => {
   res.json({ ok: true, saved: dates.length * clean.length });
 });
 
+// ---- One saved entry: edit (qty / amount / date) or delete — used by the Entries tab ----
+// Changing the date moves the entry; if that item is already entered on the new date the two
+// are added together (two bills for the same item on one day), never silently overwritten.
+router.put('/entry', async (req, res) => {
+  const b = req.body || {};
+  const id = Number(b.item_id), qty = toNum(b.qty), amount = toNum(b.amount);
+  const newDate = b.new_date || b.date;
+  if (!C.isDate(b.date) || !C.isDate(newDate)) return res.status(400).json({ error: 'Pick a valid date' });
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Unknown item' });
+  if (qty == null || amount == null) return res.status(400).json({ error: 'Quantity and amount must be numbers of 0 or more' });
+  if (!qty && !amount) return res.status(400).json({ error: 'Quantity and amount are both 0. Use Delete to remove the entry.' });
+  const client = await pool.connect();
+  let merged = false;
+  try {
+    await client.query('BEGIN');
+    const old = (await client.query(`DELETE FROM canteen_entries WHERE entry_date=$1 AND item_id=$2 RETURNING 1`, [b.date, id])).rowCount;
+    if (!old) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'That entry no longer exists. Reload the list.' }); }
+    const r = await client.query(
+      `INSERT INTO canteen_entries (entry_date,item_id,qty,amount,updated_by,updated_by_name,updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,now())
+       ON CONFLICT (entry_date,item_id) DO UPDATE SET qty=canteen_entries.qty+EXCLUDED.qty,
+         amount=canteen_entries.amount+EXCLUDED.amount, updated_by=EXCLUDED.updated_by,
+         updated_by_name=EXCLUDED.updated_by_name, updated_at=now()
+       RETURNING (xmax <> 0) AS merged`, [newDate, id, qty, amount, req.user.id, req.user.name]);
+    merged = r.rows[0].merged;
+    if (qty > 0 && amount > 0) await client.query(`UPDATE canteen_items SET rate=$2 WHERE id=$1`, [id, Math.round(amount / qty * 100) / 100]);
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[canteen entry edit]', e.message);
+    return res.status(500).json({ error: 'Could not save the change. Nothing was changed.' });
+  } finally { client.release(); }
+  syncLog();
+  res.json({ ok: true, merged });
+});
+
+router.delete('/entry', async (req, res) => {
+  const d = req.query.date, id = Number(req.query.item_id);
+  if (!C.isDate(d) || !Number.isInteger(id)) return res.status(400).json({ error: 'Bad entry' });
+  const n = (await q(`DELETE FROM canteen_entries WHERE entry_date=$1 AND item_id=$2`, [d, id])).rowCount;
+  if (!n) return res.status(404).json({ error: 'That entry no longer exists. Reload the list.' });
+  console.log(`[canteen entry delete] ${req.user.name}: item ${id} on ${d}`);
+  syncLog();
+  res.json({ ok: true });
+});
+
 // ---- Items ----
 router.post('/items', async (req, res) => {
   const name = C.normName(req.body && req.body.name);
