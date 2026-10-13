@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Canteen Register — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" href="/favicon-32.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A0F16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="BSC Portal">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css?v=5">
+  <style>
+    body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
+    [hidden]{display:none!important}
+    .cw{max-width:880px;margin:0 auto;padding:0 16px 56px}
+    .tabs{display:flex;gap:1.4rem;border-bottom:1px solid var(--line);margin:.4rem 0 1rem;overflow-x:auto}
+    .tools{display:flex;flex-direction:column;gap:10px;padding:2px 0 12px}
+    @media (min-width:720px){.tools.sticky{position:sticky;top:61px;z-index:20;background:var(--canvas)}}
+    .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .seg{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px;align-self:flex-start;max-width:100%}
+    .seg button{border:0;background:none;border-radius:9px;padding:.5rem .9rem;font-weight:600;font-size:.88rem;color:var(--ink-mute);cursor:pointer}
+    .seg button[aria-pressed="true"]{background:linear-gradient(135deg,var(--steel-bright),var(--steel-deep));color:#fff}
+    .datenav{display:flex;align-items:center;gap:6px}
+    .datenav .btn-ghost{padding:.55rem .85rem}
+    .dayname{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:1.05rem}
+    .dayname span{display:block;font-family:'Inter',sans-serif;font-weight:500;font-size:.75rem;color:var(--ink-mute)}
+    .chips{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+    .chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:.3rem .8rem;font-size:.8rem;color:var(--ink-mute);font-variant-numeric:tabular-nums}
+    .chip b{color:var(--ink)}
+    .grow{flex:1 1 200px;min-width:0}
+    .list{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+    .lh,.it{display:grid;grid-template-columns:minmax(0,1fr) 84px 104px;gap:10px;align-items:center;padding:.5rem .8rem}
+    .lh{font-family:'Space Mono',monospace;font-size:.62rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);background:var(--mist);border-bottom:1px solid var(--line)}
+    .lh span:not(:first-child){text-align:right}
+    .it{border-bottom:1px solid #EEF3F7}
+    .it:last-child{border-bottom:0}
+    .it.filled{background:#EAF4FB}
+    .nm{font-weight:600;font-size:.88rem;overflow-wrap:anywhere}
+    .ct{font-size:.74rem;color:var(--ink-mute)}
+    .it input{width:100%;text-align:right;font-variant-numeric:tabular-nums;padding:.45rem .55rem;border:1px solid var(--line);border-radius:9px;font-size:.9rem;background:#fff}
+    .it input:focus{outline:none;border-color:var(--steel);box-shadow:0 0 0 3px rgba(27,123,192,.16)}
+    .sep{padding:.4rem .8rem;font-size:.68rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);background:var(--mist);border-bottom:1px solid var(--line)}
+    .empty{padding:28px 16px;text-align:center;color:var(--ink-mute)}
+    .note{font-size:.8rem;color:var(--ink-mute)}
+    .panel{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+    .fg{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.4fr) minmax(0,1fr) auto;gap:8px;align-items:end}
+    .mg{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,2fr);gap:10px;align-items:end}
+    @media (max-width:640px){.fg{grid-template-columns:1fr 1fr}.fg .full{grid-column:1/-1}.mg{grid-template-columns:1fr 1fr}.mg .dw{grid-column:1/-1}}
+    .dows{display:flex;flex-wrap:wrap;gap:4px}
+    .dows label{display:flex;align-items:center;gap:4px;border:1px solid var(--line);border-radius:8px;padding:.35rem .5rem;font-size:.8rem;font-weight:600;cursor:pointer;background:#fff}
+    .dows label:has(input:checked){background:#EAF4FB;border-color:var(--steel)}
+    .savebar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:#EAF4FB;border:1px solid var(--steel-bright);border-radius:14px;padding:.6rem .8rem;font-size:.88rem;font-weight:600}
+    .banner{border-radius:12px;padding:.7rem .9rem;font-size:.86rem;background:#EAF4FB;color:var(--steel-deep)}
+    .banner.warn{background:#FDECEC;color:#9B1C1C}
+    .status{font-size:.8rem;color:var(--ink-mute);min-height:1.1rem}
+    /* print preview mirrors the A4 sheet */
+    .sheetwrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+    table.sheet{border-collapse:collapse;width:100%;min-width:620px;font-size:.78rem;font-variant-numeric:tabular-nums;color:#111}
+    table.sheet td,table.sheet th{border:1px solid #333;padding:2px 6px;text-align:center;height:21px}
+    table.sheet .l{text-align:left}
+    table.sheet .gap{border-top:0;border-bottom:0;width:8px;padding:0}
+    table.sheet .title{font-size:.95rem;font-weight:700;border:2px solid #111}
+    table.sheet tr.foot td{font-weight:700;border-left:0;border-right:0}
+    table.sheet .tot{border:1px dashed #333!important}
+    table.sheet .gt{border:2px solid #111!important;font-size:.9rem}
+    table.grid{border-collapse:collapse;width:100%;font-size:.82rem;font-variant-numeric:tabular-nums}
+    table.grid th,table.grid td{padding:.45rem .6rem;border-bottom:1px solid #EEF3F7;text-align:right;white-space:nowrap}
+    table.grid th:first-child,table.grid td:first-child{text-align:left;position:sticky;left:0;background:#fff}
+    table.grid thead th{font-family:'Space Mono',monospace;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);background:var(--mist)}
+    table.grid thead th:first-child{background:var(--mist)}
+    table.grid tr.total td{font-weight:700;border-top:2px solid var(--ink)}
+    table.grid input{width:84px;text-align:right;padding:.25rem .4rem;border:1px solid var(--line);border-radius:7px}
+    table.items td{text-align:left}
+    table.items select{max-width:190px;border:1px solid var(--line);border-radius:7px;padding:.25rem .3rem;background:#fff}
+    @media (max-width:520px){.lh,.it{grid-template-columns:minmax(0,1fr) 64px 84px;gap:8px;padding:.5rem .6rem}.chips{margin-left:0}}
+  </style>
+</head>
+<body class="min-h-screen">
+  <header class="deckbar">
+    <div class="max-w-5xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <span id="who" class="deck-who hidden sm:inline"></span>
+      <button onclick="logout()" class="deck-out">Sign out</button>
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="cw" style="padding-top:22px">
+    <div class="eyebrow">Perumal Supermarket</div>
+    <h1 class="font-display text-2xl font-bold" style="margin:.1rem 0 0">Canteen Register</h1>
+
+    <div class="tabs" role="tablist">
+      <button class="tab" data-tab="entry" data-active="true">Daily entry</button>
+      <button class="tab" data-tab="print">Print</button>
+      <button class="tab" data-tab="summary">Summary</button>
+      <button class="tab" data-tab="items">Items</button>
+    </div>
+
+    <div id="banner" class="banner" style="margin-bottom:12px" hidden></div>
+    <div id="importBox" class="panel" style="margin-bottom:12px" hidden>
+      <b>Bring in the old Excel history</b>
+      <span class="note">Loads January–September 2026 from Canteen_MIS.xlsx (205 items, cook salary included). Only admins see this, and it runs once.</span>
+      <div><button class="btn" id="importBtn">Import Jan–Sep 2026</button></div>
+    </div>
+
+    <!-- DAILY ENTRY -->
+    <section id="s-entry">
+      <div class="tools sticky">
+        <div class="seg" role="group" aria-label="Entry mode">
+          <button id="modeOne" aria-pressed="true">One day</button>
+          <button id="modeMulti" aria-pressed="false">Several days at once</button>
+        </div>
+        <div class="panel" id="multiPanel" hidden>
+          <div class="mg">
+            <div><label class="fieldlabel" for="mFrom">From</label><input type="date" id="mFrom" class="field"></div>
+            <div><label class="fieldlabel" for="mTo">To</label><input type="date" id="mTo" class="field"></div>
+            <div class="dw"><span class="fieldlabel">Days</span><div class="dows" id="mDows"></div></div>
+          </div>
+          <div class="note" id="mInfo"></div>
+        </div>
+        <div class="row" id="oneRow">
+          <div class="datenav">
+            <button class="btn-ghost" id="prevDay" aria-label="Previous day">‹</button>
+            <input type="date" id="date" class="field" style="width:auto" aria-label="Date">
+            <button class="btn-ghost" id="nextDay" aria-label="Next day">›</button>
+          </div>
+          <div class="dayname" id="dayname"></div>
+          <div class="chips">
+            <span class="chip">Day <b id="dayTotal">₹0</b></span>
+            <span class="chip">Month <b id="monthTotal">₹0</b></span>
+          </div>
+        </div>
+        <div class="savebar" id="multiBar" hidden>
+          <span id="mSummary">Type the items below, then save.</span>
+          <span class="row" style="margin-left:auto">
+            <button class="btn-ghost" id="mClear">Clear</button>
+            <button class="btn" id="mSave" disabled>Save</button>
+          </span>
+        </div>
+        <div class="row">
+          <input type="text" id="search" class="field grow" placeholder="Search item… (e.g. milk, harpic)" autocomplete="off">
+          <button class="btn-ghost" id="copyPrev" title="Copy the items from the last day that has entries">Copy last day</button>
+          <button class="btn-ghost" id="toggleNew">+ New item</button>
+        </div>
+        <div class="panel" id="newPanel" hidden>
+          <b>Add a new item</b>
+          <div class="fg">
+            <div class="full"><label class="fieldlabel" for="niName">Item name</label><input type="text" id="niName" class="field" placeholder="e.g. SUNFEAST MARIE"></div>
+            <div><label class="fieldlabel" for="niCat">Category</label><select id="niCat" class="field"></select></div>
+            <div><label class="fieldlabel" for="niRate">Rate per unit (₹)</label><input type="number" id="niRate" class="field" inputmode="decimal" min="0" step="any" placeholder="optional"></div>
+            <button class="btn" id="niAdd">Add item</button>
+          </div>
+        </div>
+        <div class="status" id="status" aria-live="polite"></div>
+      </div>
+      <div class="list">
+        <div class="lh"><span>Item</span><span>Qty</span><span>Amount ₹</span></div>
+        <div id="rows"><div class="empty">Loading items…</div></div>
+      </div>
+      <p class="note" style="margin-top:10px">Type the quantity and the amount fills in from the item's last price. Change it if the bill differs. Each entry saves on its own when you move to the next box.</p>
+    </section>
+
+    <!-- PRINT -->
+    <section id="s-print" hidden>
+      <div class="row" style="margin-bottom:12px">
+        <select id="pMonth" class="field" style="width:auto" aria-label="Month to print"></select>
+        <button class="btn" id="pdfBtn">Open PDF to print</button>
+        <button class="btn-ghost" id="xlsBtn">Download Excel log</button>
+        <span class="note" id="pInfo"></span>
+      </div>
+      <div class="sheetwrap"><div id="sheet"><div class="empty">Pick a month.</div></div></div>
+    </section>
+
+    <!-- SUMMARY -->
+    <section id="s-summary" hidden>
+      <div class="row" style="margin-bottom:6px"><div class="sechead" style="flex:1;margin:0;border:0;padding:0"><span class="t">Spend by category</span></div><select id="sYear" class="field" style="width:auto"></select></div>
+      <p class="note" style="margin:0 0 10px">Cook salary is typed in here once a month. Everything else adds up from the daily entries.</p>
+      <div class="tablewrap" id="summary"></div>
+    </section>
+
+    <!-- ITEMS -->
+    <section id="s-items" hidden>
+      <div class="row" style="margin-bottom:6px"><div class="sechead" style="flex:1;margin:0;border:0;padding:0"><span class="t">Item list</span></div><input type="text" id="iSearch" class="field" placeholder="Search…" style="max-width:240px"></div>
+      <p class="note" style="margin:0 0 10px">Change a category or price here. Hidden items stay in old months and reports but drop out of the daily list.</p>
+      <div class="tablewrap" id="itemsTable"></div>
+    </section>
+  </main>
+
+  <script src="/js/common.js?v=89"></script>
+  <script>
+  (function(){
+    const $=s=>document.querySelector(s);
+    const MON=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const pad=n=>String(n).padStart(2,'0');
+    const dk=dt=>dt.getFullYear()+'-'+pad(dt.getMonth()+1)+'-'+pad(dt.getDate());
+    const fmt=n=>'₹'+Math.round(n||0).toLocaleString('en-IN');
+    const num=n=>Math.round(n||0).toLocaleString('en-IN');
+    const qn=n=>{const v=Number(n||0);return Number.isInteger(v)?v.toLocaleString('en-IN'):v.toLocaleString('en-IN',{maximumFractionDigits:3});};
+    const mLabel=mk=>MON[+mk.slice(5,7)-1]+' '+mk.slice(0,4);
+    const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    let items={}, cats=[], isAdmin=false;
+    let curDate=dk(new Date()), dayLines={}, rowOrder=[];
+    let mode='one', draft={}, rangeLines={};
+    let chain=Promise.resolve();
+    function queue(fn){ chain=chain.then(fn).catch(e=>{ setStatus(''); toast(e.message||'Could not save','error'); }); return chain; }
+    let stT; function setStatus(t){ const el=$('#status'); el.textContent=t; clearTimeout(stT); if(t==='All changes saved') stT=setTimeout(()=>el.textContent='',2500); }
+    function banner(t,warn){ const b=$('#banner'); if(!t){b.hidden=true;return;} b.textContent=t; b.className='banner'+(warn?' warn':''); b.hidden=false; }
+
+    /* ---------- one day ---------- */
+    async function loadDay(){
+      const d=curDate;
+      const [ent,tot]=await Promise.all([api('/canteen/entries?from='+d+'&to='+d), api('/canteen/totals?date='+d)]);
+      if(d!==curDate) return;
+      dayLines=ent[d]||{}; showTotals(tot); renderRows();
+    }
+    function showTotals(t){ $('#dayTotal').textContent=fmt(t.day); $('#monthTotal').textContent=fmt(t.month); }
+    async function refreshTotals(){ showTotals(await api('/canteen/totals?date='+curDate)); }
+    function setDate(d){ curDate=d; $('#date').value=d; const dt=new Date(d+'T00:00:00');
+      const s=document.createElement('span'); s.textContent=DOW[dt.getDay()];
+      $('#dayname').replaceChildren(dt.getDate()+' '+MON[dt.getMonth()]+' '+dt.getFullYear(), s);
+      $('#rows').innerHTML='<div class="empty">Loading…</div>'; loadDay().catch(e=>banner(e.message,true)); }
+    function shift(n){ const dt=new Date(curDate+'T00:00:00'); dt.setDate(dt.getDate()+n); setDate(dk(dt)); }
+
+    function renderRows(){
+      const box=$('#rows'); const ids=Object.keys(items);
+      if(!ids.length){ box.innerHTML='<div class="empty">No items yet. Use “+ New item” to add the first one.</div>'; rowOrder=[]; return; }
+      const q=$('#search').value.trim().toUpperCase();
+      const lines=mode==='multi'?draft:dayLines;
+      const list=ids.filter(id=>{const it=items[id]; if(q) return it.name.includes(q)||(it.category||'').includes(q); return !it.hidden||lines[id];});
+      const filled=list.filter(id=>lines[id]).sort((a,b)=>items[a].sort_order-items[b].sort_order);
+      const rest=list.filter(id=>!lines[id]).sort((a,b)=>(items[b].uses||0)-(items[a].uses||0)||items[a].name.localeCompare(items[b].name));
+      rowOrder=filled.concat(rest);
+      const frag=document.createDocumentFragment();
+      const sep=t=>{const d=document.createElement('div');d.className='sep';d.textContent=t;frag.append(d);};
+      if(filled.length&&!q) sep((mode==='multi'?'In this entry (':'Entered for this day (')+filled.length+')');
+      const mk=id=>{
+        const it=items[id], l=lines[id];
+        const row=document.createElement('div'); row.className='it'+(l?' filled':''); row.dataset.id=id;
+        const nm=document.createElement('div');
+        const n=document.createElement('div'); n.className='nm'; n.textContent=it.name;
+        const c=document.createElement('div'); c.className='ct'; c.textContent=it.category+(it.rate?' · ₹'+it.rate+' each':''); nm.append(n,c);
+        const qi=document.createElement('input'), ai=document.createElement('input');
+        [qi,ai].forEach(x=>{x.type='number';x.inputMode='decimal';x.min='0';x.step='any';});
+        qi.id='q-'+id; ai.id='a-'+id; qi.setAttribute('aria-label','Quantity of '+it.name); ai.setAttribute('aria-label','Amount for '+it.name);
+        if(l){ qi.value=l[0]||''; ai.value=l[1]||''; }
+        qi.addEventListener('input',()=>{ const r=items[id].rate; if(r&&(ai.dataset.auto==='1'||ai.value==='')){ const v=+qi.value||0; ai.value=v?Math.round(v*r*100)/100:''; ai.dataset.auto='1'; } });
+        ai.addEventListener('input',()=>{ ai.dataset.auto='0'; });
+        const commit=()=>{
+          const qv=+qi.value||0, av=+ai.value||0;
+          if(mode==='multi'){ if(qv||av) draft[id]=[qv,av]; else delete draft[id]; row.classList.toggle('filled',!!(qv||av)); updateMulti(); return; }
+          const old=dayLines[id]||[0,0]; if(qv===(+old[0]||0)&&av===(+old[1]||0)) return;
+          const d=curDate; if(qv||av) dayLines[id]=[qv,av]; else delete dayLines[id];
+          row.classList.toggle('filled',!!(qv||av)); setStatus('Saving…');
+          queue(async()=>{ await api('/canteen/entries',{method:'PUT',body:{dates:[d],lines:[{item_id:+id,qty:qv,amount:av}]}});
+            if(qv>0&&av>0) items[id].rate=Math.round(av/qv*100)/100;
+            setStatus('All changes saved'); if(d===curDate) await refreshTotals(); });
+        };
+        qi.addEventListener('change',commit); ai.addEventListener('change',commit);
+        [qi,ai].forEach(el=>el.addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); el.blur(); const nx=el===qi?ai:(row.nextElementSibling&&row.nextElementSibling.querySelector('input')); if(nx) nx.focus(); } }));
+        row.append(nm,qi,ai); frag.append(row);
+      };
+      filled.forEach(mk);
+      if(filled.length&&!q&&rest.length) sep('All items · most used first');
+      rest.forEach(mk);
+      if(!rowOrder.length){ const d=document.createElement('div'); d.className='empty'; d.textContent='No item matches “'+$('#search').value+'”. Add it with “+ New item”.'; frag.append(d); }
+      box.replaceChildren(frag);
+    }
+
+    $('#date').addEventListener('change',e=>{ if(e.target.value) setDate(e.target.value); });
+    $('#prevDay').onclick=()=>shift(-1); $('#nextDay').onclick=()=>shift(1);
+    let sT; $('#search').addEventListener('input',()=>{ clearTimeout(sT); sT=setTimeout(renderRows,120); });
+    $('#toggleNew').onclick=()=>{ const p=$('#newPanel'); p.hidden=!p.hidden; if(!p.hidden){ $('#niName').value=$('#search').value; $('#niName').focus(); } };
+    $('#copyPrev').onclick=async()=>{
+      try{
+        const r=await api('/canteen/last-day?before='+curDate);
+        if(!r.date) return toast('No earlier day with entries in the last month');
+        const lines=Object.entries(r.lines).filter(([id])=>!dayLines[id]&&items[id]).map(([id,l])=>({item_id:+id,qty:l[0],amount:l[1]}));
+        const when=(+r.date.slice(8))+' '+MON[+r.date.slice(5,7)-1];
+        if(!lines.length) return toast('Everything from '+when+' is already here');
+        setStatus('Saving…');
+        await api('/canteen/entries',{method:'PUT',body:{dates:[curDate],lines}});
+        setStatus('All changes saved'); toast('Copied '+lines.length+' items from '+when+'. Change any that differ.','success');
+        loadDay();
+      }catch(e){ toast(e.message,'error'); }
+    };
+    $('#niAdd').onclick=async()=>{
+      const name=$('#niName').value.trim(); if(!name) return toast('Type the item name first','error');
+      try{
+        const r=await api('/canteen/items',{method:'POST',body:{name,category:$('#niCat').value,rate:$('#niRate').value}});
+        await loadBoot(); $('#niName').value=''; $('#niRate').value=''; $('#newPanel').hidden=true;
+        $('#search').value=items[r.id]?items[r.id].name:name; renderRows();
+        toast(r.existed?'That item was already in the list':'Item added','success');
+        const qi=document.getElementById('q-'+r.id); if(qi) qi.focus();
+      }catch(e){ toast(e.message,'error'); }
+    };
+
+    /* ---------- several days at once ---------- */
+    (function(){ const box=$('#mDows'); ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d,i)=>{ const l=document.createElement('label'); const c=document.createElement('input'); c.type='checkbox'; c.id='dow-'+i; c.checked=i<6; c.addEventListener('change',updateMulti); l.append(c,d); box.append(l); }); })();
+    function rangeDays(){ const f=$('#mFrom').value, t=$('#mTo').value; if(!f||!t||t<f) return []; const out=[]; const dt=new Date(f+'T00:00:00');
+      for(let i=0;i<62;i++){ const k=dk(dt); if(k>t) break; if(document.getElementById('dow-'+((dt.getDay()+6)%7)).checked) out.push(k); dt.setDate(dt.getDate()+1); } return out; }
+    let rT; function loadRange(){ clearTimeout(rT); rT=setTimeout(async()=>{ const f=$('#mFrom').value,t=$('#mTo').value; if(!f||!t||t<f){rangeLines={};return updateMulti();} try{ rangeLines=await api('/canteen/entries?from='+f+'&to='+t); }catch(e){ rangeLines={}; } updateMulti(); },200); }
+    function updateMulti(){
+      if(mode!=='multi') return; const days=rangeDays(), ids=Object.keys(draft);
+      const per=ids.reduce((s,id)=>s+(+draft[id][1]||0),0);
+      let clash=0; days.forEach(d=>{ const l=rangeLines[d]||{}; ids.forEach(id=>{ if(l[id]) clash++; }); });
+      $('#mInfo').textContent=days.length?days.length+' day'+(days.length>1?'s':'')+': '+days.map(d=>(+d.slice(8))+' '+MON[+d.slice(5,7)-1].charAt(0)+MON[+d.slice(5,7)-1].slice(1).toLowerCase()).join(', '):'Pick the From and To dates (up to 2 months) and the days of the week.';
+      $('#mSummary').textContent=ids.length?ids.length+' item'+(ids.length>1?'s':'')+' · '+fmt(per)+' per day × '+days.length+' days = '+fmt(per*days.length)+(clash?' · replaces '+clash+' existing entr'+(clash>1?'ies':'y'):''):'Type the items below, then save.';
+      const b=$('#mSave'); b.disabled=!ids.length||!days.length; b.textContent=days.length?'Save to '+days.length+' day'+(days.length>1?'s':''):'Save';
+    }
+    function setMode(m){ mode=m; $('#modeOne').setAttribute('aria-pressed',m==='one'); $('#modeMulti').setAttribute('aria-pressed',m==='multi');
+      $('#multiPanel').hidden=$('#multiBar').hidden=m!=='multi'; $('#oneRow').hidden=m==='multi'; $('#copyPrev').hidden=m==='multi';
+      if(m==='multi'&&!$('#mFrom').value){ const dt=new Date(curDate+'T00:00:00'); dt.setDate(dt.getDate()-6); $('#mFrom').value=dk(dt); $('#mTo').value=curDate; }
+      if(m==='multi') loadRange(); else loadDay();
+      renderRows(); updateMulti(); }
+    $('#modeOne').onclick=()=>setMode('one'); $('#modeMulti').onclick=()=>setMode('multi');
+    ['#mFrom','#mTo'].forEach(s=>$(s).addEventListener('change',loadRange));
+    $('#mClear').onclick=()=>{ draft={}; renderRows(); updateMulti(); };
+    $('#mSave').onclick=async()=>{
+      const days=rangeDays(), lines=Object.entries(draft).map(([id,l])=>({item_id:+id,qty:l[0],amount:l[1]}));
+      if(!days.length||!lines.length) return;
+      const b=$('#mSave'); b.disabled=true; setStatus('Saving…');
+      try{ await api('/canteen/entries',{method:'PUT',body:{dates:days,lines}});
+        setStatus('All changes saved'); toast('Saved '+lines.length+' item'+(lines.length>1?'s':'')+' to '+days.length+' days','success');
+        draft={}; renderRows(); loadRange(); }
+      catch(e){ setStatus(''); toast(e.message,'error'); updateMulti(); }
+    };
+
+    /* ---------- print ---------- */
+    async function fillMonths(){
+      const ms=await api('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
+      const s=$('#pMonth'), keep=s.value; s.innerHTML='';
+      ms.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=mLabel(m); s.append(o); });
+      const prev=(()=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return dk(d).slice(0,7);})();
+      s.value=keep&&ms.includes(keep)?keep:(new Date().getDate()<=10&&ms.includes(prev)?prev:cur);
+    }
+    async function renderSheet(){
+      const mk=$('#pMonth').value; if(!mk) return;
+      const M=await api('/canteen/print?month='+mk); const half=Math.ceil(M.rows.length/2);
+      $('#pInfo').textContent=M.rows.length+' items · '+fmt(M.total)+(M.rows.length>86?' · rows shrink a little so everything fits on one page':'');
+      let h='<table class="sheet"><tr><td class="title" colspan="9">'+esc(M.store)+' &nbsp;·&nbsp; '+esc(M.label)+'</td></tr>'+
+        '<tr><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th><td class="gap"></td><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th></tr>';
+      const shown=Math.max(half,Math.min(43,half+2));
+      for(let i=0;i<shown;i++){ const L=i<half?M.rows[i]:null, R=M.rows[half+i];
+        h+='<tr><td>'+(L?i+1:'')+'</td><td class="l">'+(L?esc(L.name):'')+'</td><td>'+(L?qn(L.qty):'')+'</td><td>'+(L?num(L.amount):'')+'</td><td class="gap"></td>'+
+           '<td>'+(R?half+i+1:'')+'</td><td class="l">'+(R?esc(R.name):'')+'</td><td>'+(R?qn(R.qty):'')+'</td><td>'+(R?num(R.amount):'')+'</td></tr>'; }
+      M.footer.forEach((f,i)=>{ h+='<tr class="foot"><td colspan="2">'+(f?f.label:'')+'</td><td colspan="2"'+(f?' class="tot"':'')+'>'+(f?num(f.total):'')+'</td><td class="gap"></td>';
+        if(i===0) h+='<td colspan="4"></td>';
+        if(i===1) h+='<td colspan="2" rowspan="2" class="gt">Grand Total</td><td colspan="2" rowspan="2" class="gt">'+num(M.total)+'</td>';
+        h+='</tr>'; });
+      $('#sheet').innerHTML=h+'</table>';
+    }
+    async function openBlob(path,filename){
+      const tok=bscToken(); const r=await fetch('/api'+path,{headers:tok?{Authorization:'Bearer '+tok}:{},credentials:'same-origin'});
+      if(!r.ok) throw new Error('Could not build the file');
+      const url=URL.createObjectURL(await r.blob()); const a=document.createElement('a'); a.href=url;
+      if(filename) a.download=filename; else a.target='_blank';
+      document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),60000);
+    }
+    $('#pMonth').addEventListener('change',()=>renderSheet().catch(e=>toast(e.message,'error')));
+    $('#pdfBtn').onclick=()=>openBlob('/canteen/print.pdf?month='+$('#pMonth').value).catch(e=>toast(e.message,'error'));
+    $('#xlsBtn').onclick=()=>openBlob('/canteen/log.xlsx','Canteen Log.xlsx').catch(e=>toast(e.message,'error'));
+
+    /* ---------- summary ---------- */
+    async function renderSummary(){
+      const ys=$('#sYear'); const S=await api('/canteen/summary'+(ys.value?'?year='+ys.value:''));
+      const years=S.years.length?S.years:[String(S.year)]; if(!years.includes(String(S.year))) years.unshift(String(S.year));
+      ys.innerHTML=''; years.forEach(y=>{const o=document.createElement('option');o.value=o.textContent=y;ys.append(o);}); ys.value=String(S.year);
+      const colTot=Array(12).fill(0);
+      let h='<table class="grid"><thead><tr><th>Category</th>'+MON.map(m=>'<th>'+m+'</th>').join('')+'<th>Year</th></tr></thead><tbody>';
+      S.categories.forEach(c=>{ let s=0; h+='<tr><td>'+esc(c.name)+'</td>'+c.values.map((v,i)=>{s+=v;colTot[i]+=v;return '<td>'+(v?num(v):'–')+'</td>';}).join('')+'<td>'+num(s)+'</td></tr>'; });
+      let cs=0; h+='<tr><td>COOK SALARY</td>'+S.cook.map((v,i)=>{cs+=v;colTot[i]+=v;const mk=S.year+'-'+pad(i+1);return '<td><input type="number" inputmode="decimal" data-cook="'+mk+'" value="'+(v||'')+'"></td>';}).join('')+'<td>'+num(cs)+'</td></tr>';
+      h+='<tr class="total"><td>TOTAL</td>'+colTot.map(v=>'<td>'+(v?num(v):'–')+'</td>').join('')+'<td>'+num(colTot.reduce((a,b)=>a+b,0))+'</td></tr></tbody></table>';
+      $('#summary').innerHTML=h;
+      document.querySelectorAll('[data-cook]').forEach(inp=>inp.addEventListener('change',async()=>{
+        try{ await api('/canteen/cook/'+inp.dataset.cook,{method:'PUT',body:{amount:+inp.value||0}}); toast('Cook salary saved','success'); renderSummary(); }
+        catch(e){ toast(e.message,'error'); } }));
+    }
+    $('#sYear').addEventListener('change',()=>renderSummary().catch(e=>toast(e.message,'error')));
+
+    /* ---------- items ---------- */
+    function renderItems(){
+      const q=$('#iSearch').value.trim().toUpperCase();
+      const ids=Object.keys(items).filter(id=>!q||items[id].name.includes(q)).sort((a,b)=>items[a].name.localeCompare(items[b].name));
+      const t=document.createElement('table'); t.className='grid items';
+      t.innerHTML='<thead><tr><th>Item</th><th>Category</th><th>Rate ₹</th><th>In daily list</th></tr></thead>';
+      const tb=document.createElement('tbody');
+      const save=async(id,body,msg)=>{ try{ await api('/canteen/items/'+id,{method:'PUT',body}); Object.assign(items[id],body); if(msg) toast(msg,'success'); }catch(e){ toast(e.message,'error'); } };
+      ids.forEach(id=>{ const it=items[id]; const r=document.createElement('tr');
+        const n=document.createElement('td'); n.textContent=it.name;
+        const c=document.createElement('td'); const s=document.createElement('select'); s.id='cat-'+id;
+        [...new Set([...cats,it.category])].forEach(x=>{const o=document.createElement('option');o.value=o.textContent=x;s.append(o);}); s.value=it.category;
+        s.onchange=()=>save(id,{category:s.value},'Category saved'); c.append(s);
+        const rt=document.createElement('td'); const ri=document.createElement('input'); ri.type='number'; ri.id='rate-'+id; ri.value=it.rate||'';
+        ri.onchange=()=>save(id,{rate:+ri.value||0},'Rate saved'); rt.append(ri);
+        const h=document.createElement('td'); const cb=document.createElement('input'); cb.type='checkbox'; cb.id='vis-'+id; cb.checked=!it.hidden;
+        cb.onchange=()=>save(id,{hidden:!cb.checked}); h.append(cb);
+        r.append(n,c,rt,h); tb.append(r); });
+      t.append(tb); $('#itemsTable').replaceChildren(t);
+    }
+    let iT; $('#iSearch').addEventListener('input',()=>{ clearTimeout(iT); iT=setTimeout(renderItems,120); });
+
+    /* ---------- tabs + boot ---------- */
+    let tab='entry';
+    document.querySelectorAll('.tabs .tab').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab;
+      document.querySelectorAll('.tabs .tab').forEach(x=>x.dataset.active=String(x===b));
+      ['entry','print','summary','items'].forEach(s=>$('#s-'+s).hidden=s!==tab);
+      if(tab==='print') fillMonths().then(renderSheet).catch(e=>toast(e.message,'error'));
+      else if(tab==='summary') renderSummary().catch(e=>toast(e.message,'error'));
+      else if(tab==='items') renderItems();
+      else if(mode==='one') loadDay(); });
+
+    async function loadBoot(){
+      const b=await api('/canteen/bootstrap');
+      items={}; b.items.forEach(i=>{ items[i.id]=i; }); cats=b.categories; isAdmin=b.is_admin;
+      const s=$('#niCat'), keep=s.value; s.innerHTML=''; cats.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;s.append(o);}); if(keep) s.value=keep;
+      $('#importBox').hidden=!(isAdmin&&!b.has_data);
+      return b;
+    }
+    $('#importBtn').onclick=async()=>{
+      const btn=$('#importBtn'); btn.disabled=true; btn.textContent='Importing…';
+      try{ const r=await api('/canteen/import-seed',{method:'POST'}); toast('Imported '+r.items+' items and '+r.entries+' entries','success'); await loadBoot(); loadDay(); }
+      catch(e){ toast(e.message,'error'); btn.disabled=false; btn.textContent='Import Jan–Sep 2026'; }
+    };
+    window.logout=async()=>{ await api('/logout',{method:'POST'}); location.href='/'; };
+
+    (async()=>{
+      try{
+        const me=await api('/me'); $('#who').textContent=me.name+' · '+me.emp_no;
+        if(!(me.apps&&me.apps.canteen)){ banner('You do not have access to the Canteen Register. Ask an admin to grant it under Admin → Employees → App access.',true); $('#rows').innerHTML=''; return; }
+        await loadBoot(); setDate(curDate);
+      }catch(e){ banner(e.message,true); }
+    })();
+  })();
+  </script>
+</body>
+</html>

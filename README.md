@@ -106,3 +106,22 @@ available only after the cooling time elapses. L3 slots are blank for you to fil
 `open → in_progress → resolved → closed` (plus `reopened`). Handler marks **Resolved** →
 requester gets WhatsApp → requester **Confirms** (→ closed) or **Reopens** (→ in progress).
 No response in 48 h → auto-closed by the daily cron. Downtime = raised → closed.
+
+---
+
+## Canteen Register (restricted app `canteen`)
+
+Daily canteen/pantry purchases (Perumal Supermarket bills) replace the old `Canteen_MIS.xlsx`.
+Page: `/canteen.html` (tile **Canteen Register** under Operations, shown only to people granted it).
+
+- **Access**: Admin → Employees → edit a person → *App access* → tick **Canteen Register**. Admins always see it.
+- **Entry**: one day at a time, or *Several days at once* (date range + weekdays, same items saved to every day).
+  Typing a quantity pre-fills the amount from the item's last price. Each entry saves on its own.
+- **Print**: pick a month → *Open PDF to print* (A4, same layout as the old Excel "Print" sheet).
+- **Summary**: category × month for the year, with cook salary typed in per month.
+- **OneDrive**: every change rebuilds `Canteen/Canteen Log.xlsx` on the `GRAPH_DRIVE_USER` drive (hr@) — a
+  read-only, formatted copy (Entries, Monthly Summary, Item Totals, Items). The daily cron re-syncs it as a
+  safety net. Edits made directly in that Excel are overwritten; enter everything in the app.
+- **History import**: on first open, an admin sees *Import Jan–Sep 2026* (loads `db/canteen_seed.json`
+  from the old workbook). Safe to press twice. Tables: `canteen_items`, `canteen_entries`,
+  `canteen_categories`, `canteen_cook_salary` (created automatically on deploy).

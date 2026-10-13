@@ -591,3 +591,44 @@ ALTER TABLE labour_shearing ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
 
 -- Outpass/gatepass: Keka permission-proof screenshot (required when NOT on-duty). Stored as a data URL.
 ALTER TABLE outpass_requests ADD COLUMN IF NOT EXISTS keka_proof TEXT;
+
+-- ============================================================
+-- Canteen register (restricted app 'canteen'). Daily canteen/pantry purchases
+-- (Perumal Supermarket bills): one row per date + item. Monthly print, category
+-- summary and a "Canteen Log.xlsx" mirror on the hr@ OneDrive are built from these.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS canteen_categories (
+  name        TEXT PRIMARY KEY,
+  sort_order  INT NOT NULL DEFAULT 0
+);
+INSERT INTO canteen_categories (name, sort_order) VALUES
+  ('BEVERAGE',1),('CLEANING ITEMS',2),('CROCKERY / CUTLERY',3),('KITCHEN GROCERIES',4),('OTHER',5),
+  ('PERSONAL HYGIENE',6),('POOJA ITEMS',7),('SNACKS',8),('STATIONERY',9),('VEGETABLES',10)
+ON CONFLICT (name) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS canteen_items (
+  id          SERIAL PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,          -- stored upper-case, single-spaced
+  category    TEXT NOT NULL DEFAULT 'OTHER',
+  rate        NUMERIC(12,2) NOT NULL DEFAULT 0,  -- last unit price, used to pre-fill the amount
+  sort_order  INT NOT NULL DEFAULT 0,        -- print order
+  hidden      BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS canteen_entries (
+  entry_date       DATE NOT NULL,
+  item_id          INT NOT NULL REFERENCES canteen_items(id) ON DELETE CASCADE,
+  qty              NUMERIC(12,3) NOT NULL DEFAULT 0,
+  amount           NUMERIC(12,2) NOT NULL DEFAULT 0,
+  updated_by       INT REFERENCES employees(id) ON DELETE SET NULL,
+  updated_by_name  TEXT,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (entry_date, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_canteen_entries_date ON canteen_entries(entry_date);
+
+CREATE TABLE IF NOT EXISTS canteen_cook_salary (
+  month   TEXT PRIMARY KEY,                  -- 'YYYY-MM'
+  amount  NUMERIC(12,2) NOT NULL DEFAULT 0
+);

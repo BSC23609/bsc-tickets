@@ -401,6 +401,7 @@ app.use('/api/final', require('../routes/final.routes'));
 app.use('/api/accounts', require('../routes/accounts.routes'));
 app.use('/api/inbox', require('../routes/inbox.routes'));
 app.use('/api/admin', require('../routes/admin.routes'));
+app.use('/api/canteen', require('../routes/canteen.routes'));
 
 // Public, no-login download of an expense PDF (token from the portal / email).
 app.get('/rx/:token', async (req, res) => {
@@ -487,6 +488,7 @@ app.all('/api/cron/auto-close', async (req, res) => {
   // run on the 15-min escalation cron (so they can fire ~hourly). This daily job just keeps the
   // OneDrive Excel log in sync as a safety net.
   try { await require('../lib/excel').syncLogToOneDrive(); } catch (e) { console.error('cron log sync', e); }
+  try { await require('../lib/canteen_excel').syncCanteenLog(); } catch (e) { console.error('cron canteen log sync', e); }
   res.json({ ok: true });
 });
 

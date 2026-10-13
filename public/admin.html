@@ -1667,6 +1667,7 @@
             <div class="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">App access <span class="text-slate-400 normal-case font-normal">(restricted apps — hidden unless granted; admins always see all)</span></div>
             <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_qms" type="checkbox" ${chk(app.qms)}> <span>Quality (QMS)</span></label>
             <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_dispatch" type="checkbox" ${chk(app.dispatch)}> <span>Dispatch / Weighbridge</span></label>
+            <label class="flex items-center gap-2 text-sm py-0.5"><input id="ed_app_canteen" type="checkbox" ${chk(app.canteen)}> <span>Canteen Register</span></label>
           </div>
         </div>
         <div class="p-4 border-t border-slate-200 flex justify-between items-center gap-2 sticky bottom-0 bg-white">
@@ -1695,6 +1696,7 @@
         app_access: {
           qms: document.getElementById('ed_app_qms').checked,
           dispatch: document.getElementById('ed_app_dispatch').checked,
+          canteen: document.getElementById('ed_app_canteen').checked,
         },
       };
       if(!body.emp_no || !body.name) return toast('Employee code and name are required','error');
