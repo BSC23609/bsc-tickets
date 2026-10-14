@@ -52,7 +52,7 @@
 
     (async function init(){
       try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
-      if(!me.ot_mgmt){ document.getElementById('denied').classList.remove('hidden'); return; }
+      if(!(me.ot_mgmt||me.ot_hr||me.is_admin)){ document.getElementById('denied').classList.remove('hidden'); return; }
       document.getElementById('ui').classList.remove('hidden');
       const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1);
       document.getElementById('month').value=d.toISOString().slice(0,7);

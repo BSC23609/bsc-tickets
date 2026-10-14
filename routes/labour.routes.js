@@ -7,6 +7,7 @@ const auth = require('../lib/auth');
 const wati = require('../lib/wati');
 const graph = require('../lib/graph');
 const { background } = require('../lib/bg');
+const { stampApprovals } = require('../lib/approval_stamp');
 const router = express.Router();
 router.use(auth.requireAuth);
 
@@ -215,31 +216,8 @@ router.post('/approve', async (req, res) => {
   const { ot, sh } = await refreshTotals(company, month);
   await q(`UPDATE labour_period SET ${col}='approved', mgmt_at=now(), mgmt_by_name=$3, updated_at=now() WHERE company=$1 AND period=$2`, [company, month, req.user.name]);
   res.json({ ok: true, part, status: 'approved' });
-  background((async () => {
-    try {
-      const { pdf, total, label } = await buildReportPdf(company, month, part);
-      const acct = LABOUR_CO[company].accounts;
-      await graph.sendMail({
-        to: acct,
-        subject: `Labour ${label} — ${LABOUR_CO[company].label} — ${monthName(month)} — ${money(total)} [APPROVED]`,
-        html: `<p>Please find attached the management-approved labour <b>${label.toLowerCase()}</b> report for <b>${LABOUR_CO[company].label} — ${monthName(month)}</b>.</p>
-               <p>Total <b>${money(total)}</b>. Kindly process the payment.</p>`,
-        attachments: [{ name: `Labour_${part}_${company}_${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
-      });
-      await q(`UPDATE labour_period SET accounts_sent_at=now() WHERE company=$1 AND period=$2`, [company, month]);
-      // WhatsApp the labour accounts contact (e.g. Lakshmi) that the payment is approved.
-      const labAccId = +((await q(`SELECT value FROM app_settings WHERE key='labour_accounts_emp_id'`)).rows[0]?.value || 0);
-      if (labAccId) {
-        const acc = (await q(`SELECT name,phone FROM employees WHERE id=$1 AND active=TRUE`, [labAccId])).rows[0];
-        if (acc && acc.phone) {
-          const tbl = part === 'shearing' ? 'labour_shearing' : 'labour_ot';
-          const cnt = +(await q(`SELECT count(DISTINCT labour_name) AS c FROM ${tbl} WHERE company=$1 AND period=$2`, [company, month])).rows[0].c;
-          try { await wati.notify.ot.accounts(acc, { period: `${label} · ${LABOUR_CO[company].label} · ${monthName(month)}`, employees: cnt, total: String(total) }); }
-          catch (e) { console.error('[labour accounts wa]', e.message); }
-        }
-      }
-    } catch (e) { console.error('[labour accounts email]', e.message); }
-  })());
+  // Auto-email to accounts on approval is intentionally DISABLED. Labour OT & Shearing now go to
+  // accounts ONLY via the single consolidated "Send to accounts" action (final.routes send-to-accounts).
 });
 router.post('/return', async (req, res) => {
   if (!(await isLabourMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
@@ -297,9 +275,14 @@ router.get('/report-pdf/:company/:month/:part', async (req, res) => {
 async function buildReportPdf(company, month, part) {
   const { buildPaymentReportPDF } = require('../lib/payment_pdf');
   // Reflect the real approval state so a pre-approval PREVIEW doesn't wrongly stamp "APPROVED".
-  const _lp = (await q(`SELECT ot_status, shearing_status FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0] || {};
+  const _lp = (await q(`SELECT ot_status, shearing_status, mgmt_by_name,
+      to_char(mgmt_at AT TIME ZONE 'Asia/Kolkata','DD Mon YYYY, HH12:MI AM') AS mgmt_at_fmt
+      FROM labour_period WHERE company=$1 AND period=$2`, [company, month])).rows[0] || {};
   const _isApproved = (part === 'shearing' ? _lp.shearing_status : _lp.ot_status) === 'approved';
   const _note = _isApproved ? '' : ' \u00b7 PREVIEW (awaiting approval)';
+  const _approvals = (_isApproved && _lp.mgmt_by_name)
+    ? [{ label: part === 'shearing' ? 'Shearing approved' : 'Labour OT approved', by: _lp.mgmt_by_name, at: _lp.mgmt_at_fmt }]
+    : [];
   if (part === 'shearing') {
     const sh = (await q(`SELECT labour_name, COALESCE(SUM(days),0) AS days, COALESCE(SUM(amount),0) AS amount
                          FROM labour_shearing WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
@@ -311,7 +294,7 @@ async function buildReportPdf(company, month, part) {
         rows: sh.map(r => [r.labour_name, (+r.days).toFixed(1), money(r.amount)]) }],
       grandTotal: total,
     });
-    return { pdf, total, label: 'Shearing' };
+    return { pdf: await stampApprovals(pdf, _approvals, { preview: !_isApproved }), total, label: 'Shearing' };
   }
   const ot = (await q(`SELECT labour_name, COALESCE(SUM(hours),0) AS hours, COALESCE(SUM(amount),0) AS amount
                        FROM labour_ot WHERE company=$1 AND period=$2 GROUP BY labour_name ORDER BY labour_name`, [company, month])).rows;
@@ -323,7 +306,7 @@ async function buildReportPdf(company, month, part) {
       rows: ot.map(r => [r.labour_name, (+r.hours).toFixed(2), money(r.amount)]) }],
     grandTotal: total,
   });
-  return { pdf, total, label: 'Overtime' };
+  return { pdf: await stampApprovals(pdf, _approvals, { preview: !_isApproved }), total, label: 'Overtime' };
 }
 
 module.exports = router;

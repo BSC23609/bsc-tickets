@@ -7,6 +7,7 @@ const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const chain = require('../lib/chain');
 const graph = require('../lib/graph');
+const { stampApprovals } = require('../lib/approval_stamp');
 const router = express.Router();
 router.use(auth.requireAuth);
 
@@ -18,6 +19,36 @@ const money = (n) => '\u20b9' + Number(n || 0).toLocaleString('en-IN');
 async function isMgmt(u) {
   const mgmt = ((await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0]?.value || '').split(',').map(Number).filter(Boolean);
   return mgmt.includes(u.id);
+}
+// HR (e.g. Rajasekar) may also use the Send-to-Accounts screen — not just management.
+// "HR" here = the labour/OT HR (ot_hr_emp_id, matches me.ot_hr on the frontend) OR an expense-chain HR.
+async function isMgmtOrHr(u) {
+  if (u && u.is_admin) return true;
+  if (await isMgmt(u)) return true;
+  const otHr = (await q(`SELECT 1 FROM app_settings WHERE key='ot_hr_emp_id' AND value=$1`, [String(u.id)])).rows.length > 0;
+  if (otHr) return true;
+  try { const c = await chain.getChain(); return (c.hr_approver_ids || []).includes(u.id); } catch (e) { return false; }
+}
+
+// ---- Approval badge data (approver name + time) for the per-page stamp on the reports ----
+const _ist = (col) => `to_char(${col} AT TIME ZONE 'Asia/Kolkata','DD Mon YYYY, HH12:MI AM')`;
+async function otApprovals(companyKey, month) {
+  const C = COMPANIES[companyKey]; if (!C) return [];
+  const out = [];
+  const b = (await q(`SELECT mgmt_name, ${_ist('reviewed_at')} AS at FROM ot_batches
+                      WHERE period=$1 AND status IN ('approved','sent_accounts') AND mgmt_name IS NOT NULL
+                      ORDER BY reviewed_at DESC NULLS LAST LIMIT 1`, [month])).rows[0];
+  if (b && b.mgmt_name) out.push({ label: 'Staff OT approved', by: b.mgmt_name, at: b.at });
+  const lp = (await q(`SELECT mgmt_by_name, ${_ist('mgmt_at')} AS at FROM labour_period
+                       WHERE company=$1 AND period=$2 AND ot_status='approved' AND mgmt_by_name IS NOT NULL`, [C.labourCo, month])).rows[0];
+  if (lp && lp.mgmt_by_name) out.push({ label: 'Labour OT approved', by: lp.mgmt_by_name, at: lp.at });
+  return out;
+}
+async function shearingApprovals(companyKey, month) {
+  const C = COMPANIES[companyKey]; if (!C) return [];
+  const lp = (await q(`SELECT mgmt_by_name, ${_ist('mgmt_at')} AS at FROM labour_period
+                       WHERE company=$1 AND period=$2 AND shearing_status='approved' AND mgmt_by_name IS NOT NULL`, [C.labourCo, month])).rows[0];
+  return (lp && lp.mgmt_by_name) ? [{ label: 'Shearing approved', by: lp.mgmt_by_name, at: lp.at }] : [];
 }
 
 router.get('/queue', async (req, res) => {
@@ -91,9 +122,10 @@ router.get('/ot-report/:batchId', async (req, res) => {
     ],
     grandTotal: empT + labT,
   });
+  const stamped = await stampApprovals(pdf, [], { preview: true });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="OT_consolidated_${period}.pdf"`);
-  res.end(pdf);
+  res.end(stamped);
 });
 
 module.exports = router;
@@ -149,7 +181,7 @@ async function buildOtCombinedPdf(companyKey, month, opts = {}) {
   if (!list.length) return null;
   const grand = list.reduce((s, p) => s + p.total, 0);
 
-  return buildCombinedReportPDF({
+  const __otpdf = await buildCombinedReportPDF({
     companyKey, title: `Overtime — ${C.label}`, subtitle: `${monthLabel(month)} · consolidated`,
     summary: {
       cols: [{ label: '#', width: 0.08 }, { label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.42 }, { label: 'Total OT hrs', width: 0.15, align: 'right' }, { label: 'Amount', width: 0.15, align: 'right' }],
@@ -162,6 +194,7 @@ async function buildOtCombinedPdf(companyKey, month, opts = {}) {
       rows: p.rows, totalRow: ['Total', '', p.hours.toFixed(2), money(p.total)],
     })),
   });
+  return stampApprovals(__otpdf, await otApprovals(companyKey, month));
 }
 
 // Shearing consolidated report (labour only) for a company.
@@ -178,7 +211,7 @@ async function buildShearingCombinedPdf(companyKey, month) {
   const list = [...people.values()];
   if (!list.length) return null;
   const grand = list.reduce((s, p) => s + p.total, 0);
-  return buildCombinedReportPDF({
+  const __shpdf = await buildCombinedReportPDF({
     companyKey, title: `Shed-B Shearing — ${C.label}`, subtitle: `${monthLabel(month)} · consolidated`,
     summary: {
       cols: [{ label: '#', width: 0.08 }, { label: 'Emp code', width: 0.2 }, { label: 'Name', width: 0.42 }, { label: 'Total days', width: 0.15, align: 'right' }, { label: 'Amount', width: 0.15, align: 'right' }],
@@ -191,10 +224,11 @@ async function buildShearingCombinedPdf(companyKey, month) {
       rows: p.rows, totalRow: ['Total', p.days.toFixed(1), money(p.total)],
     })),
   });
+  return stampApprovals(__shpdf, await shearingApprovals(companyKey, month));
 }
 
 router.get('/report/ot/:company/:month', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).send('Not allowed');
   if (!/^\d{4}-\d{2}$/.test(req.params.month) || !COMPANIES[req.params.company]) return res.status(400).send('Bad request');
   try {
     const pdf = await buildOtCombinedPdf(req.params.company, req.params.month, { includePaid: req.query.all === '1' });
@@ -203,7 +237,7 @@ router.get('/report/ot/:company/:month', async (req, res) => {
   } catch (e) { console.error('[ot report]', e); res.status(500).send(e.message); }
 });
 router.get('/report/shearing/:company/:month', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).send('Not allowed');
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).send('Not allowed');
   if (!/^\d{4}-\d{2}$/.test(req.params.month) || !COMPANIES[req.params.company]) return res.status(400).send('Bad request');
   try {
     const pdf = await buildShearingCombinedPdf(req.params.company, req.params.month);
@@ -222,7 +256,7 @@ async function refreshLabourTotals(company, period) {
      updated_at=now() WHERE company=$1 AND period=$2`, [company, period]);
 }
 router.get('/report-people/:kind/:company/:month', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
   const kind = req.params.kind, C = COMPANIES[req.params.company], month = req.params.month;
   if (!C || !/^\d{4}-\d{2}$/.test(month) || !['ot', 'shearing'].includes(kind)) return res.status(400).json({ error: 'Bad request' });
   const people = [];
@@ -243,7 +277,7 @@ router.get('/report-people/:kind/:company/:month', async (req, res) => {
   res.json({ people, unit: kind === 'ot' ? 'hrs' : 'days' });
 });
 router.post('/report-remove', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
   const kind = req.body.kind, C = COMPANIES[req.body.company], month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
   const key = String(req.body.key || '');
   if (!C || !month || !key || !['ot', 'shearing'].includes(kind)) return res.status(400).json({ error: 'Bad request' });
@@ -298,7 +332,7 @@ async function companyAccountsContact(companyKey) {
 }
 
 router.get('/accounts-queue', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
   const sentRows = (await q(`SELECT company, kind, to_char(sent_at,'DD Mon HH24:MI') AS at FROM accounts_send WHERE period=$1`, [month])).rows;
   const sentMap = {}; sentRows.forEach(r => { sentMap[r.company + ':' + r.kind] = r.at; });
@@ -321,7 +355,7 @@ router.get('/accounts-queue', async (req, res) => {
 });
 
 router.post('/send-to-accounts', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
   const company = COMPANIES[req.body.company] ? req.body.company : null;
   const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
   if (!company || !month) return res.status(400).json({ error: 'Bad request' });
@@ -387,7 +421,16 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   // Regenerate every claim PDF in parallel (was sequential — slow / timed out for heavy employees).
   const claimPdfs = await Promise.all(claims.map(c => expense._internal.claimPdfById(c.id).catch(e => { console.error('[consolidated claimPdf]', c.id, e.message); return null; })));
   const parts = [cover, ...claimPdfs.filter(Boolean)];
-  return { pdf: await mergePdfs(parts), total, emp, breakdown };
+  const merged = await mergePdfs(parts);
+  // Approval badge(s) on every page (page 1 cover included). One badge per distinct final approver.
+  const approvals = []; const _seen = new Set();
+  for (const b of breakdown) {
+    if (!b.by || b.by === '—') continue;
+    const k = b.by + '|' + (b.at || ''); if (_seen.has(k)) continue; _seen.add(k);
+    approvals.push({ label: 'Final approved', by: b.by, at: b.at });
+  }
+  const stamped = await stampApprovals(merged, approvals, { preview: approvals.length === 0 });
+  return { pdf: stamped, total, emp, breakdown };
 }
 
 // Run the monthly consolidation for a given month: one email per company (by emp_no prefix)

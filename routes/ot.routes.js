@@ -33,8 +33,13 @@ async function otMgmtIds() {
   const r = (await q(`SELECT value FROM app_settings WHERE key='ot_mgmt_emp_ids'`)).rows[0];
   return r && r.value ? r.value.split(',').map(Number).filter(Boolean) : [];
 }
-// After management approval: build the report, email Accounts, and WhatsApp Accounts to check email.
+// DISABLED: staff OT is never emailed to accounts on its own. It flows into each company's single
+// consolidated "Send to accounts" report (final.routes send-to-accounts). This function is retained
+// only for reference and is guarded so it can never send a separate mail.
 async function sendBatchToAccounts(batchId, period) {
+  console.warn('[ot sendBatchToAccounts] disabled — OT goes via the consolidated Send to accounts only');
+  return;
+  // eslint-disable-next-line no-unreachable
   const summary = (await q(
     `SELECT e.name AS employee_name, COALESCE(sum(o.hours),0) AS hours, COALESCE(sum(o.amount),0) AS amount
      FROM ot_entries o JOIN employees e ON e.id=o.employee_id
