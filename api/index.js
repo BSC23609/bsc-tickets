@@ -664,7 +664,8 @@ app.all('/api/cron/escalate', async (req, res) => {
      LEFT JOIN employees cl1 ON cl1.id = (CASE WHEN t.is_self THEN t.l1_emp_id ELSE COALESCE(tll.l1_emp_id, tr.l1_emp_id, c.l1_emp_id) END) AND cl1.active = TRUE
      LEFT JOIN employees cl2 ON cl2.id = c.l2_emp_id AND cl2.active = TRUE
      LEFT JOIN employees cl3 ON cl3.id = c.l3_emp_id AND cl3.active = TRUE
-     WHERE t.status IN ('open','in_progress','reopened') AND t.closed_at IS NULL AND NOT COALESCE(t.reminders_off, false)`);
+     WHERE t.status IN ('open','in_progress','reopened') AND t.closed_at IS NULL AND NOT COALESCE(t.reminders_off, false)
+       AND t.maint_gate IS DISTINCT FROM 'pending'`);
 
   // Uniform escalation for every category/trade:
   //   >= 2h unresolved -> remind L1 + L2      (level 2)

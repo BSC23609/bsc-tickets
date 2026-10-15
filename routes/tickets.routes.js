@@ -624,12 +624,22 @@ async function loadTicketByMaintToken(token) {
 }
 async function applyMaintApprove(t) {
   const route = await resolveRoute(t.category_id, t.trade_id, t.location_id);
+  // Guarantee an owner: if this trade/location has no L1 configured, fall back to the gate
+  // approver (then category L2) so the ticket is never left unassigned and invisible.
+  let l1 = route.l1;
+  if (!l1) { const g = await maintGateConfig(); l1 = g.approverId || route.l2 || null; }
+  // Hand it to the maintenance team as a fresh open ticket, and RESTART the escalation clock from
+  // the approval moment — the time it waited at the gate must not count against the fixer (otherwise
+  // a ticket that sat days pending would instantly escalate to L2/L3 the moment it's approved).
   await q(`UPDATE tickets SET maint_gate='approved', maint_gate_token=NULL,
        l1_emp_id=$2, l2_emp_id=$3, l3_emp_id=$4,
+       status='open', escalation_level=0, escalated_l2_at=NULL, escalated_l3_at=NULL,
+       last_reminder_at=NULL, raised_at=now(),
        assigned_at=CASE WHEN $2 IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
-    [t.id, route.l1, route.l2, route.l3]);
-  await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_approved','Approved at maintenance gate')`, [t.id]);
-  const rec = await empById(route.l1);
+    [t.id, l1, route.l2, route.l3]);
+  const rec = l1 ? await empById(l1) : null;
+  await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_approved',$2)`,
+    [t.id, rec ? `Approved at maintenance gate — assigned to ${rec.name}` : 'Approved at maintenance gate (no L1 configured)']);
   if (rec && rec.phone) await wati.notify.raised(rec, { ...t, category_name: route.category_name, requester_name: t.requester_name });
 }
 async function applyMaintReject(t) {
