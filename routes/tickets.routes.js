@@ -627,20 +627,39 @@ async function applyMaintApprove(t) {
   // Guarantee an owner: if this trade/location has no L1 configured, fall back to the gate
   // approver (then category L2) so the ticket is never left unassigned and invisible.
   let l1 = route.l1;
-  if (!l1) { const g = await maintGateConfig(); l1 = g.approverId || route.l2 || null; }
-  // Hand it to the maintenance team as a fresh open ticket, and RESTART the escalation clock from
-  // the approval moment — the time it waited at the gate must not count against the fixer (otherwise
-  // a ticket that sat days pending would instantly escalate to L2/L3 the moment it's approved).
-  await q(`UPDATE tickets SET maint_gate='approved', maint_gate_token=NULL,
-       l1_emp_id=$2, l2_emp_id=$3, l3_emp_id=$4,
-       status='open', escalation_level=0, escalated_l2_at=NULL, escalated_l3_at=NULL,
-       last_reminder_at=NULL, raised_at=now(),
-       assigned_at=CASE WHEN $2 IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
-    [t.id, l1, route.l2, route.l3]);
-  const rec = l1 ? await empById(l1) : null;
-  await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_approved',$2)`,
-    [t.id, rec ? `Approved at maintenance gate — assigned to ${rec.name}` : 'Approved at maintenance gate (no L1 configured)']);
-  if (rec && rec.phone) await wati.notify.raised(rec, { ...t, category_name: route.category_name, requester_name: t.requester_name });
+  if (!l1) { try { const g = await maintGateConfig(); l1 = g.approverId || route.l2 || null; } catch (e) { console.error('[maint approve cfg]', e.message); } }
+
+  // CORE approval — the one statement that MUST succeed. Uses only long-standing columns so a
+  // schema/migration gap or a failing side-step can never block the approval (that was surfacing
+  // to the gatekeeper as "Something went wrong" while the ticket stayed stuck at the gate).
+  try {
+    await q(`UPDATE tickets SET maint_gate='approved', maint_gate_token=NULL,
+         l1_emp_id=$2, l2_emp_id=$3, l3_emp_id=$4, status='open',
+         assigned_at=CASE WHEN $2 IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
+      [t.id, l1, route.l2, route.l3]);
+  } catch (e) {
+    // Record the real cause so it's queryable even without server logs, then surface the failure.
+    try { await q(`INSERT INTO app_settings(key,value) VALUES('maint_last_error',$1)
+      ON CONFLICT(key) DO UPDATE SET value=$1`,
+      [`${new Date().toISOString()} · ticket ${t.id} · ${e.message}`]); } catch (_) {}
+    throw e;
+  }
+
+  // Everything below is best-effort — a failure here must NOT fail the approval.
+  // Restart the escalation clock from the approval moment (the gate wait shouldn't count).
+  try {
+    await q(`UPDATE tickets SET escalation_level=0, escalated_l2_at=NULL, escalated_l3_at=NULL,
+         last_reminder_at=NULL, raised_at=now() WHERE id=$1`, [t.id]);
+  } catch (e) { console.error('[maint approve reset]', e.message); }
+  let rec = null;
+  try { rec = l1 ? await empById(l1) : null; } catch (e) { console.error('[maint approve emp]', e.message); }
+  try {
+    await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'maint_approved',$2)`,
+      [t.id, rec ? `Approved at maintenance gate — assigned to ${rec.name}` : 'Approved at maintenance gate']);
+  } catch (e) { console.error('[maint approve event]', e.message); }
+  try {
+    if (rec && rec.phone) await wati.notify.raised(rec, { ...t, category_name: route.category_name, requester_name: t.requester_name });
+  } catch (e) { console.error('[maint approve notify]', e.message); }
 }
 async function applyMaintReject(t) {
   await q(`UPDATE tickets SET maint_gate='rejected', maint_gate_token=NULL, status='closed', closed_at=now(),
