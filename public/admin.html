@@ -720,7 +720,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED221, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED222, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1273,7 +1273,10 @@
           (t.reminders_off
             ? `<button onclick="muteTicket(${t.id},false)" class="text-emerald-600 hover:underline text-xs font-semibold">🔕 Muted — turn on</button>`
             : `<button onclick="muteTicket(${t.id},true)" class="text-slate-500 hover:underline text-xs">🔔 On — mute</button>`),
-          (canResolve(t)
+          (canResolve(t) && t.assigned_to
+            ? `<button onclick="remindTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-blue-600 hover:underline text-xs font-semibold mr-3">🔔 Remind</button>`
+            : '')
+          + (canResolve(t)
             ? `<button onclick="resolveTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-emerald-700 hover:underline text-xs font-semibold mr-3">Mark resolved</button>`
             : '')
             + `<button onclick="delTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-red-600 hover:underline text-xs font-semibold">Delete</button>`]));
@@ -1287,6 +1290,13 @@
         else toast('No open tickets with an assigned handler to remind', 'info');
       } catch(e){ toast(e.message, 'error'); }
       finally { btn.disabled = false; btn.innerHTML = orig; }
+    }
+    // Nudge one ticket's assigned handler (per-row button).
+    async function remindTicket(id, ref){
+      try {
+        const r = await api('/admin/tickets/'+id+'/remind', { method:'POST' });
+        toast(r.sent ? ('Reminder sent to '+r.handler) : 'No assigned handler to remind', r.sent ? 'success' : 'info');
+      } catch(e){ toast('Could not send: '+e.message, 'error'); }
     }
     async function resolveTicket(id, ref){
       const note = prompt('Mark '+ref+' as resolved?\n\nOptional resolution note:', '');

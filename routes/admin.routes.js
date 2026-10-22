@@ -355,6 +355,33 @@ router.post('/tickets/remind-open', async (req, res) => {
   })());
 });
 
+// Nudge the assigned handler of ONE open ticket (per-row "Send reminder" in the dashboard list).
+router.post('/tickets/:id/remind', async (req, res) => {
+  const id = req.params.id;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
+  const t = (await q(
+    `SELECT t.id, t.ref_no, t.subject, t.raised_at, t.status, c.name AS category_name,
+            r.name AS requester_name, e.name AS handler_name, e.phone AS handler_phone
+     FROM tickets t
+     JOIN categories c ON c.id = t.category_id
+     JOIN employees r ON r.id = t.requester_id
+     LEFT JOIN employees e ON e.id = t.l1_emp_id AND e.active = TRUE
+     WHERE t.id = $1`, [id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  if (!['open', 'in_progress', 'reopened'].includes(t.status)) return res.status(400).json({ error: 'Ticket is not open' });
+  if (!t.handler_phone) return res.json({ ok: true, sent: false });
+  const mins = Math.max(1, Math.round((Date.now() - new Date(t.raised_at).getTime()) / 60000));
+  try {
+    await wati.notify.reminder({ name: t.handler_name, phone: t.handler_phone },
+      { id: t.id, ref_no: t.ref_no, requester_name: t.requester_name, category_name: t.category_name, subject: t.subject },
+      elapsedLabel(mins));
+    await q(`UPDATE tickets SET last_reminder_at = now() WHERE id = $1`, [id]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'reminder',$2)`,
+      [id, `Manual reminder to ${t.handler_name} (admin)`]);
+    res.json({ ok: true, sent: true, handler: t.handler_name });
+  } catch (e) { console.error('[remind one]', id, e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Admin force-resolve: mark a ticket resolved directly from the cleanup list. Mirrors the normal
 // resolve flow (sets resolved_at + confirm token, nudges requester/L2 to confirm closure).
 router.post('/tickets/:id/resolve', async (req, res) => {
@@ -1065,7 +1092,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED221', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED222', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
