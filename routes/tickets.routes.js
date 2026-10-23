@@ -634,8 +634,8 @@ async function applyMaintApprove(t) {
   // to the gatekeeper as "Something went wrong" while the ticket stayed stuck at the gate).
   try {
     await q(`UPDATE tickets SET maint_gate='approved', maint_gate_token=NULL,
-         l1_emp_id=$2, l2_emp_id=$3, l3_emp_id=$4, status='open',
-         assigned_at=CASE WHEN $2 IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
+         l1_emp_id=$2::int, l2_emp_id=$3::int, l3_emp_id=$4::int, status='open',
+         assigned_at=CASE WHEN $2::int IS NOT NULL THEN now() ELSE assigned_at END WHERE id=$1`,
       [t.id, l1, route.l2, route.l3]);
   } catch (e) {
     // Record the real cause so it's queryable even without server logs, then surface the failure.
