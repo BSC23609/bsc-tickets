@@ -130,6 +130,14 @@ router.post('/', async (req, res) => {
   if (!purpose || !purpose.trim()) return res.status(400).json({ error: 'Purpose is required' });
   if (!out_time) return res.status(400).json({ error: 'Out-time is required' });
   if (type === 'gatepass' && !in_time) return res.status(400).json({ error: 'In-time is required for a gatepass' });
+  // Out-time must be a forward time — not already in the past. istClockToMs returns a true instant,
+  // so this compares correctly whatever the server's timezone. A pass for a future date is fine
+  // (its out-instant is in the future). 2-min grace so picking "now" never fails by seconds.
+  {
+    const outMs = istClockToMs(req_date || new Date(), out_time);
+    if (outMs != null && outMs < Date.now() - 2 * 60000)
+      return res.status(400).json({ error: 'Out-time cannot be in the past. Please choose the current time or a later time.' });
+  }
   // Expected in-time must be after the out-time on the same day, AND within MAX_GATEPASS_HOURS of it.
   // Rule 1 guards the 12 AM/PM slip that otherwise makes a pass look heavily overdue (and trips the
   // "multi-day" flag); rule 2 caps a gatepass to a short errand so nobody books an all-day window.

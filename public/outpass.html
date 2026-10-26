@@ -269,6 +269,18 @@
       const onDutyChk = document.getElementById('og_onduty').checked;
       if (!onDutyChk && !kekaDataUrl) return toast('Upload the Keka permission proof screenshot', 'error');
       const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return toast(outErr, 'error');
+      // Out-time must be a forward time — not already in the past. Build the out-instant on the
+      // selected date in the browser's local (IST) zone; a future date is fine. 2-min grace.
+      {
+        const selDate = document.getElementById('og_date').value;
+        const om2 = clockToMin(out_time);
+        if (selDate && om2 != null) {
+          const p = selDate.split('-').map(Number);
+          const outDt = new Date(p[0], p[1] - 1, p[2], Math.floor(om2 / 60), om2 % 60, 0, 0);
+          if (outDt.getTime() < Date.now() - 2 * 60000)
+            return toast('Out-time cannot be in the past — please pick the current time or a later time.', 'error');
+        }
+      }
       if (ogType === 'gatepass') {
         const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error');
         const om = clockToMin(out_time), im = clockToMin(in_time);
