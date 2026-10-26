@@ -116,8 +116,11 @@
           </div>
         </div>
 
-        <div class="mt-6 flex justify-end">
-          <button id="ogSubmit" onclick="submitReq()" class="btn">Submit request</button>
+        <div class="mt-6">
+          <div id="ogError" class="mb-3" style="display:none;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-size:0.875rem;font-weight:600;padding:0.75rem 1rem;border-radius:0.5rem"></div>
+          <div class="flex justify-end">
+            <button id="ogSubmit" onclick="submitReq()" class="btn">Submit request</button>
+          </div>
         </div>
       </div>
     </section>
@@ -258,17 +261,26 @@
       rd.onload = () => { kekaDataUrl = rd.result; document.getElementById('kekaPreview').innerHTML = '<img src="' + rd.result + '" style="max-height:130px;border-radius:8px;border:1px solid #e2e8f0" />'; };
       rd.readAsDataURL(f);
     }
+    // Show a validation reason inline at the Submit button (stays until fixed) PLUS a toast, and
+    // scroll it into view — so the user always sees WHY the form didn't submit. '' clears it.
+    function ogErr(msg) {
+      const b = document.getElementById('ogError');
+      if (msg) { b.textContent = msg; b.style.display = 'block'; b.scrollIntoView({ behavior: 'smooth', block: 'center' }); toast(msg, 'error'); return msg; }
+      b.style.display = 'none'; b.textContent = '';
+      return '';
+    }
     async function submitReq() {
+      ogErr('');
       const onLeave = document.getElementById('og_onleave').checked;
       const approver = onLeave ? leaveApprover : autoApprover;
       const purpose = document.getElementById('og_purpose').value.trim();
       const out_time = readPicker('og_out_pick');
       const in_time = readPicker('og_in_pick');
-      if (!approver) return toast('No approver is set for your department — contact admin', 'error');
-      if (!purpose) return toast('Enter the purpose', 'error');
+      if (!approver) return ogErr('No approver is set for your department — contact admin');
+      if (!purpose) return ogErr('Enter the purpose');
       const onDutyChk = document.getElementById('og_onduty').checked;
-      if (!onDutyChk && !kekaDataUrl) return toast('Upload the Keka permission proof screenshot', 'error');
-      const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return toast(outErr, 'error');
+      if (!onDutyChk && !kekaDataUrl) return ogErr('Upload the Keka permission proof screenshot');
+      const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return ogErr(outErr);
       // Out-time must be a forward time — not already in the past. Build the out-instant on the
       // selected date in the browser's local (IST) zone; a future date is fine. 2-min grace.
       {
@@ -278,18 +290,18 @@
           const p = selDate.split('-').map(Number);
           const outDt = new Date(p[0], p[1] - 1, p[2], Math.floor(om2 / 60), om2 % 60, 0, 0);
           if (outDt.getTime() < Date.now() - 2 * 60000)
-            return toast('Out-time cannot be in the past — please pick the current time or a later time.', 'error');
+            return ogErr('Out-time cannot be in the past — please pick the current time or a later time.');
         }
       }
       if (ogType === 'gatepass') {
-        const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error');
+        const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return ogErr(inErr);
         const om = clockToMin(out_time), im = clockToMin(in_time);
         const MAX_GATEPASS_MIN = 4 * 60;   // a gatepass is a short errand — cap the return at 4 hours
         if (om != null && im != null) {
           if (im <= om)
-            return toast('Expected in-time must be later than the out-time (same day). Please re-check it — check AM/PM.', 'error');
+            return ogErr('Expected in-time must be later than the out-time (same day). Please re-check it — check AM/PM.');
           if (im - om > MAX_GATEPASS_MIN)
-            return toast('Expected return can be at most 4 hours after the out-time. Please re-check the time.', 'error');
+            return ogErr('Expected return can be at most 4 hours after the out-time. Please re-check the time.');
         }
       }
 
@@ -300,7 +312,7 @@
           type: ogType, on_duty: document.getElementById('og_onduty').checked,
           req_date: document.getElementById('og_date').value,
           purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: onDutyChk ? null : kekaDataUrl } });
-        toast(`Request ${r.ref_no} sent for approval`, 'success');
+        ogErr(''); toast(`Request ${r.ref_no} sent for approval`, 'success');
         document.getElementById('og_purpose').value = '';
         resetPicker('og_out_pick');
         resetPicker('og_in_pick');
@@ -309,7 +321,7 @@
         document.getElementById('og_onleave').checked = false;
         onLeaveToggle();
         switchTab('mine');
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (e) { ogErr(e.message || 'Could not submit — please try again.'); }
       finally { btn.disabled = false; btn.textContent = 'Submit request'; }
     }
 
