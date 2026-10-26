@@ -130,6 +130,20 @@ router.post('/', async (req, res) => {
   if (!purpose || !purpose.trim()) return res.status(400).json({ error: 'Purpose is required' });
   if (!out_time) return res.status(400).json({ error: 'Out-time is required' });
   if (type === 'gatepass' && !in_time) return res.status(400).json({ error: 'In-time is required for a gatepass' });
+  // Expected in-time must be after the out-time on the same day, AND within MAX_GATEPASS_HOURS of it.
+  // Rule 1 guards the 12 AM/PM slip that otherwise makes a pass look heavily overdue (and trips the
+  // "multi-day" flag); rule 2 caps a gatepass to a short errand so nobody books an all-day window.
+  const MAX_GATEPASS_HOURS = 4;
+  if (type === 'gatepass' && in_time) {
+    const d = req_date || new Date();
+    const outMs = istClockToMs(d, out_time), inMs = istClockToMs(d, in_time);
+    if (outMs != null && inMs != null) {
+      if (inMs <= outMs)
+        return res.status(400).json({ error: 'Expected in-time must be later than the out-time on the same day. Please re-check the time (AM/PM).' });
+      if ((inMs - outMs) > MAX_GATEPASS_HOURS * 3600000)
+        return res.status(400).json({ error: `Expected return can be at most ${MAX_GATEPASS_HOURS} hours after the out-time. Please re-check the time.` });
+    }
+  }
   const proof = String(keka_proof || '');
   if (!on_duty) {
     if (!/^data:image\/(png|jpe?g|webp|gif);base64,/.test(proof)) return res.status(400).json({ error: 'Please upload the Keka permission proof screenshot (required when not on duty).' });

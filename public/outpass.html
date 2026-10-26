@@ -94,23 +94,13 @@
             <div class="flex gap-2" id="og_out_pick">
               <select class="field tp-h"></select>
               <select class="field tp-m"></select>
-              <div class="flex rounded-lg overflow-hidden border border-line shrink-0">
-                <button type="button" class="tp-am px-3 py-2 text-sm font-semibold bg-white text-slate-700">AM</button>
-                <button type="button" class="tp-pm px-3 py-2 text-sm font-semibold bg-white text-slate-700 border-l border-line">PM</button>
-              </div>
-              <input type="hidden" class="tp-ap">
             </div>
           </div>
           <div id="inWrap">
-            <label class="fieldlabel">In-time <span class="text-slate-400 normal-case font-normal">(gatepass)</span></label>
+            <label class="fieldlabel">In-time <span class="text-slate-400 normal-case font-normal">(expected return · gatepass)</span></label>
             <div class="flex gap-2" id="og_in_pick">
               <select class="field tp-h"></select>
               <select class="field tp-m"></select>
-              <div class="flex rounded-lg overflow-hidden border border-line shrink-0">
-                <button type="button" class="tp-am px-3 py-2 text-sm font-semibold bg-white text-slate-700">AM</button>
-                <button type="button" class="tp-pm px-3 py-2 text-sm font-semibold bg-white text-slate-700 border-l border-line">PM</button>
-              </div>
-              <input type="hidden" class="tp-ap">
             </div>
           </div>
 
@@ -168,45 +158,53 @@
       return `${String(hh).padStart(2,'0')}:${String(m).padStart(2,'0')} ${ap}`;
     }
 
-    // 12-hour picker: hour 1–12 · minute 00–55 (5-min steps) · AM/PM. Renders identically on
-    // every PC (native <input type=time> follows the OS locale, which showed 24h). Reads out as
-    // "HH:MM AM/PM" — the exact format the backend already stores, so nothing downstream changes.
+    // Single unambiguous hour dropdown — the old separate AM/PM tap was where "12 AM" got
+    // picked for noon, which read as midnight and made passes look multi-day overdue. Each option
+    // is labelled in plain 12-hour text but its VALUE is the 24-hour hour, so "12 PM (noon)" and
+    // "12 AM (midnight)" can never be mixed up. Minute defaults to :00, so a user can just pick
+    // the hour and submit. readPicker converts back to "HH:MM AM/PM" — the exact format the
+    // backend already stores, so nothing downstream changes.
     function buildPicker(wrapId) {
       const w = document.getElementById(wrapId);
       const hSel = w.querySelector('.tp-h'), mSel = w.querySelector('.tp-m');
-      hSel.innerHTML = '<option value="">Hr</option>' +
-        Array.from({length: 12}, (_, i) => `<option value="${String(i+1).padStart(2,'0')}">${i+1}</option>`).join('');
-      mSel.innerHTML = '<option value="">Min</option>' +
-        Array.from({length: 12}, (_, i) => { const m = String(i*5).padStart(2,'0'); return `<option value="${m}">${m}</option>`; }).join('');
-      // AM/PM is a two-button toggle (clearer than a dropdown) backed by a hidden .tp-ap field.
-      const hidden = w.querySelector('.tp-ap'), am = w.querySelector('.tp-am'), pm = w.querySelector('.tp-pm');
-      const paint = () => {
-        am.className = 'tp-am px-3 py-2 text-sm font-semibold ' + (hidden.value === 'AM' ? 'bg-ink text-white' : 'bg-white text-slate-700');
-        pm.className = 'tp-pm px-3 py-2 text-sm font-semibold border-l border-line ' + (hidden.value === 'PM' ? 'bg-ink text-white' : 'bg-white text-slate-700');
-      };
-      am.onclick = () => { hidden.value = 'AM'; paint(); };
-      pm.onclick = () => { hidden.value = 'PM'; paint(); };
-      paint();
+      hSel.innerHTML = '<option value="">Hour</option>' +
+        Array.from({length: 24}, (_, H) => {
+          const ap = H >= 12 ? 'PM' : 'AM'; let hh = H % 12; if (hh === 0) hh = 12;
+          const lbl = H === 0 ? '12 AM (midnight)' : H === 12 ? '12 PM (noon)' : `${hh} ${ap}`;
+          return `<option value="${String(H).padStart(2,'0')}">${lbl}</option>`;
+        }).join('');
+      mSel.innerHTML =
+        Array.from({length: 12}, (_, i) => { const m = String(i*5).padStart(2,'0'); return `<option value="${m}"${i===0?' selected':''}>:${m}</option>`; }).join('');
     }
-    // "" until all three parts are chosen; else "HH:MM AM/PM".
+    // "" until an hour is chosen; else "HH:MM AM/PM" (minute defaults to 00).
     function readPicker(wrapId) {
       const w = document.getElementById(wrapId);
-      const h = w.querySelector('.tp-h').value, m = w.querySelector('.tp-m').value, ap = w.querySelector('.tp-ap').value;
-      return (h && m && ap) ? `${h}:${m} ${ap}` : '';
+      const H = w.querySelector('.tp-h').value;
+      const m = w.querySelector('.tp-m').value || '00';
+      if (H === '') return '';
+      const h24 = parseInt(H, 10);
+      const ap = h24 >= 12 ? 'PM' : 'AM'; let hh = h24 % 12; if (hh === 0) hh = 12;
+      return `${String(hh).padStart(2,'0')}:${m} ${ap}`;
     }
     function resetPicker(wrapId) {
       const w = document.getElementById(wrapId);
-      w.querySelectorAll('select').forEach(s => s.value = '');
-      const hidden = w.querySelector('.tp-ap'); if (hidden) hidden.value = '';
-      w.querySelectorAll('.tp-am, .tp-pm').forEach(b => b.className = b.className.replace('bg-ink text-white', 'bg-white text-slate-700'));
+      w.querySelector('.tp-h').value = '';
+      w.querySelector('.tp-m').value = '00';
     }
-    // Precise message about what's missing in a time (so AM/PM omissions are obvious).
+    // Only the hour is required now (minute defaults to 00).
     function timeError(wrapId, label) {
       const w = document.getElementById(wrapId);
-      const h = w.querySelector('.tp-h').value, m = w.querySelector('.tp-m').value, ap = w.querySelector('.tp-ap').value;
-      if (!h || !m) return `Pick the hour and minute for the ${label}`;
-      if (!ap) return `Tap AM or PM for the ${label}`;
+      if (w.querySelector('.tp-h').value === '') return `Pick the hour for the ${label}`;
       return '';
+    }
+    // Minutes-since-midnight for a stored "HH:MM AM/PM" string (used to order out vs in time).
+    function clockToMin(s) {
+      const mm = String(s || '').trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+      if (!mm) return null;
+      let h = parseInt(mm[1], 10); const mi = parseInt(mm[2], 10); const ap = mm[3].toUpperCase();
+      if (ap === 'PM' && h < 12) h += 12;
+      if (ap === 'AM' && h === 12) h = 0;
+      return h * 60 + mi;
     }
 
     async function init() {
@@ -271,7 +269,17 @@
       const onDutyChk = document.getElementById('og_onduty').checked;
       if (!onDutyChk && !kekaDataUrl) return toast('Upload the Keka permission proof screenshot', 'error');
       const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return toast(outErr, 'error');
-      if (ogType === 'gatepass') { const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error'); }
+      if (ogType === 'gatepass') {
+        const inErr = timeError('og_in_pick', 'in-time'); if (inErr) return toast(inErr, 'error');
+        const om = clockToMin(out_time), im = clockToMin(in_time);
+        const MAX_GATEPASS_MIN = 4 * 60;   // a gatepass is a short errand — cap the return at 4 hours
+        if (om != null && im != null) {
+          if (im <= om)
+            return toast('Expected in-time must be later than the out-time (same day). Please re-check it — check AM/PM.', 'error');
+          if (im - om > MAX_GATEPASS_MIN)
+            return toast('Expected return can be at most 4 hours after the out-time. Please re-check the time.', 'error');
+        }
+      }
 
       const btn = document.getElementById('ogSubmit');
       btn.disabled = true; btn.textContent = 'Submitting…';
