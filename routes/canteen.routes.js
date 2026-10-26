@@ -252,9 +252,11 @@ router.post('/ocr-photo', async (req, res) => {
   let result;
   try { result = await ocr.readBill(image); }
   catch (e) { return res.status(502).json({ error: e.message }); }
-  if (!result.lines.length) return res.status(422).json({ error: 'No item lines could be read. Please try a clearer, straight-on photo.' });
+  if (!result.bills.length) return res.status(422).json({ error: 'No item lines could be read. Please try a clearer, straight-on photo.' });
   storePhoto(image, 'bill-' + Date.now());
-  res.json({ date: result.date, lines: await matchLines(result.lines) });
+  const bills = [];
+  for (const b of result.bills) bills.push({ date: b.date, total: b.total, lines: await matchLines(b.lines) });
+  res.json({ bills });
 });
 
 // Park a bill photo for LATER — stored pending, no entries yet; read & posted from Pending bills.
@@ -288,9 +290,11 @@ router.post('/uploads/:id/ocr', async (req, res) => {
   let result;
   try { result = await ocr.readBill(row.image_b64); }
   catch (e) { return res.status(502).json({ error: e.message }); }
+  const bills = [];
+  for (const b of result.bills) bills.push({ date: b.date, total: b.total, lines: await matchLines(b.lines) });
   await q(`UPDATE canteen_uploads SET status='parsed', parsed_json=$2, updated_at=now() WHERE id=$1`,
-    [id, JSON.stringify({ date: result.date, lines: result.lines })]);
-  res.json({ date: result.date, lines: await matchLines(result.lines) });
+    [id, JSON.stringify({ bills: result.bills })]);
+  res.json({ bills });
 });
 
 // Mark a parked bill done once its entries are saved (frees the stored photo).

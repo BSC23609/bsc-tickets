@@ -183,9 +183,11 @@
           <input type="text" id="search" class="field grow" placeholder="Search item… (e.g. milk, harpic)" autocomplete="off">
           <button class="btn-ghost" id="copyPrev" title="Copy the items from the last day that has entries">Copy last day</button>
           <button class="btn-ghost" id="toggleNew">+ New item</button>
-          <button class="btn-ghost" id="photoBtn" title="Photograph one or more canteen bills and auto-fill the entries">📷 Upload bill photo</button>
+          <button class="btn-ghost" id="scanBtn" title="Scan a bill with the camera">📷 Scan bill</button>
+          <button class="btn-ghost" id="photoBtn" title="Pick one or more saved bill photos">🖼 Upload photos</button>
           <button class="btn-ghost" id="pendingBtn" hidden></button>
-          <input type="file" id="billFile" accept="image/*" capture="environment" multiple hidden>
+          <input type="file" id="billScan" accept="image/*" capture="environment" hidden>
+          <input type="file" id="billFile" accept="image/*" multiple hidden>
         </div>
         <div class="panel" id="newPanel" hidden>
           <b>Add a new item</b>
@@ -264,6 +266,7 @@
       <div class="ocrhead"><b id="ocrTitle">Review bill</b><button class="btn-ghost" id="ocrClose" style="margin-left:auto">✕</button></div>
       <div class="ocrbody">
         <div class="row" style="margin-bottom:10px"><label class="fieldlabel" for="ocrDate" style="margin-right:6px">Date</label><input type="date" id="ocrDate" class="field" style="width:auto"><span class="note" id="ocrDateNote" style="margin-left:8px"></span></div>
+        <div id="ocrWarn" style="display:none;margin-bottom:10px;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;font-size:.85rem;font-weight:600;padding:.5rem .7rem;border-radius:8px"></div>
         <div class="olhead"><span>Item</span><span style="text-align:right">Qty</span><span style="text-align:right">Amount ₹</span><span></span></div>
         <div id="ocrLines"></div>
         <p class="note" style="margin-top:8px">Check each line against the bill — fix any misread number, remove a wrong line with ✕, then Save. New items (yellow) are added to your item list automatically.</p>
@@ -412,24 +415,26 @@
       return out;
     }
 
-    $('#photoBtn').onclick=()=>$('#billFile').click();
-    $('#billFile').onchange=async()=>{
-      const files=[...$('#billFile').files]; $('#billFile').value='';
+    $('#photoBtn').onclick=()=>$('#billFile').click();   // pick saved photos (gallery / files)
+    $('#scanBtn').onclick=()=>$('#billScan').click();    // open the camera
+    $('#billFile').onchange=()=>{ const f=[...$('#billFile').files]; $('#billFile').value=''; handleFiles(f); };
+    $('#billScan').onchange=()=>{ const f=[...$('#billScan').files]; $('#billScan').value=''; handleFiles(f); };
+    async function handleFiles(files){
       if(!files.length) return;
-      $('#photoBtn').disabled=true; $('#photoBtn').textContent='Preparing…';
+      $('#photoBtn').disabled=true; $('#scanBtn').disabled=true;
       const imgs=[];
       for(const f of files){
         if(!/^image\//.test(f.type)) continue;
         if(f.size>30*1024*1024){ toast('Skipped a photo over 30 MB','error'); continue; }
         try{ imgs.push(await compressImage(f)); }catch(e){}
       }
-      $('#photoBtn').disabled=false; $('#photoBtn').textContent='📷 Upload bill photo';
+      $('#photoBtn').disabled=false; $('#scanBtn').disabled=false;
       if(!imgs.length) return toast('Could not read those images','error');
       pickedImages=imgs;
       $('#choiceThumb').src=imgs[0];
-      $('#choiceCount').textContent = imgs.length>1 ? (imgs.length+' bills selected') : '1 bill';
+      $('#choiceCount').textContent = imgs.length>1 ? (imgs.length+' photos selected') : '1 photo';
       showM('#choiceModal');
-    };
+    }
     $('#choiceClose').onclick=()=>hideM('#choiceModal');
     $('#choiceNow').onclick=()=>{ hideM('#choiceModal'); startQueue(pickedImages); };
     $('#choiceLater').onclick=async()=>{
@@ -439,44 +444,95 @@
       toast(ok+' bill'+(ok===1?'':'s')+' saved — find them under “Bills waiting”.', ok?'success':'error'); refreshPending();
     };
 
-    // Batch: read & review the chosen bills ONE AT A TIME, each filed on its own date.
-    function startQueue(images){ ocrQueue={images:images.slice(),idx:0,entries:0,bills:0}; readQueueItem(); }
-    async function readQueueItem(){
-      if(!ocrQueue) return;
-      if(ocrQueue.idx>=ocrQueue.images.length){ finishQueue(); return; }
-      openReview(null,[],null,true);
-      try{
-        const r=await api('/canteen/ocr-photo',{method:'POST',body:{image:ocrQueue.images[ocrQueue.idx]}});
-        openReview(r.date,r.lines,null,false);
-      }catch(e){
-        if(ocrQueue.images.length>1){ toast('Bill '+(ocrQueue.idx+1)+' couldn’t be read ('+(e.message||'')+') — skipping.','error'); ocrQueue.idx++; return readQueueItem(); }
-        hideM('#ocrModal'); toast(e.message||'Could not read the photo','error'); ocrQueue=null;
-      }
+    // Batch: read ALL chosen photos AT ONCE (in parallel). A single photo may hold SEVERAL bills;
+    // every bill found (across all photos) is grouped by its date, its items merged, then reviewed
+    // one date at a time. Reading several at once is much faster than one-by-one.
+    async function startQueue(images){
+      ocrQueue={reading:true};
+      showM('#ocrModal'); $('#ocrSkip').hidden=true; $('#ocrSave').disabled=true;
+      $('#ocrTitle').textContent='Reading '+images.length+' photo'+(images.length>1?'s':'');
+      $('#ocrDateNote').textContent=''; $('#ocrSum').textContent='';
+      const prog=d=>{ $('#ocrLines').innerHTML='<div class="empty" style="padding:26px"><span class="ocrspin"></span> &nbsp;Reading… '+d+' of '+images.length+' photo'+(images.length>1?'s':'')+' done.</div>'; };
+      prog(0);
+      const results=new Array(images.length); let done=0, next=0;
+      const worker=async()=>{ while(next<images.length){ const i=next++;
+        try{ results[i]=await api('/canteen/ocr-photo',{method:'POST',body:{image:images[i]}}); }
+        catch(e){ results[i]={__error:e.message||'Could not read'}; }
+        prog(++done); if(!ocrQueue) return; } };
+      await Promise.all(Array.from({length:Math.min(4,images.length)},worker));   // up to 4 at a time
+      if(!ocrQueue) return;   // cancelled while reading
+      const allBills=[]; let fails=0;
+      results.forEach(r=>{ if(!r||r.__error){ if(r&&r.__error) fails++; return; } (r.bills||[]).forEach(b=>allBills.push(b)); });
+      if(fails) toast(fails+' photo'+(fails===1?'':'s')+' couldn’t be read and '+(fails===1?'was':'were')+' skipped.','error');
+      beginReview(allBills, null);
     }
-    function finishQueue(){
+    // Group a set of bills by date, merge each date's items, and start the date-by-date review.
+    function beginReview(bills, fromUpload){
+      const byDate=new Map();
+      (bills||[]).forEach(b=>{
+        const d=/^\d{4}-\d{2}-\d{2}$/.test((b&&b.date)||'')?b.date:null;
+        const key=d||'~';
+        if(!byDate.has(key)) byDate.set(key,{date:d,lines:[],bills:0,printedTotal:0,hasTotal:true});
+        const g=byDate.get(key); g.lines.push(...(b.lines||[])); g.bills++;
+        if(b && b.total!=null) g.printedTotal+=(+b.total||0); else g.hasTotal=false;   // for the total cross-check
+      });
+      const groups=[...byDate.values()].sort((a,b)=>{ const da=a.date||'~', db=b.date||'~'; return da<db?-1:da>db?1:0; });
+      groups.forEach(g=>{ g.lines=mergeOcrLines(g.lines); if(!g.hasTotal) g.printedTotal=null; });
+      if(!groups.length){ hideM('#ocrModal'); ocrQueue=null; toast('No items could be read.','error'); return; }
+      ocrQueue={groups,idx:0,entries:0,fromUpload:fromUpload||null};
+      reviewQueueItem();
+    }
+    // Merge item lines: the same item (by id, or by name for new items) is summed into one row.
+    function mergeOcrLines(lines){
+      const map=new Map();
+      (lines||[]).forEach(l=>{
+        const key=l.item_id?('id:'+l.item_id):('nm:'+String(l.name||'').toUpperCase().trim());
+        if(map.has(key)){ const e=map.get(key); e.qty=(+e.qty||0)+(+l.qty||0); e.amount=(+e.amount||0)+(+l.amount||0); }
+        else map.set(key,{name:l.name,qty:+l.qty||0,amount:+l.amount||0,item_id:l.item_id||null,status:l.status});
+      });
+      return [...map.values()];
+    }
+    // Show the next DATE group for review — all items for that date, combined.
+    function reviewQueueItem(){
+      if(!ocrQueue||!ocrQueue.groups) return;
+      if(ocrQueue.idx>=ocrQueue.groups.length){ finishQueue(); return; }
+      const g=ocrQueue.groups[ocrQueue.idx];
+      openReview(g.date,g.lines,null,false,g);
+    }
+    async function finishQueue(){
       const qd=ocrQueue; ocrQueue=null; hideM('#ocrModal');
-      if(qd&&qd.bills) toast(qd.entries+' entr'+(qd.entries===1?'y':'ies')+' saved from '+qd.bills+' bill'+(qd.bills===1?'':'s'),'success');
+      if(qd && qd.fromUpload){ try{ await api('/canteen/uploads/'+qd.fromUpload+'/done',{method:'POST',body:{date:(qd.groups&&qd.groups[0]&&qd.groups[0].date)||''}}); }catch(e){} }
+      if(qd&&qd.entries) toast(qd.entries+' entr'+(qd.entries===1?'y':'ies')+' saved across '+(qd.groups?qd.groups.length:1)+' date'+((qd.groups&&qd.groups.length===1)?'':'s'),'success');
       loadBoot().then(()=>setDate(curDate)).catch(()=>{}); refreshPending();
     }
-    // Read one parked bill (by upload id) and open the review modal.
+    // Read one parked photo (by upload id) — it too may contain several bills across dates.
     async function readParked(id){
-      ocrQueue=null; openReview(null,[],id,true);
-      try{ const r=await api('/canteen/uploads/'+id+'/ocr',{method:'POST'}); openReview(r.date,r.lines,id,false); }
-      catch(e){ hideM('#ocrModal'); toast(e.message||'Could not read the photo','error'); }
+      ocrQueue={reading:true}; openReview(null,[],null,true);
+      try{ const r=await api('/canteen/uploads/'+id+'/ocr',{method:'POST'}); if(!ocrQueue) return; beginReview(r.bills, id); }
+      catch(e){ hideM('#ocrModal'); ocrQueue=null; toast(e.message||'Could not read the photo','error'); }
     }
 
-    function openReview(date,lines,fromUpload,loading){
-      ocrState={fromUpload:fromUpload||null};
+    function openReview(date,lines,fromUpload,loading,group){
+      ocrState={fromUpload:fromUpload||null, printedTotal:(group && group.printedTotal!=null)?group.printedTotal:null};
       showM('#ocrModal');
-      const multi = ocrQueue && ocrQueue.images.length>1;
-      $('#ocrTitle').textContent = multi ? ('Review bill '+(ocrQueue.idx+1)+' of '+ocrQueue.images.length) : 'Review bill';
+      { const w=$('#ocrWarn'); if(w) w.style.display='none'; }
+      const groups = ocrQueue && ocrQueue.groups;
+      const multi = groups && groups.length>1;
+      const fmtD=s=>{const p=String(s).split('-');return p.length===3?((+p[2])+' '+MON[+p[1]-1]+' '+p[0]):s;};
+      let titleTxt='Review bill';
+      if(groups){
+        titleTxt = date ? fmtD(date) : 'Undated bills';
+        if(group && group.bills>1) titleTxt += ' · '+group.bills+' bills';
+        if(multi) titleTxt += '  ('+(ocrQueue.idx+1)+' of '+groups.length+')';
+      } else if(date){ titleTxt='Review bill — '+fmtD(date); }
+      $('#ocrTitle').textContent = titleTxt;
       $('#ocrSkip').hidden = !multi;
       if(loading){
         $('#ocrLines').innerHTML='<div class="empty" style="padding:26px"><span class="ocrspin"></span> &nbsp;Reading the photo… this takes a few seconds.</div>';
         $('#ocrSum').textContent=''; $('#ocrDateNote').textContent=''; $('#ocrSave').disabled=true; return;
       }
-      const last = !ocrQueue || ocrQueue.idx>=ocrQueue.images.length-1;
-      $('#ocrSave').disabled=false; $('#ocrSave').textContent = (ocrQueue && !last) ? 'Save & next bill' : 'Save entries';
+      const last = !groups || ocrQueue.idx>=groups.length-1;
+      $('#ocrSave').disabled=false; $('#ocrSave').textContent = (groups && !last) ? 'Save & next date' : 'Save entries';
       $('#ocrDate').value=date||curDate;
       $('#ocrDateNote').textContent=date?'(read from the bill — change if wrong)':'(no date on the bill — using the selected day)';
       const box=$('#ocrLines'); box.innerHTML='';
@@ -507,12 +563,18 @@
       let n=0,t=0;
       $('#ocrLines').querySelectorAll('.ol').forEach(r=>{ const a=+r.querySelector('.olamt').value||0; if(a){n++;t+=a;} });
       $('#ocrSum').textContent=n?(n+' item'+(n===1?'':'s')+' · '+fmt(t)):'Nothing to save';
+      // Cross-check the items against the bill's printed total.
+      const pt=ocrState&&ocrState.printedTotal, warn=$('#ocrWarn');
+      if(warn){
+        if(pt!=null && Math.abs(t-pt)>1){ warn.style.display='block'; warn.textContent='⚠ Items add up to '+fmt(t)+' but the bill(s) show '+fmt(pt)+' — please check the amounts before saving.'; }
+        else warn.style.display='none';
+      }
     }
 
-    const closeOcr=()=>{ if(ocrQueue){ const had=ocrQueue.bills; ocrQueue=null; if(had){ loadBoot().then(()=>setDate(curDate)).catch(()=>{}); } } hideM('#ocrModal'); refreshPending(); };
+    const closeOcr=()=>{ if(ocrQueue){ const had=ocrQueue.entries; ocrQueue=null; if(had){ loadBoot().then(()=>setDate(curDate)).catch(()=>{}); } } hideM('#ocrModal'); refreshPending(); };
     $('#ocrClose').onclick=closeOcr;
     $('#ocrCancel').onclick=closeOcr;
-    $('#ocrSkip').onclick=()=>{ if(!ocrQueue) return; ocrQueue.idx+=1; readQueueItem(); };
+    $('#ocrSkip').onclick=()=>{ if(!ocrQueue) return; ocrQueue.idx+=1; reviewQueueItem(); };
     $('#ocrSave').onclick=async()=>{
       const date=$('#ocrDate').value; if(!date) return toast('Pick a date','error');
       const rows=[...$('#ocrLines').querySelectorAll('.ol')]; if(!rows.length) return toast('Nothing to save','error');
@@ -532,12 +594,11 @@
         }
         if(!lines.length){ toast('Nothing to save','error'); btn.disabled=false; btn.textContent='Save entries'; return; }
         await api('/canteen/entries',{method:'PUT',body:{dates:[date],lines}});
-        if(ocrState.fromUpload) await api('/canteen/uploads/'+ocrState.fromUpload+'/done',{method:'POST',body:{date}});
         toast(lines.length+' entr'+(lines.length===1?'y':'ies')+' saved for '+(+date.slice(8))+' '+MON[+date.slice(5,7)-1],'success');
-        if(ocrQueue){ ocrQueue.entries+=lines.length; ocrQueue.bills+=1; ocrQueue.idx+=1; return readQueueItem(); }  // next bill, or finish
+        if(ocrQueue && ocrQueue.groups){ ocrQueue.entries+=lines.length; ocrQueue.idx+=1; return reviewQueueItem(); }  // next date, or finish
         hideM('#ocrModal');
         await loadBoot(); setDate(date); refreshPending();
-      }catch(e){ toast(e.message,'error'); btn.disabled=false; btn.textContent=(ocrQueue&&ocrQueue.idx<ocrQueue.images.length-1)?'Save & next bill':'Save entries'; }
+      }catch(e){ toast(e.message,'error'); btn.disabled=false; btn.textContent=(ocrQueue&&ocrQueue.groups&&ocrQueue.idx<ocrQueue.groups.length-1)?'Save & next date':'Save entries'; }
     };
 
     /* ---- bills parked for later ---- */
