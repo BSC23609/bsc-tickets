@@ -93,6 +93,25 @@
     table.items td{text-align:left}
     table.items select{max-width:190px;border:1px solid var(--line);border-radius:7px;padding:.25rem .3rem;background:#fff}
     @media (max-width:520px){.lh,.it{grid-template-columns:minmax(0,1fr) 64px 84px;gap:8px;padding:.5rem .6rem}.chips{margin-left:0}}
+    /* --- bill-photo OCR modal --- */
+    .ocrmodal{position:fixed;inset:0;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:14px}
+    .ocrmodal[hidden]{display:none}
+    .ocrcard{background:#fff;border-radius:14px;max-width:720px;width:100%;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+    .ocrhead,.ocrfoot{display:flex;align-items:center;gap:10px;padding:14px 18px}
+    .ocrhead{border-bottom:1px solid var(--line)} .ocrfoot{border-top:1px solid var(--line)}
+    .ocrbody{padding:14px 18px;overflow:auto}
+    .ol{display:grid;grid-template-columns:minmax(0,1fr) 72px 92px 34px;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--mist)}
+    .ol input{border:1px solid var(--line);border-radius:7px;padding:.3rem .45rem;width:100%}
+    .ol .olqty,.ol .olamt{text-align:right}
+    .ol.new{background:#fffbeb;border-radius:8px;padding:7px 8px}
+    .ol .newtag{font-size:.6rem;color:#b45309;text-transform:uppercase;letter-spacing:.05em;font-weight:700}
+    .ol .rm{border:none;background:none;color:#dc2626;cursor:pointer;font-size:1rem}
+    .olhead{display:grid;grid-template-columns:minmax(0,1fr) 72px 92px 34px;gap:8px;font-family:'Space Mono',monospace;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);padding-bottom:4px}
+    .ocrspin{display:inline-block;width:16px;height:16px;border:2px solid #cbd5e1;border-top-color:var(--ink);border-radius:50%;animation:ocrsp .7s linear infinite;vertical-align:-3px}
+    @keyframes ocrsp{to{transform:rotate(360deg)}}
+    .pendrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--mist)}
+    .pendrow .pmeta{flex:1;min-width:0} .pendrow .pmeta b{font-size:.9rem} .pendrow .pmeta .note{display:block}
+    @media (max-width:520px){.ol,.olhead{grid-template-columns:minmax(0,1fr) 56px 76px 28px;gap:6px}}
   </style>
 </head>
 <body class="min-h-screen">
@@ -164,6 +183,9 @@
           <input type="text" id="search" class="field grow" placeholder="Search item… (e.g. milk, harpic)" autocomplete="off">
           <button class="btn-ghost" id="copyPrev" title="Copy the items from the last day that has entries">Copy last day</button>
           <button class="btn-ghost" id="toggleNew">+ New item</button>
+          <button class="btn-ghost" id="photoBtn" title="Photograph one or more canteen bills and auto-fill the entries">📷 Upload bill photo</button>
+          <button class="btn-ghost" id="pendingBtn" hidden></button>
+          <input type="file" id="billFile" accept="image/*" capture="environment" multiple hidden>
         </div>
         <div class="panel" id="newPanel" hidden>
           <b>Add a new item</b>
@@ -219,6 +241,44 @@
       <div class="tablewrap" id="itemsTable"></div>
     </section>
   </main>
+
+  <!-- Bill photo: choose read-now vs save-for-later -->
+  <div id="choiceModal" class="ocrmodal" hidden>
+    <div class="ocrcard" style="max-width:380px">
+      <div class="ocrhead"><b>Bill photo</b><button class="btn-ghost" id="choiceClose" style="margin-left:auto">✕</button></div>
+      <div class="ocrbody" style="text-align:center">
+        <img id="choiceThumb" alt="bill" style="max-height:170px;border-radius:10px;border:1px solid #e2e8f0;margin-bottom:10px">
+        <div id="choiceCount" style="font-weight:700;margin-bottom:6px"></div>
+        <div class="note" style="margin-bottom:14px">Read now to review and save each bill (one at a time, filed on its own date), or keep them to enter later.</div>
+        <div class="row" style="justify-content:center;gap:10px">
+          <button class="btn" id="choiceNow">Read now</button>
+          <button class="btn-ghost" id="choiceLater">Save for later</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bill photo: review the read lines before saving -->
+  <div id="ocrModal" class="ocrmodal" hidden>
+    <div class="ocrcard">
+      <div class="ocrhead"><b id="ocrTitle">Review bill</b><button class="btn-ghost" id="ocrClose" style="margin-left:auto">✕</button></div>
+      <div class="ocrbody">
+        <div class="row" style="margin-bottom:10px"><label class="fieldlabel" for="ocrDate" style="margin-right:6px">Date</label><input type="date" id="ocrDate" class="field" style="width:auto"><span class="note" id="ocrDateNote" style="margin-left:8px"></span></div>
+        <div class="olhead"><span>Item</span><span style="text-align:right">Qty</span><span style="text-align:right">Amount ₹</span><span></span></div>
+        <div id="ocrLines"></div>
+        <p class="note" style="margin-top:8px">Check each line against the bill — fix any misread number, remove a wrong line with ✕, then Save. New items (yellow) are added to your item list automatically.</p>
+      </div>
+      <div class="ocrfoot"><span id="ocrSum" class="note"></span><span class="row" style="margin-left:auto"><button class="btn-ghost" id="ocrCancel">Cancel</button><button class="btn-ghost" id="ocrSkip" hidden>Skip this bill</button><button class="btn" id="ocrSave">Save entries</button></span></div>
+    </div>
+  </div>
+
+  <!-- Bill photo: bills parked for later -->
+  <div id="pendModal" class="ocrmodal" hidden>
+    <div class="ocrcard">
+      <div class="ocrhead"><b>Bills waiting to be entered</b><button class="btn-ghost" id="pendClose" style="margin-left:auto">✕</button></div>
+      <div class="ocrbody" id="pendList"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
 
   <script src="/js/common.js?v=89"></script>
   <script>
@@ -329,6 +389,182 @@
         const qi=document.getElementById('q-'+r.id); if(qi) qi.focus();
       }catch(e){ toast(e.message,'error'); }
     };
+
+    /* ---------- bill photo → OCR → entries ---------- */
+    let ocrState={fromUpload:null}, pickedImages=[], ocrQueue=null;
+    const showM=sel=>{$(sel).hidden=false;}, hideM=sel=>{$(sel).hidden=true;};
+
+    // Downscale + compress the photo so the request stays well under the 1 MB body limit,
+    // while keeping it legible for reading. Returns a JPEG data URL (~<900 KB).
+    async function compressImage(file){
+      const url=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error('read'));r.readAsDataURL(file);});
+      const img=await new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>rej(new Error('image'));im.src=url;});
+      let maxDim=1600,q=0.72,out='';
+      for(let pass=0;pass<6;pass++){
+        const scale=Math.min(1,maxDim/Math.max(img.width,img.height));
+        const w=Math.max(1,Math.round(img.width*scale)), h=Math.max(1,Math.round(img.height*scale));
+        const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+        const ctx=cv.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h); ctx.drawImage(img,0,0,w,h);
+        out=cv.toDataURL('image/jpeg',q);
+        if(out.length<=900000) break;
+        if(q>0.5) q-=0.12; else maxDim=Math.round(maxDim*0.82);
+      }
+      return out;
+    }
+
+    $('#photoBtn').onclick=()=>$('#billFile').click();
+    $('#billFile').onchange=async()=>{
+      const files=[...$('#billFile').files]; $('#billFile').value='';
+      if(!files.length) return;
+      $('#photoBtn').disabled=true; $('#photoBtn').textContent='Preparing…';
+      const imgs=[];
+      for(const f of files){
+        if(!/^image\//.test(f.type)) continue;
+        if(f.size>30*1024*1024){ toast('Skipped a photo over 30 MB','error'); continue; }
+        try{ imgs.push(await compressImage(f)); }catch(e){}
+      }
+      $('#photoBtn').disabled=false; $('#photoBtn').textContent='📷 Upload bill photo';
+      if(!imgs.length) return toast('Could not read those images','error');
+      pickedImages=imgs;
+      $('#choiceThumb').src=imgs[0];
+      $('#choiceCount').textContent = imgs.length>1 ? (imgs.length+' bills selected') : '1 bill';
+      showM('#choiceModal');
+    };
+    $('#choiceClose').onclick=()=>hideM('#choiceModal');
+    $('#choiceNow').onclick=()=>{ hideM('#choiceModal'); startQueue(pickedImages); };
+    $('#choiceLater').onclick=async()=>{
+      hideM('#choiceModal');
+      let ok=0;
+      for(const im of pickedImages){ try{ await api('/canteen/photo-later',{method:'POST',body:{image:im}}); ok++; }catch(e){} }
+      toast(ok+' bill'+(ok===1?'':'s')+' saved — find them under “Bills waiting”.', ok?'success':'error'); refreshPending();
+    };
+
+    // Batch: read & review the chosen bills ONE AT A TIME, each filed on its own date.
+    function startQueue(images){ ocrQueue={images:images.slice(),idx:0,entries:0,bills:0}; readQueueItem(); }
+    async function readQueueItem(){
+      if(!ocrQueue) return;
+      if(ocrQueue.idx>=ocrQueue.images.length){ finishQueue(); return; }
+      openReview(null,[],null,true);
+      try{
+        const r=await api('/canteen/ocr-photo',{method:'POST',body:{image:ocrQueue.images[ocrQueue.idx]}});
+        openReview(r.date,r.lines,null,false);
+      }catch(e){
+        if(ocrQueue.images.length>1){ toast('Bill '+(ocrQueue.idx+1)+' couldn’t be read ('+(e.message||'')+') — skipping.','error'); ocrQueue.idx++; return readQueueItem(); }
+        hideM('#ocrModal'); toast(e.message||'Could not read the photo','error'); ocrQueue=null;
+      }
+    }
+    function finishQueue(){
+      const qd=ocrQueue; ocrQueue=null; hideM('#ocrModal');
+      if(qd&&qd.bills) toast(qd.entries+' entr'+(qd.entries===1?'y':'ies')+' saved from '+qd.bills+' bill'+(qd.bills===1?'':'s'),'success');
+      loadBoot().then(()=>setDate(curDate)).catch(()=>{}); refreshPending();
+    }
+    // Read one parked bill (by upload id) and open the review modal.
+    async function readParked(id){
+      ocrQueue=null; openReview(null,[],id,true);
+      try{ const r=await api('/canteen/uploads/'+id+'/ocr',{method:'POST'}); openReview(r.date,r.lines,id,false); }
+      catch(e){ hideM('#ocrModal'); toast(e.message||'Could not read the photo','error'); }
+    }
+
+    function openReview(date,lines,fromUpload,loading){
+      ocrState={fromUpload:fromUpload||null};
+      showM('#ocrModal');
+      const multi = ocrQueue && ocrQueue.images.length>1;
+      $('#ocrTitle').textContent = multi ? ('Review bill '+(ocrQueue.idx+1)+' of '+ocrQueue.images.length) : 'Review bill';
+      $('#ocrSkip').hidden = !multi;
+      if(loading){
+        $('#ocrLines').innerHTML='<div class="empty" style="padding:26px"><span class="ocrspin"></span> &nbsp;Reading the photo… this takes a few seconds.</div>';
+        $('#ocrSum').textContent=''; $('#ocrDateNote').textContent=''; $('#ocrSave').disabled=true; return;
+      }
+      const last = !ocrQueue || ocrQueue.idx>=ocrQueue.images.length-1;
+      $('#ocrSave').disabled=false; $('#ocrSave').textContent = (ocrQueue && !last) ? 'Save & next bill' : 'Save entries';
+      $('#ocrDate').value=date||curDate;
+      $('#ocrDateNote').textContent=date?'(read from the bill — change if wrong)':'(no date on the bill — using the selected day)';
+      const box=$('#ocrLines'); box.innerHTML='';
+      (lines||[]).forEach((l,idx)=>{
+        const row=document.createElement('div'); row.className='ol'+(l.status==='new'?' new':''); row.dataset.idx=idx; row.__line=l;
+        const itCell=document.createElement('div');
+        if(l.status==='new'){
+          const tag=document.createElement('div'); tag.className='newtag'; tag.textContent='New item — will be added';
+          const nmIn=document.createElement('input'); nmIn.className='olname'; nmIn.value=l.name; nmIn.placeholder='Item name';
+          const sel=document.createElement('select'); sel.className='olcat'; sel.style.cssText='border:1px solid var(--line);border-radius:7px;padding:.28rem;margin-top:5px;max-width:160px';
+          cats.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;sel.append(o);});
+          itCell.append(tag,nmIn,sel);
+        } else {
+          const nm=document.createElement('div'); nm.textContent=l.name; nm.style.fontWeight='600';
+          itCell.append(nm);
+        }
+        const qIn=document.createElement('input'); qIn.className='olqty'; qIn.type='number'; qIn.min='0'; qIn.step='any'; qIn.inputMode='decimal'; qIn.value=l.qty||'';
+        const aIn=document.createElement('input'); aIn.className='olamt'; aIn.type='number'; aIn.min='0'; aIn.step='any'; aIn.inputMode='decimal'; aIn.value=l.amount||'';
+        aIn.addEventListener('input',updateOcrSum);
+        const rm=document.createElement('button'); rm.className='rm'; rm.textContent='✕'; rm.title='Remove this line'; rm.onclick=()=>{ row.remove(); updateOcrSum(); };
+        row.append(itCell,qIn,aIn,rm); box.append(row);
+      });
+      if(!box.children.length) box.innerHTML='<div class="empty">No item lines were read. Close and try a clearer, straight-on photo.</div>';
+      updateOcrSum();
+    }
+
+    function updateOcrSum(){
+      let n=0,t=0;
+      $('#ocrLines').querySelectorAll('.ol').forEach(r=>{ const a=+r.querySelector('.olamt').value||0; if(a){n++;t+=a;} });
+      $('#ocrSum').textContent=n?(n+' item'+(n===1?'':'s')+' · '+fmt(t)):'Nothing to save';
+    }
+
+    const closeOcr=()=>{ if(ocrQueue){ const had=ocrQueue.bills; ocrQueue=null; if(had){ loadBoot().then(()=>setDate(curDate)).catch(()=>{}); } } hideM('#ocrModal'); refreshPending(); };
+    $('#ocrClose').onclick=closeOcr;
+    $('#ocrCancel').onclick=closeOcr;
+    $('#ocrSkip').onclick=()=>{ if(!ocrQueue) return; ocrQueue.idx+=1; readQueueItem(); };
+    $('#ocrSave').onclick=async()=>{
+      const date=$('#ocrDate').value; if(!date) return toast('Pick a date','error');
+      const rows=[...$('#ocrLines').querySelectorAll('.ol')]; if(!rows.length) return toast('Nothing to save','error');
+      const btn=$('#ocrSave'); btn.disabled=true; btn.textContent='Saving…';
+      try{
+        const lines=[];
+        for(const r of rows){
+          const qv=+r.querySelector('.olqty').value||0, av=+r.querySelector('.olamt').value||0;
+          if(!qv&&!av) continue;
+          let item_id=r.__line.item_id;
+          if(!item_id){
+            const nm=(r.querySelector('.olname').value||'').trim(); if(!nm) continue;
+            const made=await api('/canteen/items',{method:'POST',body:{name:nm,category:r.querySelector('.olcat').value,rate:qv>0?Math.round(av/qv*100)/100:0}});
+            item_id=made.id;
+          }
+          lines.push({item_id,qty:qv,amount:av});
+        }
+        if(!lines.length){ toast('Nothing to save','error'); btn.disabled=false; btn.textContent='Save entries'; return; }
+        await api('/canteen/entries',{method:'PUT',body:{dates:[date],lines}});
+        if(ocrState.fromUpload) await api('/canteen/uploads/'+ocrState.fromUpload+'/done',{method:'POST',body:{date}});
+        toast(lines.length+' entr'+(lines.length===1?'y':'ies')+' saved for '+(+date.slice(8))+' '+MON[+date.slice(5,7)-1],'success');
+        if(ocrQueue){ ocrQueue.entries+=lines.length; ocrQueue.bills+=1; ocrQueue.idx+=1; return readQueueItem(); }  // next bill, or finish
+        hideM('#ocrModal');
+        await loadBoot(); setDate(date); refreshPending();
+      }catch(e){ toast(e.message,'error'); btn.disabled=false; btn.textContent=(ocrQueue&&ocrQueue.idx<ocrQueue.images.length-1)?'Save & next bill':'Save entries'; }
+    };
+
+    /* ---- bills parked for later ---- */
+    async function refreshPending(){
+      try{
+        const r=await api('/canteen/uploads'); window.__pend=r.uploads||[];
+        const b=$('#pendingBtn'); b.hidden=!window.__pend.length; b.textContent='🕒 Bills waiting ('+window.__pend.length+')';
+      }catch(e){ $('#pendingBtn').hidden=true; }
+    }
+    $('#pendingBtn').onclick=()=>{ renderPending(); showM('#pendModal'); };
+    $('#pendClose').onclick=()=>hideM('#pendModal');
+    function renderPending(){
+      const list=$('#pendList'), ups=window.__pend||[];
+      if(!ups.length){ list.innerHTML='<div class="empty">No bills waiting.</div>'; return; }
+      list.innerHTML='';
+      ups.forEach(u=>{
+        const row=document.createElement('div'); row.className='pendrow';
+        const meta=document.createElement('div'); meta.className='pmeta';
+        meta.innerHTML='<b>Bill #'+u.id+'</b><span class="note">'+esc(u.uploaded_by_name||'')+' · '+esc(u.when||'')+(u.status==='parsed'?' · already read':'')+(u.note?(' · '+esc(u.note)):'')+'</span>';
+        const read=document.createElement('button'); read.className='btn'; read.textContent='Read & enter';
+        read.onclick=()=>{ hideM('#pendModal'); readParked(u.id); };
+        const del=document.createElement('button'); del.className='btn-ghost'; del.textContent='Discard';
+        del.onclick=async()=>{ if(!confirm('Discard bill #'+u.id+'? This cannot be undone.')) return;
+          try{ await api('/canteen/uploads/'+u.id,{method:'DELETE'}); toast('Bill discarded','success'); await refreshPending(); renderPending(); }catch(e){ toast(e.message,'error'); } };
+        row.append(meta,read,del); list.append(row);
+      });
+    }
 
     /* ---------- several days at once ---------- */
     (function(){ const box=$('#mDows'); ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d,i)=>{ const l=document.createElement('label'); const c=document.createElement('input'); c.type='checkbox'; c.id='dow-'+i; c.checked=i<6; c.addEventListener('change',updateMulti); l.append(c,d); box.append(l); }); })();
@@ -545,7 +781,7 @@
       try{
         const me=await api('/me'); $('#who').textContent=me.name+' · '+me.emp_no;
         if(!(me.apps&&me.apps.canteen)){ banner('You do not have access to the Canteen Register. Ask an admin to grant it under Admin → Employees → App access.',true); $('#rows').innerHTML=''; return; }
-        await loadBoot(); setDate(curDate);
+        await loadBoot(); setDate(curDate); refreshPending();
       }catch(e){ banner(e.message,true); }
     })();
   })();

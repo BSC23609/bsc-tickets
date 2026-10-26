@@ -632,3 +632,21 @@ CREATE TABLE IF NOT EXISTS canteen_cook_salary (
   month   TEXT PRIMARY KEY,                  -- 'YYYY-MM'
   amount  NUMERIC(12,2) NOT NULL DEFAULT 0
 );
+
+-- Bill-photo uploads. A photo can be read right away ('read now') or parked for later
+-- ('pending') and read/posted by an admin from the Pending bills list. parsed_json holds
+-- the OCR result { date, lines[] } once read; once its entries are saved -> 'posted'.
+CREATE TABLE IF NOT EXISTS canteen_uploads (
+  id            SERIAL PRIMARY KEY,
+  status        TEXT NOT NULL DEFAULT 'pending',   -- pending | parsed | posted
+  note          TEXT,
+  drive_url     TEXT,                              -- OneDrive web link to the stored photo (best-effort)
+  image_b64     TEXT,                              -- the photo (data URL) while pending, so it can be read later; cleared once posted
+  parsed_json   JSONB,                             -- { date, lines:[{name,qty,amount}] }
+  posted_date   DATE,                              -- the date its entries were filed under
+  uploaded_by   INT REFERENCES employees(id) ON DELETE SET NULL,
+  uploaded_by_name TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_canteen_uploads_status ON canteen_uploads(status);

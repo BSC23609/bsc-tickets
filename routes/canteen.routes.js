@@ -10,6 +10,7 @@ const { requireAuth, requireAdmin } = require('../lib/auth');
 const { appAccessFor } = require('../lib/apps');
 const { background } = require('../lib/bg');
 const C = require('../lib/canteen');
+const ocr = require('../lib/canteen_ocr');
 
 router.use(requireAuth);
 router.use((req, res, next) => {
@@ -209,6 +210,101 @@ router.put('/items/:id', async (req, res) => {
     console.error('[canteen item update]', e.message); return res.status(500).json({ error: 'Could not save the item' });
   }
   syncLog();
+  res.json({ ok: true });
+});
+
+// ======================= Bill-photo upload → OCR → entries =======================
+// A photo of a canteen bill (plain item-name + qty + amount, no QR) is read by Claude vision
+// into lines, each matched to an item in the master. Nothing is saved until the user reviews
+// the lines and hits Save (which reuses PUT /entries). A photo can also be parked for later.
+
+// Match each OCR'd line to a master item by normalised name; unknown -> status 'new'.
+async function matchLines(lines) {
+  const items = (await q(`SELECT id, name FROM canteen_items WHERE hidden=FALSE`)).rows;
+  const byName = new Map(items.map((i) => [i.name, i.id]));          // names stored already normalised
+  return (lines || []).map((l) => {
+    const norm = C.normName(l.name) || String(l.name || '').trim();
+    let item_id = byName.get(norm) || null;
+    if (!item_id && norm.length >= 3) {                              // loose contains match as a fallback
+      const hit = items.find((i) => i.name.includes(norm) || norm.includes(i.name));
+      if (hit) item_id = hit.id;
+    }
+    return { name: norm, qty: l.qty, amount: l.amount, item_id, status: item_id ? 'matched' : 'new' };
+  });
+}
+
+// Best-effort OneDrive audit copy of the photo, in the background (never blocks the response).
+function storePhoto(dataUrl, ref) {
+  background((async () => {
+    try {
+      const m = /^data:(image\/[a-z]+);base64,(.+)$/i.exec(dataUrl || ''); if (!m) return;
+      const ext = m[1].split('/')[1].replace('jpeg', 'jpg');
+      await require('../lib/graph').uploadCanteenPhoto(`${ref}.${ext}`, Buffer.from(m[2], 'base64'), m[1]);
+    } catch (e) { console.error('[canteen photo store]', e.message); }
+  })());
+}
+
+// Read a bill photo NOW — return the parsed, item-matched lines for review. Saves nothing.
+router.post('/ocr-photo', async (req, res) => {
+  const image = (req.body && req.body.image) || '';
+  if (!/^data:image\//.test(image)) return res.status(400).json({ error: 'Please choose a photo to read.' });
+  if (image.length > 1500000) return res.status(413).json({ error: 'That photo is too large — please retake it.' });
+  let result;
+  try { result = await ocr.readBill(image); }
+  catch (e) { return res.status(502).json({ error: e.message }); }
+  if (!result.lines.length) return res.status(422).json({ error: 'No item lines could be read. Please try a clearer, straight-on photo.' });
+  storePhoto(image, 'bill-' + Date.now());
+  res.json({ date: result.date, lines: await matchLines(result.lines) });
+});
+
+// Park a bill photo for LATER — stored pending, no entries yet; read & posted from Pending bills.
+router.post('/photo-later', async (req, res) => {
+  const image = (req.body && req.body.image) || '';
+  const note = String((req.body && req.body.note) || '').slice(0, 300);
+  if (!/^data:image\//.test(image)) return res.status(400).json({ error: 'Please choose a photo.' });
+  if (image.length > 1500000) return res.status(413).json({ error: 'That photo is too large — please retake it.' });
+  const { rows } = await q(
+    `INSERT INTO canteen_uploads (status, note, image_b64, uploaded_by, uploaded_by_name)
+     VALUES ('pending',$1,$2,$3,$4) RETURNING id`,
+    [note || null, image, req.user.id, req.user.name]);
+  storePhoto(image, 'bill-' + rows[0].id);
+  res.json({ ok: true, id: rows[0].id });
+});
+
+// Bills waiting to be read/posted (newest first).
+router.get('/uploads', async (req, res) => {
+  const { rows } = await q(
+    `SELECT id, status, note, drive_url, uploaded_by_name,
+            to_char(created_at AT TIME ZONE 'Asia/Kolkata','DD Mon, HH12:MI AM') AS when
+       FROM canteen_uploads WHERE status IN ('pending','parsed') ORDER BY created_at DESC LIMIT 100`);
+  res.json({ uploads: rows });
+});
+
+// Read a parked bill now — OCR its stored photo, return matched lines for review.
+router.post('/uploads/:id/ocr', async (req, res) => {
+  const id = Number(req.params.id);
+  const row = (await q(`SELECT image_b64 FROM canteen_uploads WHERE id=$1`, [id])).rows[0];
+  if (!row || !row.image_b64) return res.status(404).json({ error: 'That upload is no longer available.' });
+  let result;
+  try { result = await ocr.readBill(row.image_b64); }
+  catch (e) { return res.status(502).json({ error: e.message }); }
+  await q(`UPDATE canteen_uploads SET status='parsed', parsed_json=$2, updated_at=now() WHERE id=$1`,
+    [id, JSON.stringify({ date: result.date, lines: result.lines })]);
+  res.json({ date: result.date, lines: await matchLines(result.lines) });
+});
+
+// Mark a parked bill done once its entries are saved (frees the stored photo).
+router.post('/uploads/:id/done', async (req, res) => {
+  const id = Number(req.params.id);
+  const d = req.body && req.body.date;
+  await q(`UPDATE canteen_uploads SET status='posted', image_b64=NULL, posted_date=$2, updated_at=now() WHERE id=$1`,
+    [id, C.isDate(d) ? d : null]);
+  res.json({ ok: true });
+});
+
+// Discard a parked bill without posting.
+router.delete('/uploads/:id', async (req, res) => {
+  await q(`DELETE FROM canteen_uploads WHERE id=$1 AND status<>'posted'`, [Number(req.params.id)]);
   res.json({ ok: true });
 });
 
