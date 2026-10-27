@@ -540,11 +540,14 @@
         const row=document.createElement('div'); row.className='ol'+(l.status==='new'?' new':''); row.dataset.idx=idx; row.__line=l;
         const itCell=document.createElement('div');
         if(l.status==='new'){
-          const tag=document.createElement('div'); tag.className='newtag'; tag.textContent='New item — will be added';
+          // Not in the item list — ask before adding: the entry is saved only if this is ticked.
+          const lbl=document.createElement('label'); lbl.className='newtag'; lbl.style.cssText='display:flex;align-items:center;gap:6px;cursor:pointer';
+          const chk=document.createElement('input'); chk.type='checkbox'; chk.className='oladd'; chk.style.width='auto';
+          lbl.append(chk, document.createTextNode('Not in your list — tick to add as a new item'));
           const nmIn=document.createElement('input'); nmIn.className='olname'; nmIn.value=l.name; nmIn.placeholder='Item name';
           const sel=document.createElement('select'); sel.className='olcat'; sel.style.cssText='border:1px solid var(--line);border-radius:7px;padding:.28rem;margin-top:5px;max-width:160px';
           cats.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;sel.append(o);});
-          itCell.append(tag,nmIn,sel);
+          itCell.append(lbl,nmIn,sel);
         } else {
           const nm=document.createElement('div'); nm.textContent=l.name; nm.style.fontWeight='600';
           itCell.append(nm);
@@ -580,21 +583,23 @@
       const rows=[...$('#ocrLines').querySelectorAll('.ol')]; if(!rows.length) return toast('Nothing to save','error');
       const btn=$('#ocrSave'); btn.disabled=true; btn.textContent='Saving…';
       try{
-        const lines=[];
+        const lines=[]; let skipped=0;
         for(const r of rows){
           const qv=+r.querySelector('.olqty').value||0, av=+r.querySelector('.olamt').value||0;
           if(!qv&&!av) continue;
           let item_id=r.__line.item_id;
           if(!item_id){
-            const nm=(r.querySelector('.olname').value||'').trim(); if(!nm) continue;
+            const addChk=r.querySelector('.oladd');
+            if(!addChk || !addChk.checked){ skipped++; continue; }   // new item not confirmed — leave it out
+            const nm=(r.querySelector('.olname').value||'').trim(); if(!nm){ skipped++; continue; }
             const made=await api('/canteen/items',{method:'POST',body:{name:nm,category:r.querySelector('.olcat').value,rate:qv>0?Math.round(av/qv*100)/100:0}});
             item_id=made.id;
           }
           lines.push({item_id,qty:qv,amount:av});
         }
-        if(!lines.length){ toast('Nothing to save','error'); btn.disabled=false; btn.textContent='Save entries'; return; }
+        if(!lines.length){ toast(skipped?'Nothing saved — tick “add as a new item” for the ones you want to keep.':'Nothing to save','error'); btn.disabled=false; btn.textContent=(ocrQueue&&ocrQueue.groups&&ocrQueue.idx<ocrQueue.groups.length-1)?'Save & next date':'Save entries'; return; }
         await api('/canteen/entries',{method:'PUT',body:{dates:[date],lines}});
-        toast(lines.length+' entr'+(lines.length===1?'y':'ies')+' saved for '+(+date.slice(8))+' '+MON[+date.slice(5,7)-1],'success');
+        toast(lines.length+' entr'+(lines.length===1?'y':'ies')+' saved for '+(+date.slice(8))+' '+MON[+date.slice(5,7)-1]+(skipped?(' · '+skipped+' not-in-list item'+(skipped===1?'':'s')+' left out'):''),'success');
         if(ocrQueue && ocrQueue.groups){ ocrQueue.entries+=lines.length; ocrQueue.idx+=1; return reviewQueueItem(); }  // next date, or finish
         hideM('#ocrModal');
         await loadBoot(); setDate(date); refreshPending();
