@@ -56,6 +56,7 @@
       <input id="pw" type="password" autocomplete="current-password" class="field mb-5"
              onkeydown="if(event.key==='Enter')doLogin()" />
       <button onclick="doLogin()" id="loginBtn" class="btn w-full">Sign in</button>
+      <a id="groupSso" href="#" class="btn-ghost w-full mt-3" style="display:none">Sign in with Bharat Steel Group</a>
       <div class="mt-4 text-center">
         <button onclick="showForgot()" class="text-xs font-semibold text-brand-600 hover:underline">Forgot password?</button>
       </div>
@@ -129,6 +130,16 @@
       try { localStorage.removeItem('bsc_token'); } catch {}
       if (window.hideBscSplash) window.hideBscSplash();   // not signed in → show login
     })();
+
+    // Offer the group portal sign-in when this app has it switched on.
+    fetch('/api/group-sso').then((r) => r.json()).then((g) => {
+      if (!g || !g.enabled || !g.url) return;
+      const a = document.getElementById('groupSso');
+      const next = targetTicket ? '/app.html?t=' + encodeURIComponent(targetTicket)
+        : targetOg ? '/outpass.html?id=' + encodeURIComponent(targetOg) : '';
+      a.href = g.url + (next ? '?next=' + encodeURIComponent(next) : '');
+      a.style.display = '';
+    }).catch(() => {});
 
     function showForgot() {
       document.getElementById('loginCard').classList.add('hidden');
