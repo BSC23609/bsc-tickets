@@ -325,6 +325,31 @@ async function gateConfig() {
   };
 }
 
+// On return, let the approver and HR know by WhatsApp that the employee is back at the office.
+// Best-effort and silent on failure (e.g. if the WATI 'outpass_returned' template isn't set up).
+async function notifyReturn(passId) {
+  try {
+    const o = (await q(`SELECT o.*, r.name AS requester_name FROM outpass_requests o
+                        JOIN employees r ON r.id=o.requester_id WHERE o.id=$1`, [passId])).rows[0];
+    if (!o || o.type !== 'gatepass') return;
+    const cfg = await gateConfig();
+    const ids = [o.approver_id, cfg.hrEmpId].filter(Boolean);
+    if (!ids.length) return;
+    const people = (await q(`SELECT id, name, phone FROM employees WHERE id = ANY($1::int[])`, [[...new Set(ids)]])).rows;
+    const retAt = o.returned_at ? new Date(o.returned_at).toLocaleString('en-IN',
+      { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true }) : '-';
+    const sent = new Set();
+    for (const p of people) {
+      if (!p.phone || sent.has(p.phone)) continue;
+      sent.add(p.phone);
+      try {
+        await wati.notify.outpass.returned({ name: p.name, phone: p.phone }, {
+          employee: o.requester_name, ref: o.ref_no, out_time: o.out_time, returned_at: retAt, purpose: o.purpose });
+      } catch (e) { console.error('[return notify send]', p.name, e.message); }
+    }
+  } catch (e) { console.error('[notifyReturn]', e.message); }
+}
+
 // A pass is "out" if it's an approved gatepass with an expected return and no return recorded.
 const OPEN_WHERE = `o.status='approved' AND o.type='gatepass'
   AND o.expected_back_at IS NOT NULL AND o.returned_at IS NULL`;
@@ -420,6 +445,7 @@ router.post('/:id/return-gps', async (req, res) => {
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via='gps', return_verified=TRUE,
            returned_by_id=$2, return_lat=$3, return_lng=$4, return_accuracy_m=$5, return_distance_m=$6 WHERE id=$1`,
           [o.id, req.user.id, lat, lng, Number(accuracy) || null, dist]);
+  background(notifyReturn(o.id));   // tell approver + HR the employee is back
   res.json({ ok: true, distance_m: dist });
 });
 
@@ -433,6 +459,7 @@ router.post('/:id/return-manual', async (req, res) => {
   const via = req.user.is_admin ? 'admin' : 'approver';
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE, returned_by_id=$3 WHERE id=$1`,
           [o.id, via, req.user.id]);
+  background(notifyReturn(o.id));   // tell approver + HR the employee is back
   res.json({ ok: true });
 });
 
@@ -494,6 +521,7 @@ async function markReturnByToken(token, via = 'self_whatsapp') {
   if (o.returned_at) return { status: 'already', ref: o.ref_no };
   if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE WHERE id=$1`, [o.id, via]);
+  background(notifyReturn(o.id));   // tell approver + HR the employee is back
   return { status: 'ok', ref: o.ref_no };
 }
 // Read-only check so the "I'm Back" page knows what to render before asking for location.
@@ -519,6 +547,7 @@ async function markReturnByTokenGps(token, lat, lng, accuracy) {
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via='self_whatsapp', return_verified=TRUE,
            return_lat=$2, return_lng=$3, return_accuracy_m=$4, return_distance_m=$5 WHERE id=$1`,
           [o.id, lat, lng, Number(accuracy) || null, dist]);
+  background(notifyReturn(o.id));   // tell approver + HR the employee is back
   return { status: 'ok', ref: o.ref_no, dist };
 }
 async function markApproverAlerted(id) {
