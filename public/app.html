@@ -413,38 +413,50 @@
         document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
       }
       const el = document.getElementById('logTable');
-      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading…</div>';
+      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading list…</div>';
+      // Fetch directly with just the login cookie — this mirrors the bare request proven to return
+      // instantly. The shared api() helper adds Content-Type/Authorization headers that were
+      // stalling this specific call. Hard 15s timeout so it can never sit on "Loading" forever.
+      const url = '/api/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 15000);
       try {
-        // Use the same (proven-working) source as the Admin Console's ticket table.
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('the server did not respond (timed out)')), 25000));
-        const rows = await Promise.race([
-          api('/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)),
-          timeout
-        ]);
+        const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: ac.signal });
+        clearTimeout(timer);
+        if (res.status === 401) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Your session expired — please sign in again.</div>'; return; }
+        if (!res.ok) throw new Error('server returned HTTP ' + res.status);
+        const rows = await res.json();
         const dash = '<span class="text-slate-400">—</span>';
         const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
-        el.innerHTML = `
-          <table class="w-full text-sm border-collapse">
-            <thead><tr class="bg-slate-50 text-left">
-              <th class="${cl} font-bold w-12">S.No</th>
-              <th class="${cl} font-bold">Ticket ID</th>
-              <th class="${cl} font-bold">Description</th>
-              <th class="${cl} font-bold">Assigned by</th>
-              <th class="${cl} font-bold whitespace-nowrap">Assigned time</th>
-              <th class="${cl} font-bold">Status</th>
-            </tr></thead>
-            <tbody>${rows.length ? rows.map((t, i) => `
-              <tr>
-                <td class="${cl}">${i + 1}</td>
-                <td class="${cl} mono whitespace-nowrap">${t.ref_no}</td>
-                <td class="${cl}">${esc(t.subject || '')}</td>
-                <td class="${cl}">${t.assigned_to ? esc(t.assigned_to) : dash}</td>
-                <td class="${cl} whitespace-nowrap">${fmtDateTime(t.assigned_at || t.raised_at)}</td>
-                <td class="${cl}">${statusBadgeT(t)}</td>
-              </tr>`).join('') : `<tr><td colspan="6" class="${cl} text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>`}</tbody>
-          </table>`;
+        const body = (Array.isArray(rows) ? rows : []).map((t, i) => {
+          let when, st;
+          try { when = fmtDateTime(t.assigned_at || t.raised_at); } catch (_) { when = esc(t.assigned_at || t.raised_at || ''); }
+          try { st = statusBadgeT(t); } catch (_) { st = esc(t.status || ''); }
+          return '<tr>'
+            + '<td class="' + cl + '">' + (i + 1) + '</td>'
+            + '<td class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
+            + '<td class="' + cl + '">' + esc(t.subject || '') + '</td>'
+            + '<td class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
+            + '<td class="' + cl + ' whitespace-nowrap">' + when + '</td>'
+            + '<td class="' + cl + '">' + st + '</td>'
+            + '</tr>';
+        }).join('');
+        el.innerHTML =
+          '<table class="w-full text-sm border-collapse">'
+          + '<thead><tr class="bg-slate-50 text-left">'
+          + '<th class="' + cl + ' font-bold w-12">S.No</th>'
+          + '<th class="' + cl + ' font-bold">Ticket ID</th>'
+          + '<th class="' + cl + ' font-bold">Description</th>'
+          + '<th class="' + cl + ' font-bold">Assigned by</th>'
+          + '<th class="' + cl + ' font-bold whitespace-nowrap">Assigned time</th>'
+          + '<th class="' + cl + ' font-bold">Status</th>'
+          + '</tr></thead>'
+          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>') + '</tbody>'
+          + '</table>';
       } catch (e) {
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e.message || 'error') + '</div>';
+        clearTimeout(timer);
+        const msg = (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) ? 'the server took too long (timed out)' : (e && e.message || 'error');
+        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(msg) + '</div>';
       }
     }
 
