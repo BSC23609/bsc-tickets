@@ -421,7 +421,6 @@
             <th class="${cl} font-bold w-12">S.No</th>
             <th class="${cl} font-bold">Ticket ID</th>
             <th class="${cl} font-bold">Description</th>
-            <th class="${cl} font-bold">Assigned to</th>
             <th class="${cl} font-bold">Assigned by</th>
             <th class="${cl} font-bold whitespace-nowrap">Assigned time</th>
             <th class="${cl} font-bold">Status</th>
@@ -432,10 +431,9 @@
               <td class="${cl} mono whitespace-nowrap">${t.ref_no}</td>
               <td class="${cl}">${esc(t.subject || '')}</td>
               <td class="${cl}">${t.assigned_to ? esc(t.assigned_to) : dash}</td>
-              <td class="${cl}">${t.assigned_by ? esc(t.assigned_by) : '<span class="text-slate-400">Auto</span>'}</td>
               <td class="${cl} whitespace-nowrap">${fmtDateTime(t.assigned_at)}</td>
               <td class="${cl}">${statusBadgeT(t)}</td>
-            </tr>`).join('') : `<tr><td colspan="7" class="${cl} text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>`}</tbody>
+            </tr>`).join('') : `<tr><td colspan="6" class="${cl} text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>`}</tbody>
         </table>`;
     }
 
