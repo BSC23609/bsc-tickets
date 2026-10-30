@@ -41,6 +41,7 @@
       <button data-tab="mine" data-active="false" class="tabBtn tab">My tickets</button>
       <button data-tab="assigned" id="assignedTab" data-active="false" class="tabBtn tab hidden">Assigned to me</button>
       <button data-tab="dash" data-active="false" class="tabBtn tab">My dashboard</button>
+      <button data-tab="log" id="logTab" data-active="false" class="tabBtn tab hidden">List log</button>
     </div>
 
     <!-- RAISE -->
@@ -134,11 +135,27 @@
         <div id="dashAssigned" class="mb-5"></div>
         <div id="dashTimesheet"></div>
       </div>
-      <!-- List log — ticket assignments (admins only); uses the date range above -->
-      <div id="dashLogCard" class="card p-5 mt-4 hidden">
-        <div class="eyebrow mb-1">List log</div>
-        <h2 class="font-display text-lg font-bold text-ink mb-3">Ticket assignments</h2>
-        <div id="dashLogTable" class="overflow-x-auto"></div>
+    </section>
+    <!-- List log tab — ticket assignments (admins only), own date range -->
+    <section id="tab-log" class="hidden">
+      <div class="card p-5">
+        <div class="flex items-end justify-between flex-wrap gap-3 mb-4">
+          <div>
+            <div class="eyebrow">Ticket assignments</div>
+            <h2 class="font-display text-xl font-bold text-ink">List log</h2>
+          </div>
+          <div class="flex items-end gap-2 flex-wrap">
+            <div><label class="fieldlabel">From</label><input type="date" id="logFrom" class="field"></div>
+            <div><label class="fieldlabel">To</label><input type="date" id="logTo" class="field"></div>
+            <button onclick="loadAssignLog()" class="btn text-sm">Apply</button>
+          </div>
+        </div>
+        <div class="flex gap-2 flex-wrap mb-4">
+          <button onclick="logRange('today')" class="btn-ghost text-xs">Today</button>
+          <button onclick="logRange('week')" class="btn-ghost text-xs">Last 7 days</button>
+          <button onclick="logRange('month')" class="btn-ghost text-xs">This month</button>
+        </div>
+        <div id="logTable" class="overflow-x-auto"></div>
       </div>
     </section>
   </main>
@@ -155,7 +172,7 @@
     async function init() {
       me = await api('/me');
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
-      if (me.is_admin) document.getElementById('adminLink').classList.remove('hidden');
+      if (me.is_admin) { document.getElementById('adminLink').classList.remove('hidden'); document.getElementById('logTab').classList.remove('hidden'); }
       if (me.can_self_raise) document.getElementById('selfBlock').classList.remove('hidden');
       meta = await api('/tickets/meta');
       fillForm();
@@ -289,11 +306,12 @@
     function switchTab(tab) {
       document.querySelectorAll('.tabBtn').forEach(b =>
         b.setAttribute('data-active', b.dataset.tab === tab));
-      ['raise','mine','assigned','dash'].forEach(t =>
+      ['raise','mine','assigned','dash','log'].forEach(t =>
         document.getElementById('tab-' + t).classList.toggle('hidden', t !== tab));
       if (tab === 'mine') loadList('mine', 'mineList');
       if (tab === 'assigned') loadList('assigned', 'assignedList');
       if (tab === 'dash') loadDashboard();
+      if (tab === 'log') loadAssignLog();
     }
 
     async function loadList(scope, elId) {
@@ -373,38 +391,52 @@
             </tbody>
           </table>
         </div>`;
-      // Admins also see the ticket assignment log, over the same date range as this dashboard.
-      const logCard = document.getElementById('dashLogCard');
-      if (me.is_admin) {
-        try {
-          const rows = await api('/admin/assign-log?from=' + encodeURIComponent(d.range.from) + '&to=' + encodeURIComponent(d.range.to));
-          const dash = '<span class="text-slate-400">—</span>';
-          const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
-          document.getElementById('dashLogTable').innerHTML = `
-            <table class="w-full text-sm border-collapse">
-              <thead><tr class="bg-slate-50 text-left">
-                <th class="${cl} font-bold w-12">S.No</th>
-                <th class="${cl} font-bold">Ticket ID</th>
-                <th class="${cl} font-bold">Description</th>
-                <th class="${cl} font-bold">Assigned to</th>
-                <th class="${cl} font-bold">Assigned by</th>
-                <th class="${cl} font-bold whitespace-nowrap">Assigned time</th>
-                <th class="${cl} font-bold">Status</th>
-              </tr></thead>
-              <tbody>${rows.length ? rows.map((t, i) => `
-                <tr>
-                  <td class="${cl}">${i + 1}</td>
-                  <td class="${cl} mono whitespace-nowrap">${t.ref_no}</td>
-                  <td class="${cl}">${esc(t.subject || '')}</td>
-                  <td class="${cl}">${t.assigned_to ? esc(t.assigned_to) : dash}</td>
-                  <td class="${cl}">${t.assigned_by ? esc(t.assigned_by) : '<span class="text-slate-400">Auto</span>'}</td>
-                  <td class="${cl} whitespace-nowrap">${fmtDateTime(t.assigned_at)}</td>
-                  <td class="${cl}">${statusBadgeT(t)}</td>
-                </tr>`).join('') : `<tr><td colspan="7" class="${cl} text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>`}</tbody>
-            </table>`;
-          logCard.classList.remove('hidden');
-        } catch (e) { logCard.classList.add('hidden'); }
-      } else { logCard.classList.add('hidden'); }
+    }
+
+    // ===== List log tab (admins) — ticket assignments over a date range =====
+    function logRange(kind){
+      const today = new Date(); const iso = d => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      let from, to = istToday();
+      if (kind === 'today') from = to;
+      else if (kind === 'week') { const d = new Date(today); d.setDate(d.getDate() - 6); from = iso(d); }
+      else if (kind === 'month') { const d = new Date(today); d.setDate(1); from = iso(d); }
+      document.getElementById('logFrom').value = from;
+      document.getElementById('logTo').value = to;
+      loadAssignLog();
+    }
+    async function loadAssignLog(){
+      let from = document.getElementById('logFrom').value, to = document.getElementById('logTo').value;
+      if (!from || !to) {   // default to the last 7 days
+        const d = new Date(); d.setDate(d.getDate() - 6);
+        from = from || d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        to = to || istToday();
+        document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
+      }
+      const rows = await api('/admin/assign-log?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+      const dash = '<span class="text-slate-400">—</span>';
+      const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
+      document.getElementById('logTable').innerHTML = `
+        <table class="w-full text-sm border-collapse">
+          <thead><tr class="bg-slate-50 text-left">
+            <th class="${cl} font-bold w-12">S.No</th>
+            <th class="${cl} font-bold">Ticket ID</th>
+            <th class="${cl} font-bold">Description</th>
+            <th class="${cl} font-bold">Assigned to</th>
+            <th class="${cl} font-bold">Assigned by</th>
+            <th class="${cl} font-bold whitespace-nowrap">Assigned time</th>
+            <th class="${cl} font-bold">Status</th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map((t, i) => `
+            <tr>
+              <td class="${cl}">${i + 1}</td>
+              <td class="${cl} mono whitespace-nowrap">${t.ref_no}</td>
+              <td class="${cl}">${esc(t.subject || '')}</td>
+              <td class="${cl}">${t.assigned_to ? esc(t.assigned_to) : dash}</td>
+              <td class="${cl}">${t.assigned_by ? esc(t.assigned_by) : '<span class="text-slate-400">Auto</span>'}</td>
+              <td class="${cl} whitespace-nowrap">${fmtDateTime(t.assigned_at)}</td>
+              <td class="${cl}">${statusBadgeT(t)}</td>
+            </tr>`).join('') : `<tr><td colspan="7" class="${cl} text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>`}</tbody>
+        </table>`;
     }
 
     function card(t, scope) {
