@@ -570,64 +570,6 @@ app.get('/rd/:token/file/:docId', async (req, res) => {
   } catch (e) { console.error('rd file', e); res.status(500).send('error'); }
 });
 
-// ---- Group single sign-on: receive a hand-off from app.thebharatsteelgroup.com ----
-// The group hub signs the person in once, then redirects here with a one-minute token signed
-// with GROUP_SSO_SECRET (shared only between the hub and this app). We verify it, find the
-// employee by emp_no (then email) and start the normal session. The emp_no/password login
-// keeps working alongside this.
-app.get('/auth/sso', async (req, res) => {
-  const fail = (msg) => res.status(401).send(actionPage('🔒', 'Could not sign you in', msg +
-    ' <br><br><a href="/" style="color:#1B7BC0;font-weight:600">Sign in with your employee number</a>'));
-  try {
-    const secret = process.env.GROUP_SSO_SECRET;
-    if (!secret) return fail('Group sign-in is not set up on this app yet.');
-    let claims;
-    try {
-      claims = require('jsonwebtoken').verify(String(req.query.token || ''), secret, {
-        algorithms: ['HS256'], issuer: 'bsg-hub',
-        audience: process.env.GROUP_SSO_APP_KEY || 'bsc-portal', clockTolerance: 10,
-      });
-    } catch (e) {
-      return fail(e.name === 'TokenExpiredError'
-        ? 'That sign-in link expired. Open the app again from the group portal.'
-        : 'Group sign-in could not be verified.');
-    }
-    const ident = String(claims.sub || '').trim();
-    const email = String(claims.email || '').trim().toLowerCase();
-    let emp = null;
-    if (ident && !ident.includes('@'))
-      emp = (await q(`SELECT * FROM employees WHERE lower(emp_no)=lower($1) ORDER BY active DESC LIMIT 1`, [ident])).rows[0];
-    if (!emp && (email || ident.includes('@')))
-      emp = (await q(`SELECT * FROM employees WHERE lower(email)=$1 ORDER BY active DESC LIMIT 1`, [email || ident.toLowerCase()])).rows[0];
-    if (!emp || !emp.active)
-      return fail('Your group account is not linked to a BSC employee. Ask IT to set your BSC employee number in the group portal.');
-
-    // People who only sign in through the hub never set a BSC password: clear the forced-reset
-    // flag and replace any default password with a random one so it can't be used. They can
-    // still set their own BSC password later with "Forgot password".
-    if (emp.must_reset) {
-      const auth = require('../lib/auth');
-      await q(`UPDATE employees SET password_hash=$1, must_reset=FALSE WHERE id=$2`,
-        [await auth.hashPw(require('crypto').randomBytes(24).toString('hex')), emp.id]);
-      emp.must_reset = false;
-    }
-    const auth = require('../lib/auth');
-    auth.setAuthCookie(res, auth.sign(emp));
-    const next = String(req.query.next || '');
-    res.setHeader('Referrer-Policy', 'no-referrer');
-    // "/" (index.html) picks up the fresh cookie via /api/me, stores the token for installed
-    // PWAs, and routes to home — the same path as an already-signed-in launch.
-    res.redirect(303, next.startsWith('/') && !next.startsWith('//') ? next : '/');
-  } catch (e) { console.error('group sso', e); res.status(500).send('error'); }
-});
-
-// Tells the login page whether to show "Sign in with Bharat Steel Group".
-app.get('/api/group-sso', (req, res) => {
-  const enabled = !!process.env.GROUP_SSO_SECRET;
-  const hub = (process.env.GROUP_HUB_URL || 'https://app.thebharatsteelgroup.com').replace(/\/+$/, '');
-  res.json({ enabled, url: enabled ? `${hub}/launch/${process.env.GROUP_SSO_APP_KEY || 'bsc-portal'}` : null });
-});
-
 // ---- SSO: hand a sibling app (e.g. QMS) a short-lived signed emp_no token ----
 // The portal is the login authority; the other app trusts this token and starts its own session.
 app.get('/sso/go', require('../lib/auth').requireAuth, (req, res) => {

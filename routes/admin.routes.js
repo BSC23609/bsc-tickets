@@ -432,6 +432,24 @@ router.delete('/tickets/:id', async (req, res) => {
   }
 });
 
+// Assignment log — tickets assigned to a handler, with who assigned them and when.
+// Date-filtered (by assignment time, falling back to raised time) like the cleanup window.
+router.get('/assign-log', async (req, res) => {
+  const from = req.query.from || '2000-01-01';
+  const to = req.query.to || '2999-12-31';
+  const rows = (await q(
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.priority,
+            COALESCE(t.assigned_at, t.raised_at) AS assigned_at,
+            ab.name AS assigned_by, l1.name AS assigned_to
+       FROM tickets t
+       LEFT JOIN employees ab ON ab.id = t.assigned_by_id
+       LEFT JOIN employees l1 ON l1.id = t.l1_emp_id
+      WHERE t.l1_emp_id IS NOT NULL
+        AND COALESCE(t.assigned_at, t.raised_at)::date BETWEEN $1 AND $2
+      ORDER BY COALESCE(t.assigned_at, t.raised_at) DESC LIMIT 500`, [from, to])).rows;
+  res.json(rows);
+});
+
 // Recent outpass/gatepass entries (for review + cleanup).
 // Recent tickets (review + cleanup of test entries), filterable by status/search.
 router.get('/ticket-list', async (req, res) => {
@@ -1092,7 +1110,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED244', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED245', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
