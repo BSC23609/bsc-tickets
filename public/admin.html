@@ -119,25 +119,6 @@
         <h3 class="font-bold text-sm mb-3">By Handler (L1) — performance</h3>
         <div id="handlerTable" class="overflow-x-auto"></div>
       </div>
-      <!-- ===== List log: ticket assignments (own date window) ===== -->
-      <div class="card p-4 mb-5">
-        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
-          <h3 class="font-bold text-sm">List log <span class="font-normal text-slate-400">— ticket assignments</span></h3>
-          <div class="flex items-center gap-2 flex-wrap text-sm">
-            <span class="eyebrow" style="color:var(--ink-mute)">Window</span>
-            <button data-scope="assignlog" data-d="3"  onclick="setCleanupRange('assignlog',3)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">3d</button>
-            <button data-scope="assignlog" data-d="7"  onclick="setCleanupRange('assignlog',7)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">7d</button>
-            <button data-scope="assignlog" data-d="30" onclick="setCleanupRange('assignlog',30)" class="cl-range px-2.5 py-1 rounded-md border border-slate-200">30d</button>
-            <button data-scope="assignlog" data-d="0"  onclick="setCleanupRange('assignlog',0)"  class="cl-range px-2.5 py-1 rounded-md border border-slate-200">Custom</button>
-            <span id="clCustom_assignlog" class="hidden items-center gap-1.5">
-              <input type="date" id="cl_assignlog_from" class="inp !py-1 !text-xs" onchange="loadAssignLog()">
-              <span class="text-slate-400">→</span>
-              <input type="date" id="cl_assignlog_to" class="inp !py-1 !text-xs" onchange="loadAssignLog()">
-            </span>
-          </div>
-        </div>
-        <div id="assignLogTable" class="overflow-x-auto"></div>
-      </div>
       <!-- ===== Data & cleanup: own short window, independent of the KPI range above ===== -->
       <div class="card p-4 mt-5">
         <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -632,7 +613,7 @@
       document.querySelectorAll('.subBtn').forEach(b => b.addEventListener('click', () => switchDashSub(b.dataset.sub)));
       employees = await api('/admin/employees');
       loadDash();
-      ['tickets','gatepass','expense','ot','assignlog'].forEach(sc=>setCleanupRange(sc,3));
+      ['tickets','gatepass','expense','ot'].forEach(sc=>setCleanupRange(sc,3));
     }
 
     // ===================== GATE MONITOR (outpass return tracking) =====================
@@ -739,7 +720,7 @@
       try {
         const d = await api('/admin/db-info');
         el.textContent =
-          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED245, the new code is NOT deployed yet)\n\n' +
+          'BUILD: ' + (d.build || 'unknown') + '   (if this is not FIXED246, the new code is NOT deployed yet)\n\n' +
           'App is connected to:\n' +
           '  host: ' + (d.env_host || '?') + '\n' +
           '  database: ' + (d.db || d.env_dbname || '?') + '\n' +
@@ -1243,21 +1224,8 @@
       catch(e){ toast(e.message,'error'); }
     }
     // ===== Data & cleanup: short window (default 3 days) + per-type filters =====
-    const clDays = { tickets:3, gatepass:3, expense:3, ot:3, assignlog:3 };
-    const clLoader = { tickets:()=>loadCleanupTickets(), gatepass:()=>loadCleanupOutpass(), expense:()=>loadCleanupExpense(), ot:()=>loadCleanupOT(), assignlog:()=>loadAssignLog() };
-    // List log — which ticket is assigned to whom, who assigned it, and when (date-filtered).
-    async function loadAssignLog(){
-      const {from,to}=cleanupRange('assignlog');
-      const rows=await api('/admin/assign-log?'+new URLSearchParams({from,to}).toString());
-      const dash='<span class="text-slate-400">—</span>';
-      document.getElementById('assignLogTable').innerHTML = table(
-        ['S.No','Ticket ID','Description','Assigned to','Assigned by','Assigned time','Status'],
-        rows.map((t,i)=>[ i+1, t.ref_no, t.subject,
-          (t.assigned_to||dash),
-          (t.assigned_by||'<span class="text-slate-400">Auto</span>'),
-          fmtDateTime(t.assigned_at),
-          statusBadgeT(t) ]));
-    }
+    const clDays = { tickets:3, gatepass:3, expense:3, ot:3 };
+    const clLoader = { tickets:()=>loadCleanupTickets(), gatepass:()=>loadCleanupOutpass(), expense:()=>loadCleanupExpense(), ot:()=>loadCleanupOT() };
     function istToday(){ return new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'}); }
     function isoDaysAgo(n){ const d=new Date(istToday()+'T00:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
     function cleanupRange(scope='tickets'){
