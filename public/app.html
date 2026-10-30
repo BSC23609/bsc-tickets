@@ -412,10 +412,14 @@
         to = to || istToday();
         document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
       }
-      const rows = await api('/admin/assign-log?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to));
+      const el = document.getElementById('logTable');
+      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading…</div>';
+      let rows;
+      try { rows = await api('/admin/assign-log?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)); }
+      catch (e) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e.message || 'error') + '</div>'; return; }
       const dash = '<span class="text-slate-400">—</span>';
       const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
-      document.getElementById('logTable').innerHTML = `
+      el.innerHTML = `
         <table class="w-full text-sm border-collapse">
           <thead><tr class="bg-slate-50 text-left">
             <th class="${cl} font-bold w-12">S.No</th>
