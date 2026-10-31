@@ -267,6 +267,10 @@
 
     <!-- PRINT -->
     <section id="s-print" hidden>
+      <div class="seg storeseg" id="storeSegPrint" style="margin:0 0 14px">
+        <button type="button" data-store="perumal" class="on">Perumal Store</button>
+        <button type="button" data-store="vegetable">Vegetable Store</button>
+      </div>
       <div class="row" style="margin-bottom:12px">
         <select id="pMonth" class="field" style="width:auto" aria-label="Month to print"></select>
         <button class="btn" id="pdfBtn">Open PDF to print</button>
@@ -844,7 +848,7 @@
       document.body.append(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),60000);
     }
     $('#pMonth').addEventListener('change',()=>renderSheet().catch(e=>toast(e.message,'error')));
-    $('#pdfBtn').onclick=()=>openBlob('/canteen/print.pdf?month='+$('#pMonth').value).catch(e=>toast(e.message,'error'));
+    $('#pdfBtn').onclick=()=>openBlob('/canteen/print.pdf?month='+$('#pMonth').value+'&store='+STORE).catch(e=>toast(e.message,'error'));
     $('#xlsBtn').onclick=()=>openBlob('/canteen/log.xlsx','Canteen Log.xlsx').catch(e=>toast(e.message,'error'));
 
     /* ---------- summary ---------- */
@@ -983,13 +987,13 @@
     async function switchStore(s){
       if(s===STORE) return;
       STORE=s;
-      document.querySelectorAll('#storeSeg button').forEach(x=>x.classList.toggle('on', x.dataset.store===s));
+      document.querySelectorAll('.storeseg button').forEach(x=>x.classList.toggle('on', x.dataset.store===s));
       $('#storeEyebrow').textContent = s==='vegetable' ? 'Vegetable Store' : 'Perumal Supermarket';
       try{ await loadBoot(); }catch(e){ toast(e.message,'error'); }
       const act=document.querySelector('.tabs .tab[data-active="true"]');
       if(tab==='entry'){ setDate(curDate); } else if(act){ act.click(); }
     }
-    document.querySelectorAll('#storeSeg button').forEach(b=>b.onclick=()=>switchStore(b.dataset.store).catch(e=>toast(e.message,'error')));
+    document.querySelectorAll('.storeseg button').forEach(b=>b.onclick=()=>switchStore(b.dataset.store).catch(e=>toast(e.message,'error')));
     $('#importBtn').onclick=async()=>{
       const btn=$('#importBtn'); btn.disabled=true; btn.textContent='Importing…';
       try{ const r=await capi('/canteen/import-seed',{method:'POST'}); toast('Imported '+r.items+' items and '+r.entries+' entries','success'); await loadBoot(); loadDay(); }
