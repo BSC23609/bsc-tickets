@@ -91,11 +91,15 @@
     table.grid tr.total td{font-weight:700;border-top:2px solid var(--ink)}
     table.grid input{width:84px;text-align:right;padding:.25rem .4rem;border:1px solid var(--line);border-radius:7px}
     table.items td{text-align:left}
-    /* Summary grid: equal-width month columns, each amount centred directly under its month header */
-    #summary table.grid{table-layout:fixed;min-width:980px}
-    #summary table.grid th,#summary table.grid td{text-align:center}
-    #summary table.grid th:first-child,#summary table.grid td:first-child{text-align:left;width:150px}
-    #summary table.grid th:last-child,#summary table.grid td:last-child{width:74px}
+    /* Summary grid: exact column widths via <colgroup> so header + body share identical columns,
+       every amount centred directly under its month. Sticky first column removed (it was
+       desyncing the header from the body). */
+    #summary table.grid{table-layout:fixed;min-width:968px}
+    #summary table.grid col.c-cat{width:150px}
+    #summary table.grid col.c-mon{width:62px}
+    #summary table.grid col.c-yr{width:74px}
+    #summary table.grid th,#summary table.grid td{text-align:center;overflow:hidden;text-overflow:ellipsis}
+    #summary table.grid th:first-child,#summary table.grid td:first-child{text-align:left;position:static}
     #summary table.grid input{width:100%;box-sizing:border-box;text-align:center}
     table.items select{max-width:190px;border:1px solid var(--line);border-radius:7px;padding:.25rem .3rem;background:#fff}
     @media (max-width:520px){.lh,.it{grid-template-columns:minmax(0,1fr) 64px 84px;gap:8px;padding:.5rem .6rem}.chips{margin-left:0}}
@@ -817,7 +821,7 @@
       const years=S.years.length?S.years:[String(S.year)]; if(!years.includes(String(S.year))) years.unshift(String(S.year));
       ys.innerHTML=''; years.forEach(y=>{const o=document.createElement('option');o.value=o.textContent=y;ys.append(o);}); ys.value=String(S.year);
       const colTot=Array(12).fill(0);
-      let h='<table class="grid"><thead><tr><th>Category</th>'+MON.map(m=>'<th>'+m+'</th>').join('')+'<th>Year</th></tr></thead><tbody>';
+      let h='<table class="grid"><colgroup><col class="c-cat"><col span="12" class="c-mon"><col class="c-yr"></colgroup><thead><tr><th>Category</th>'+MON.map(m=>'<th>'+m+'</th>').join('')+'<th>Year</th></tr></thead><tbody>';
       S.categories.forEach(c=>{ let s=0; h+='<tr><td>'+esc(c.name)+'</td>'+c.values.map((v,i)=>{s+=v;colTot[i]+=v;return '<td>'+(v?num(v):'–')+'</td>';}).join('')+'<td>'+num(s)+'</td></tr>'; });
       let cs=0; h+='<tr><td>COOK SALARY</td>'+S.cook.map((v,i)=>{cs+=v;colTot[i]+=v;const mk=S.year+'-'+pad(i+1);return '<td><input type="number" inputmode="decimal" data-cook="'+mk+'" value="'+(v||'')+'"></td>';}).join('')+'<td>'+num(cs)+'</td></tr>';
       h+='<tr class="total"><td>TOTAL</td>'+colTot.map(v=>'<td>'+(v?num(v):'–')+'</td>').join('')+'<td>'+num(colTot.reduce((a,b)=>a+b,0))+'</td></tr></tbody></table>';
