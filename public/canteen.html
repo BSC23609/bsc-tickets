@@ -94,13 +94,38 @@
     /* Summary grid: exact column widths via <colgroup> so header + body share identical columns,
        every amount centred directly under its month. Sticky first column removed (it was
        desyncing the header from the body). */
-    #summary table.grid{table-layout:fixed;min-width:1154px}
-    #summary table.grid col.c-cat{width:150px}
-    #summary table.grid col.c-mon{width:76px}
-    #summary table.grid col.c-yr{width:92px}
-    #summary table.grid th,#summary table.grid td{text-align:center}
-    #summary table.grid th:first-child,#summary table.grid td:first-child{text-align:left;position:static}
-    #summary table.grid input{width:100%;box-sizing:border-box;text-align:center}
+    /* Summary grid: fit all 12 months + year on one screen, lines between columns, centred */
+    #summary{overflow-x:auto}
+    #summary table.grid{table-layout:fixed;width:100%;min-width:0;font-size:.66rem}
+    #summary table.grid col.c-cat{width:94px}
+    #summary table.grid col.c-yr{width:60px}
+    #summary table.grid th,#summary table.grid td{text-align:center;padding:.4rem .1rem;border:1px solid #E3E9EF;overflow:hidden}
+    #summary table.grid thead th{font-size:.55rem;padding:.4rem .05rem}
+    #summary table.grid th:first-child,#summary table.grid td:first-child{text-align:left;position:static;padding-left:.45rem;white-space:normal;line-height:1.1}
+    #summary table.grid input{width:100%;box-sizing:border-box;text-align:center;padding:.16rem .05rem;font-size:.66rem}
+    /* interactive chart */
+    .catTip{position:fixed;z-index:50;pointer-events:none;background:#0A0F16;color:#fff;font-size:.72rem;padding:.4rem .6rem;border-radius:8px;box-shadow:0 6px 20px rgba(0,0,0,.25);white-space:nowrap}
+    .catTip b{color:#fff}
+    .clegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;padding:0 4px}
+    .clegend span{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;color:var(--ink-mute)}
+    .clegend i{width:11px;height:11px;border-radius:3px;display:inline-block}
+    .cbar{cursor:pointer;transition:opacity .12s}
+    .cbar:hover{opacity:.82}
+    /* analytics */
+    .anacards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+    .anacard{background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+    .anacard .k{font-family:'Space Mono',monospace;font-size:.58rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute)}
+    .anacard .v{font-size:1.15rem;font-weight:700;color:var(--ink);margin-top:3px;font-variant-numeric:tabular-nums}
+    .anacard .s{font-size:.72rem;color:var(--ink-mute);margin-top:2px}
+    .anacol{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media(max-width:720px){.anacol{grid-template-columns:1fr}}
+    .anabox{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+    .anah{font-family:'Space Mono',monospace;font-size:.6rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);margin-bottom:10px}
+    .arow{display:grid;grid-template-columns:120px 1fr 88px;align-items:center;gap:8px;margin-bottom:7px;font-size:.75rem}
+    .arow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+    .arow .amt{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-mute)}
+    .abar{height:14px;border-radius:4px;background:var(--mist);overflow:hidden}
+    .abar>i{display:block;height:100%;border-radius:4px}
     table.items select{max-width:190px;border:1px solid var(--line);border-radius:7px;padding:.25rem .3rem;background:#fff}
     @media (max-width:520px){.lh,.it{grid-template-columns:minmax(0,1fr) 64px 84px;gap:8px;padding:.5rem .6rem}.chips{margin-left:0}}
     /* --- bill-photo OCR modal --- */
@@ -146,6 +171,7 @@
       <button class="tab" data-tab="print">Print</button>
       <button class="tab" data-tab="summary">Summary</button>
       <button class="tab" data-tab="items">Items</button>
+      <button class="tab" data-tab="analytics">Analytics</button>
     </div>
 
     <div id="banner" class="banner" style="margin-bottom:12px" hidden></div>
@@ -253,7 +279,19 @@
       <p class="note" style="margin:0 0 10px">Change a category or price here. Hidden items stay in old months and reports but drop out of the daily list.</p>
       <div class="tablewrap" id="itemsTable"></div>
     </section>
+
+    <!-- ANALYTICS -->
+    <section id="s-analytics" hidden>
+      <div class="row" style="margin-bottom:6px"><div class="sechead" style="flex:1;margin:0;border:0;padding:0"><span class="t">Spend analytics</span></div><select id="aYear" class="field" style="width:auto"></select></div>
+      <p class="note" style="margin:0 0 12px">Insights from this year's daily entries and cook salary.</p>
+      <div id="anaCards" class="anacards"></div>
+      <div class="anacol">
+        <div class="anabox"><div class="anah">Spend by category</div><div id="anaCat"></div></div>
+        <div class="anabox"><div class="anah">Top items by spend</div><div id="anaItems"></div></div>
+      </div>
+    </section>
   </main>
+  <div id="catTip" class="catTip" hidden></div>
 
   <!-- Bill photo: choose read-now vs save-for-later -->
   <div id="choiceModal" class="ocrmodal" hidden>
@@ -788,34 +826,79 @@
     $('#xlsBtn').onclick=()=>openBlob('/canteen/log.xlsx','Canteen Log.xlsx').catch(e=>toast(e.message,'error'));
 
     /* ---------- summary ---------- */
-    // Monthly total-spend bar chart (inline SVG, no external library — works offline).
-    function sumChart(colTot, year){
-      const vals = colTot.map(v=>+v||0);
-      const max = Math.max(1, ...vals);
-      const W=720, H=240, padL=10, padR=10, padT=26, padB=30;
-      const plotW=W-padL-padR, plotH=H-padT-padB, base=padT+plotH;
-      const n=12, gap=10, bw=(plotW-gap*(n-1))/n;
-      const kfmt=v=> v>=100000 ? (v/100000).toFixed(v>=1000000?0:1).replace(/\.0$/,'')+'L'
-                   : v>=1000   ? Math.round(v/1000)+'k'
-                   : String(Math.round(v));
-      let bars='';
-      vals.forEach((v,i)=>{
-        const x=padL+i*(bw+gap);
-        const bh=v>0?Math.max(2,(v/max)*plotH):0;
-        const y=base-bh;
-        if(v>0){
-          bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="3" fill="var(--ink)"></rect>';
-          bars+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(y-5).toFixed(1)+'" text-anchor="middle" font-size="10" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+kfmt(v)+'</text>';
-        }
-        bars+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+16).toFixed(1)+'" text-anchor="middle" font-size="9.5" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+MON[i]+'</text>';
-      });
-      return '<div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 12px 8px">'
-        + '<div style="font-family:\'Space Mono\',monospace;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);margin:0 2px 8px">Monthly total spend · '+year+'</div>'
-        + '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;max-height:260px" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Monthly total canteen spend for '+year+'">'
-        + '<line x1="'+padL+'" y1="'+base+'" x2="'+(W-padR)+'" y2="'+base+'" stroke="var(--line)" stroke-width="1"></line>'
-        + bars
-        + '</svg></div>';
+    // Shared palette + compact number format for charts/analytics.
+    const CATCOLORS=['#0A2B66','#1E6FB8','#36A2A2','#5BA150','#9BBF3B','#E0A42E','#E2722E','#C64848','#A14FB0','#6C63A6','#8A8F98','#C9A227','#4E7CA1','#7FB069','#B5651D'];
+    const kfmt=v=> v>=100000 ? (v/100000).toFixed(v>=1000000?0:1).replace(/\.0$/,'')+'L'
+                 : v>=1000   ? Math.round(v/1000)+'k'
+                 : String(Math.round(v));
+    // Interactive stacked bar chart: category-wise split per month (hover a segment for details).
+    function catChart(cats, cook, year){
+      const series=cats.map(c=>({name:c.name,values:(c.values||[]).map(v=>+v||0)}));
+      if(cook && cook.some(v=>+v>0)) series.push({name:'COOK SALARY',values:cook.map(v=>+v||0)});
+      const colorOf={}; series.forEach((s,i)=>colorOf[s.name]=CATCOLORS[i%CATCOLORS.length]);
+      const used=series.filter(s=>s.values.some(v=>v>0));
+      const monthTot=Array(12).fill(0); series.forEach(s=>s.values.forEach((v,i)=>monthTot[i]+=v));
+      const max=Math.max(1,...monthTot);
+      const W=760,H=300,padL=12,padR=12,padT=18,padB=26,plotH=H-padT-padB,base=padT+plotH;
+      const n=12,gap=9,bw=(W-padL-padR-gap*(n-1))/n;
+      let g='';
+      for(let i=0;i<12;i++){
+        const x=padL+i*(bw+gap); let y=base;
+        series.forEach(s=>{ const v=s.values[i]; if(v<=0) return; const hh=(v/max)*plotH; y-=hh;
+          g+='<rect class="cbar" x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+hh.toFixed(1)+'" fill="'+colorOf[s.name]+'" data-c="'+esc(s.name)+'" data-m="'+MON[i]+'" data-v="'+v+'"></rect>';
+        });
+        if(monthTot[i]>0) g+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(y-4).toFixed(1)+'" text-anchor="middle" font-size="8.5" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+kfmt(monthTot[i])+'</text>';
+        g+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+15).toFixed(1)+'" text-anchor="middle" font-size="9" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+MON[i]+'</text>';
+      }
+      const legend=used.map(s=>'<span><i style="background:'+colorOf[s.name]+'"></i>'+esc(s.name)+'</span>').join('');
+      return '<div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 12px 10px">'
+        +'<div style="font-family:\'Space Mono\',monospace;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);margin:0 2px 8px">Category split by month · '+year+' <span style="text-transform:none;letter-spacing:0">— hover a bar for details</span></div>'
+        +'<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Category-wise canteen spend by month for '+year+'">'
+        +'<line x1="'+padL+'" y1="'+base+'" x2="'+(W-padR)+'" y2="'+base+'" stroke="var(--line)"></line>'+g+'</svg>'
+        +'<div class="clegend">'+legend+'</div></div>';
     }
+    // Delegated tooltip for any .cbar segment (attach once).
+    (function(){ const tip=document.getElementById('catTip'); if(!tip) return;
+      document.addEventListener('mousemove',e=>{
+        const r=e.target&&e.target.closest?e.target.closest('rect.cbar'):null;
+        if(!r){ tip.hidden=true; return; }
+        tip.innerHTML='<b>'+r.getAttribute('data-c')+'</b> · '+r.getAttribute('data-m')+'<br>₹'+(+r.getAttribute('data-v')).toLocaleString('en-IN');
+        tip.hidden=false;
+        tip.style.left=(e.clientX+12)+'px'; tip.style.top=(e.clientY+12)+'px';
+        const b=tip.getBoundingClientRect();
+        if(b.right>innerWidth) tip.style.left=(e.clientX-b.width-12)+'px';
+        if(b.bottom>innerHeight) tip.style.top=(e.clientY-b.height-12)+'px';
+      });
+    })();
+    // ---------- analytics ----------
+    async function renderAnalytics(){
+      const ys=$('#aYear'); const A=await api('/canteen/analytics'+(ys.value?'?year='+ys.value:''));
+      const years=(A.years&&A.years.length)?A.years.slice():[String(A.year)];
+      if(!years.includes(String(A.year))) years.unshift(String(A.year));
+      ys.innerHTML=''; years.forEach(y=>{const o=document.createElement('option');o.value=o.textContent=y;ys.append(o);}); ys.value=String(A.year);
+      const total=A.byCategory.reduce((s,c)=>s+c.total,0);
+      const mwd=A.monthly.filter(v=>v>0);
+      const avg=mwd.length?Math.round(total/mwd.length):0;
+      const topCat=A.byCategory[0]||{name:'–',total:0};
+      const topItem=A.byItem[0]||{name:'–',amount:0};
+      let hiM=0; A.monthly.forEach((v,i)=>{ if(v>A.monthly[hiM]) hiM=i; });
+      let jump={lbl:'—',amt:0}; for(let i=1;i<12;i++){ const d=A.monthly[i]-A.monthly[i-1]; if(A.monthly[i-1]>0&&d>jump.amt) jump={lbl:MON[i-1]+'→'+MON[i],amt:d}; }
+      const card=(k,v,s)=>'<div class="anacard"><div class="k">'+k+'</div><div class="v">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>';
+      $('#anaCards').innerHTML=
+          card('Total spend','₹'+num(total),A.year+' · '+mwd.length+' month'+(mwd.length===1?'':'s')+' with entries')
+        + card('Avg / month','₹'+num(avg),'across months with data')
+        + card('Top category',esc(topCat.name),'₹'+num(topCat.total)+' · '+(total?Math.round(topCat.total/total*100):0)+'%')
+        + card('Top item',esc(topItem.name),'₹'+num(topItem.amount))
+        + card('Highest month',mwd.length?MON[hiM]:'—',mwd.length?'₹'+num(A.monthly[hiM]):'')
+        + card('Biggest jump',jump.lbl,jump.amt?'+₹'+num(jump.amt):'steady');
+      const cmax=Math.max(1,...A.byCategory.map(c=>c.total));
+      $('#anaCat').innerHTML=A.byCategory.map((c,i)=>{ const pct=total?Math.round(c.total/total*100):0;
+        return '<div class="arow"><div class="nm">'+esc(c.name)+'</div><div class="abar"><i style="width:'+(c.total/cmax*100).toFixed(1)+'%;background:'+CATCOLORS[i%CATCOLORS.length]+'"></i></div><div class="amt">₹'+kfmt(c.total)+' · '+pct+'%</div></div>';
+      }).join('')||'<div class="note">No entries this year.</div>';
+      const its=A.byItem.slice(0,10); const imax=Math.max(1,...its.map(it=>it.amount));
+      $('#anaItems').innerHTML=its.map((it,i)=>'<div class="arow"><div class="nm" title="'+esc(it.category)+'">'+esc(it.name)+'</div><div class="abar"><i style="width:'+(it.amount/imax*100).toFixed(1)+'%;background:'+CATCOLORS[i%CATCOLORS.length]+'"></i></div><div class="amt">₹'+kfmt(it.amount)+'</div></div>').join('')||'<div class="note">No entries this year.</div>';
+    }
+    document.getElementById('aYear').addEventListener('change',()=>renderAnalytics().catch(e=>toast(e.message,'error')));
     async function renderSummary(){
       const ys=$('#sYear'); const S=await api('/canteen/summary'+(ys.value?'?year='+ys.value:''));
       const years=S.years.length?S.years:[String(S.year)]; if(!years.includes(String(S.year))) years.unshift(String(S.year));
@@ -826,7 +909,7 @@
       let cs=0; h+='<tr><td>COOK SALARY</td>'+S.cook.map((v,i)=>{cs+=v;colTot[i]+=v;const mk=S.year+'-'+pad(i+1);return '<td><input type="number" inputmode="decimal" data-cook="'+mk+'" value="'+(v||'')+'"></td>';}).join('')+'<td>'+num(cs)+'</td></tr>';
       h+='<tr class="total"><td>TOTAL</td>'+colTot.map(v=>'<td>'+(v?num(v):'–')+'</td>').join('')+'<td>'+num(colTot.reduce((a,b)=>a+b,0))+'</td></tr></tbody></table>';
       $('#summary').innerHTML=h;
-      $('#sumChart').innerHTML=sumChart(colTot,S.year);
+      $('#sumChart').innerHTML=catChart(S.categories,S.cook,S.year);
       document.querySelectorAll('[data-cook]').forEach(inp=>inp.addEventListener('change',async()=>{
         try{ await api('/canteen/cook/'+inp.dataset.cook,{method:'PUT',body:{amount:+inp.value||0}}); toast('Cook salary saved','success'); renderSummary(); }
         catch(e){ toast(e.message,'error'); } }));
@@ -859,11 +942,12 @@
     let tab='entry';
     document.querySelectorAll('.tabs .tab').forEach(b=>b.onclick=()=>{ tab=b.dataset.tab;
       document.querySelectorAll('.tabs .tab').forEach(x=>x.dataset.active=String(x===b));
-      ['entry','saved','print','summary','items'].forEach(s=>$('#s-'+s).hidden=s!==tab);
+      ['entry','saved','print','summary','items','analytics'].forEach(s=>$('#s-'+s).hidden=s!==tab);
       if(tab==='saved') fillMonthSelect($('#eMonth')).then(loadSaved).catch(e=>toast(e.message,'error'));
       if(tab==='print') fillMonths().then(renderSheet).catch(e=>toast(e.message,'error'));
       else if(tab==='summary') renderSummary().catch(e=>toast(e.message,'error'));
       else if(tab==='items') renderItems();
+      else if(tab==='analytics') renderAnalytics().catch(e=>toast(e.message,'error'));
       else if(mode==='one') loadDay(); });
 
     async function loadBoot(){

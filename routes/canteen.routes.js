@@ -337,6 +337,13 @@ router.get('/summary', async (req, res) => {
                           UNION SELECT substr(month,1,4) FROM canteen_cook_salary ORDER BY 1 DESC`)).rows.map((r) => r.y);
   res.json({ ...(await C.yearSummary(y)), years });
 });
+
+router.get('/analytics', async (req, res) => {
+  const y = /^\d{4}$/.test(req.query.year || '') ? req.query.year : new Date().getFullYear();
+  const years = (await q(`SELECT DISTINCT to_char(entry_date,'YYYY') AS y FROM canteen_entries
+                          UNION SELECT substr(month,1,4) FROM canteen_cook_salary ORDER BY 1 DESC`)).rows.map((r) => r.y);
+  res.json({ ...(await C.yearAnalytics(y)), years });
+});
 router.put('/cook/:month', async (req, res) => {
   if (!C.isMonth(req.params.month)) return res.status(400).json({ error: 'Bad month' });
   const amt = toNum(req.body && req.body.amount);
