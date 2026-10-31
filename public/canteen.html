@@ -84,7 +84,7 @@
     table.sheet .tot{border:1px dashed #333!important}
     table.sheet .gt{border:2px solid #111!important;font-size:.9rem}
     table.grid{border-collapse:collapse;width:100%;font-size:.82rem;font-variant-numeric:tabular-nums}
-    table.grid th,table.grid td{padding:.45rem .6rem;border-bottom:1px solid #EEF3F7;text-align:right;white-space:nowrap}
+    table.grid th,table.grid td{padding:.45rem .6rem;border-bottom:1px solid #EEF3F7;text-align:right;vertical-align:bottom;white-space:nowrap}
     table.grid th:first-child,table.grid td:first-child{text-align:left;position:sticky;left:0;background:#fff}
     table.grid thead th{font-family:'Space Mono',monospace;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);background:var(--mist)}
     table.grid thead th:first-child{background:var(--mist)}
@@ -233,6 +233,7 @@
     <section id="s-summary" hidden>
       <div class="row" style="margin-bottom:6px"><div class="sechead" style="flex:1;margin:0;border:0;padding:0"><span class="t">Spend by category</span></div><select id="sYear" class="field" style="width:auto"></select></div>
       <p class="note" style="margin:0 0 10px">Cook salary is typed in here once a month. Everything else adds up from the daily entries.</p>
+      <div id="sumChart" style="margin:0 0 14px"></div>
       <div class="tablewrap" id="summary"></div>
     </section>
 
@@ -777,6 +778,34 @@
     $('#xlsBtn').onclick=()=>openBlob('/canteen/log.xlsx','Canteen Log.xlsx').catch(e=>toast(e.message,'error'));
 
     /* ---------- summary ---------- */
+    // Monthly total-spend bar chart (inline SVG, no external library — works offline).
+    function sumChart(colTot, year){
+      const vals = colTot.map(v=>+v||0);
+      const max = Math.max(1, ...vals);
+      const W=720, H=240, padL=10, padR=10, padT=26, padB=30;
+      const plotW=W-padL-padR, plotH=H-padT-padB, base=padT+plotH;
+      const n=12, gap=10, bw=(plotW-gap*(n-1))/n;
+      const kfmt=v=> v>=100000 ? (v/100000).toFixed(v>=1000000?0:1).replace(/\.0$/,'')+'L'
+                   : v>=1000   ? Math.round(v/1000)+'k'
+                   : String(Math.round(v));
+      let bars='';
+      vals.forEach((v,i)=>{
+        const x=padL+i*(bw+gap);
+        const bh=v>0?Math.max(2,(v/max)*plotH):0;
+        const y=base-bh;
+        if(v>0){
+          bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+bh.toFixed(1)+'" rx="3" fill="var(--ink)"></rect>';
+          bars+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(y-5).toFixed(1)+'" text-anchor="middle" font-size="10" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+kfmt(v)+'</text>';
+        }
+        bars+='<text x="'+(x+bw/2).toFixed(1)+'" y="'+(base+16).toFixed(1)+'" text-anchor="middle" font-size="9.5" font-family="Space Mono,monospace" fill="var(--ink-mute)">'+MON[i]+'</text>';
+      });
+      return '<div style="background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 12px 8px">'
+        + '<div style="font-family:\'Space Mono\',monospace;font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-mute);margin:0 2px 8px">Monthly total spend · '+year+'</div>'
+        + '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;max-height:260px" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Monthly total canteen spend for '+year+'">'
+        + '<line x1="'+padL+'" y1="'+base+'" x2="'+(W-padR)+'" y2="'+base+'" stroke="var(--line)" stroke-width="1"></line>'
+        + bars
+        + '</svg></div>';
+    }
     async function renderSummary(){
       const ys=$('#sYear'); const S=await api('/canteen/summary'+(ys.value?'?year='+ys.value:''));
       const years=S.years.length?S.years:[String(S.year)]; if(!years.includes(String(S.year))) years.unshift(String(S.year));
@@ -787,6 +816,7 @@
       let cs=0; h+='<tr><td>COOK SALARY</td>'+S.cook.map((v,i)=>{cs+=v;colTot[i]+=v;const mk=S.year+'-'+pad(i+1);return '<td><input type="number" inputmode="decimal" data-cook="'+mk+'" value="'+(v||'')+'"></td>';}).join('')+'<td>'+num(cs)+'</td></tr>';
       h+='<tr class="total"><td>TOTAL</td>'+colTot.map(v=>'<td>'+(v?num(v):'–')+'</td>').join('')+'<td>'+num(colTot.reduce((a,b)=>a+b,0))+'</td></tr></tbody></table>';
       $('#summary').innerHTML=h;
+      $('#sumChart').innerHTML=sumChart(colTot,S.year);
       document.querySelectorAll('[data-cook]').forEach(inp=>inp.addEventListener('change',async()=>{
         try{ await api('/canteen/cook/'+inp.dataset.cook,{method:'PUT',body:{amount:+inp.value||0}}); toast('Cook salary saved','success'); renderSummary(); }
         catch(e){ toast(e.message,'error'); } }));
