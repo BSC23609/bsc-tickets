@@ -91,11 +91,12 @@
     table.grid tr.total td{font-weight:700;border-top:2px solid var(--ink)}
     table.grid input{width:84px;text-align:right;padding:.25rem .4rem;border:1px solid var(--line);border-radius:7px}
     table.items td{text-align:left}
-    /* Summary grid: equal-width month columns so every amount lines up under its month header */
+    /* Summary grid: equal-width month columns, each amount centred directly under its month header */
     #summary table.grid{table-layout:fixed;min-width:980px}
-    #summary table.grid th:first-child,#summary table.grid td:first-child{width:150px}
+    #summary table.grid th,#summary table.grid td{text-align:center}
+    #summary table.grid th:first-child,#summary table.grid td:first-child{text-align:left;width:150px}
     #summary table.grid th:last-child,#summary table.grid td:last-child{width:74px}
-    #summary table.grid input{width:100%;box-sizing:border-box}
+    #summary table.grid input{width:100%;box-sizing:border-box;text-align:center}
     table.items select{max-width:190px;border:1px solid var(--line);border-radius:7px;padding:.25rem .3rem;background:#fff}
     @media (max-width:520px){.lh,.it{grid-template-columns:minmax(0,1fr) 64px 84px;gap:8px;padding:.5rem .6rem}.chips{margin-left:0}}
     /* --- bill-photo OCR modal --- */
