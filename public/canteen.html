@@ -171,10 +171,6 @@
   <main class="cw" style="padding-top:22px">
     <div class="eyebrow" id="storeEyebrow">Perumal Supermarket</div>
     <h1 class="font-display text-2xl font-bold" style="margin:.1rem 0 0">Canteen Register</h1>
-    <div class="seg storeseg" id="storeSeg" style="margin:12px 0 2px">
-      <button type="button" data-store="perumal" class="on">Perumal Store</button>
-      <button type="button" data-store="vegetable">Vegetable Store</button>
-    </div>
 
     <div class="tabs" role="tablist">
       <button class="tab" data-tab="entry" data-active="true">Daily entry</button>
@@ -194,6 +190,10 @@
 
     <!-- DAILY ENTRY -->
     <section id="s-entry">
+      <div class="seg storeseg" id="storeSeg" style="margin:0 0 14px">
+        <button type="button" data-store="perumal" class="on">Perumal Store</button>
+        <button type="button" data-store="vegetable">Vegetable Store</button>
+      </div>
       <div class="tools sticky">
         <div class="seg" role="group" aria-label="Entry mode">
           <button id="modeOne" aria-pressed="true">One day</button>
