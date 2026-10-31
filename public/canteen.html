@@ -96,7 +96,13 @@
        desyncing the header from the body). */
     /* Summary grid: fit all 12 months + year on one screen, lines between columns, centred */
     #summary{overflow-x:auto}
-    #summary table.grid{table-layout:fixed;width:100%;min-width:0;font-size:.66rem}
+    /* theme.css forces every <table> to display:block (+ Tailwind's .grid=display:grid), which
+       kills table-layout:fixed and <colgroup> widths. Force a real table box so columns align. */
+    #summary table.grid{display:table!important;table-layout:fixed;width:100%;min-width:0;font-size:.66rem}
+    #summary table.grid thead{display:table-header-group}
+    #summary table.grid tbody{display:table-row-group}
+    #summary table.grid tr{display:table-row}
+    #summary table.grid th,#summary table.grid td{display:table-cell}
     #summary table.grid col.c-cat{width:94px}
     #summary table.grid col.c-yr{width:60px}
     #summary table.grid th,#summary table.grid td{text-align:center;padding:.4rem .1rem;border:1px solid #E3E9EF;overflow:hidden}
