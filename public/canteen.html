@@ -26,6 +26,7 @@
     .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
     .seg{display:inline-flex;background:#fff;border:1px solid var(--line);border-radius:12px;padding:3px;gap:3px;align-self:flex-start;max-width:100%}
     .seg button{border:0;background:none;border-radius:9px;padding:.5rem .9rem;font-weight:600;font-size:.88rem;color:var(--ink-mute);cursor:pointer}
+    .seg button.on{background:var(--ink);color:#fff}
     .seg button[aria-pressed="true"]{background:linear-gradient(135deg,var(--steel-bright),var(--steel-deep));color:#fff}
     .datenav{display:flex;align-items:center;gap:6px}
     .datenav .btn-ghost{padding:.55rem .85rem}
@@ -168,8 +169,12 @@
   </header>
 
   <main class="cw" style="padding-top:22px">
-    <div class="eyebrow">Perumal Supermarket</div>
+    <div class="eyebrow" id="storeEyebrow">Perumal Supermarket</div>
     <h1 class="font-display text-2xl font-bold" style="margin:.1rem 0 0">Canteen Register</h1>
+    <div class="seg storeseg" id="storeSeg" style="margin:12px 0 2px">
+      <button type="button" data-store="perumal" class="on">Perumal Store</button>
+      <button type="button" data-store="vegetable">Vegetable Store</button>
+    </div>
 
     <div class="tabs" role="tablist">
       <button class="tab" data-tab="entry" data-active="true">Daily entry</button>
@@ -342,6 +347,15 @@
   <script>
   (function(){
     const $=s=>document.querySelector(s);
+    // Active store: 'perumal' (existing data) or 'vegetable' (parallel store). Every canteen
+    // API call carries it, so each store has its own entries, items, summary, chart and bills.
+    let STORE='perumal';
+    function capi(path, opts={}){
+      const sep=path.includes('?')?'&':'?';
+      const url=path+sep+'store='+encodeURIComponent(STORE);
+      if(opts && opts.body && typeof opts.body==='object' && !Array.isArray(opts.body)) opts={...opts, body:{...opts.body, store:STORE}};
+      return api(url, opts);
+    }
     const MON=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
     const DOW=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const pad=n=>String(n).padStart(2,'0');
@@ -363,12 +377,12 @@
     /* ---------- one day ---------- */
     async function loadDay(){
       const d=curDate;
-      const [ent,tot]=await Promise.all([api('/canteen/entries?from='+d+'&to='+d), api('/canteen/totals?date='+d)]);
+      const [ent,tot]=await Promise.all([capi('/canteen/entries?from='+d+'&to='+d), capi('/canteen/totals?date='+d)]);
       if(d!==curDate) return;
       dayLines=ent[d]||{}; showTotals(tot); renderRows();
     }
     function showTotals(t){ $('#dayTotal').textContent=fmt(t.day); $('#monthTotal').textContent=fmt(t.month); }
-    async function refreshTotals(){ showTotals(await api('/canteen/totals?date='+curDate)); }
+    async function refreshTotals(){ showTotals(await capi('/canteen/totals?date='+curDate)); }
     function setDate(d){ curDate=d; $('#date').value=d; const dt=new Date(d+'T00:00:00');
       const s=document.createElement('span'); s.textContent=DOW[dt.getDay()];
       $('#dayname').replaceChildren(dt.getDate()+' '+MON[dt.getMonth()]+' '+dt.getFullYear(), s);
@@ -405,7 +419,7 @@
           const old=dayLines[id]||[0,0]; if(qv===(+old[0]||0)&&av===(+old[1]||0)) return;
           const d=curDate; if(qv||av) dayLines[id]=[qv,av]; else delete dayLines[id];
           row.classList.toggle('filled',!!(qv||av)); setStatus('Saving…');
-          queue(async()=>{ await api('/canteen/entries',{method:'PUT',body:{dates:[d],lines:[{item_id:+id,qty:qv,amount:av}]}});
+          queue(async()=>{ await capi('/canteen/entries',{method:'PUT',body:{dates:[d],lines:[{item_id:+id,qty:qv,amount:av}]}});
             if(qv>0&&av>0) items[id].rate=Math.round(av/qv*100)/100;
             setStatus('All changes saved'); if(d===curDate) await refreshTotals(); });
         };
@@ -426,13 +440,13 @@
     $('#toggleNew').onclick=()=>{ const p=$('#newPanel'); p.hidden=!p.hidden; if(!p.hidden){ $('#niName').value=$('#search').value; $('#niName').focus(); } };
     $('#copyPrev').onclick=async()=>{
       try{
-        const r=await api('/canteen/last-day?before='+curDate);
+        const r=await capi('/canteen/last-day?before='+curDate);
         if(!r.date) return toast('No earlier day with entries in the last month');
         const lines=Object.entries(r.lines).filter(([id])=>!dayLines[id]&&items[id]).map(([id,l])=>({item_id:+id,qty:l[0],amount:l[1]}));
         const when=(+r.date.slice(8))+' '+MON[+r.date.slice(5,7)-1];
         if(!lines.length) return toast('Everything from '+when+' is already here');
         setStatus('Saving…');
-        await api('/canteen/entries',{method:'PUT',body:{dates:[curDate],lines}});
+        await capi('/canteen/entries',{method:'PUT',body:{dates:[curDate],lines}});
         setStatus('All changes saved'); toast('Copied '+lines.length+' items from '+when+'. Change any that differ.','success');
         loadDay();
       }catch(e){ toast(e.message,'error'); }
@@ -440,7 +454,7 @@
     $('#niAdd').onclick=async()=>{
       const name=$('#niName').value.trim(); if(!name) return toast('Type the item name first','error');
       try{
-        const r=await api('/canteen/items',{method:'POST',body:{name,category:$('#niCat').value,rate:$('#niRate').value}});
+        const r=await capi('/canteen/items',{method:'POST',body:{name,category:$('#niCat').value,rate:$('#niRate').value}});
         await loadBoot(); $('#niName').value=''; $('#niRate').value=''; $('#newPanel').hidden=true;
         $('#search').value=items[r.id]?items[r.id].name:name; renderRows();
         toast(r.existed?'That item was already in the list':'Item added','success');
@@ -495,7 +509,7 @@
     $('#choiceLater').onclick=async()=>{
       hideM('#choiceModal');
       let ok=0;
-      for(const im of pickedImages){ try{ await api('/canteen/photo-later',{method:'POST',body:{image:im}}); ok++; }catch(e){} }
+      for(const im of pickedImages){ try{ await capi('/canteen/photo-later',{method:'POST',body:{image:im}}); ok++; }catch(e){} }
       toast(ok+' bill'+(ok===1?'':'s')+' saved — find them under “Bills waiting”.', ok?'success':'error'); refreshPending();
     };
 
@@ -511,7 +525,7 @@
       prog(0);
       const results=new Array(images.length); let done=0, next=0;
       const worker=async()=>{ while(next<images.length){ const i=next++;
-        try{ results[i]=await api('/canteen/ocr-photo',{method:'POST',body:{image:images[i]}}); }
+        try{ results[i]=await capi('/canteen/ocr-photo',{method:'POST',body:{image:images[i]}}); }
         catch(e){ results[i]={__error:e.message||'Could not read'}; }
         prog(++done); if(!ocrQueue) return; } };
       await Promise.all(Array.from({length:Math.min(4,images.length)},worker));   // up to 4 at a time
@@ -556,14 +570,14 @@
     }
     async function finishQueue(){
       const qd=ocrQueue; ocrQueue=null; hideM('#ocrModal');
-      if(qd && qd.fromUpload){ try{ await api('/canteen/uploads/'+qd.fromUpload+'/done',{method:'POST',body:{date:(qd.groups&&qd.groups[0]&&qd.groups[0].date)||''}}); }catch(e){} }
+      if(qd && qd.fromUpload){ try{ await capi('/canteen/uploads/'+qd.fromUpload+'/done',{method:'POST',body:{date:(qd.groups&&qd.groups[0]&&qd.groups[0].date)||''}}); }catch(e){} }
       if(qd&&qd.entries) toast(qd.entries+' entr'+(qd.entries===1?'y':'ies')+' saved across '+(qd.groups?qd.groups.length:1)+' date'+((qd.groups&&qd.groups.length===1)?'':'s'),'success');
       loadBoot().then(()=>setDate(curDate)).catch(()=>{}); refreshPending();
     }
     // Read one parked photo (by upload id) — it too may contain several bills across dates.
     async function readParked(id){
       ocrQueue={reading:true}; openReview(null,[],null,true);
-      try{ const r=await api('/canteen/uploads/'+id+'/ocr',{method:'POST'}); if(!ocrQueue) return; beginReview(r.bills, id); }
+      try{ const r=await capi('/canteen/uploads/'+id+'/ocr',{method:'POST'}); if(!ocrQueue) return; beginReview(r.bills, id); }
       catch(e){ hideM('#ocrModal'); ocrQueue=null; toast(e.message||'Could not read the photo','error'); }
     }
 
@@ -647,13 +661,13 @@
             const addChk=r.querySelector('.oladd');
             if(!addChk || !addChk.checked){ skipped++; continue; }   // new item not confirmed — leave it out
             const nm=(r.querySelector('.olname').value||'').trim(); if(!nm){ skipped++; continue; }
-            const made=await api('/canteen/items',{method:'POST',body:{name:nm,category:r.querySelector('.olcat').value,rate:qv>0?Math.round(av/qv*100)/100:0}});
+            const made=await capi('/canteen/items',{method:'POST',body:{name:nm,category:r.querySelector('.olcat').value,rate:qv>0?Math.round(av/qv*100)/100:0}});
             item_id=made.id;
           }
           lines.push({item_id,qty:qv,amount:av});
         }
         if(!lines.length){ toast(skipped?'Nothing saved — tick “add as a new item” for the ones you want to keep.':'Nothing to save','error'); btn.disabled=false; btn.textContent=(ocrQueue&&ocrQueue.groups&&ocrQueue.idx<ocrQueue.groups.length-1)?'Save & next date':'Save entries'; return; }
-        await api('/canteen/entries',{method:'PUT',body:{dates:[date],lines}});
+        await capi('/canteen/entries',{method:'PUT',body:{dates:[date],lines}});
         toast(lines.length+' entr'+(lines.length===1?'y':'ies')+' saved for '+(+date.slice(8))+' '+MON[+date.slice(5,7)-1]+(skipped?(' · '+skipped+' not-in-list item'+(skipped===1?'':'s')+' left out'):''),'success');
         if(ocrQueue && ocrQueue.groups){ ocrQueue.entries+=lines.length; ocrQueue.idx+=1; return reviewQueueItem(); }  // next date, or finish
         hideM('#ocrModal');
@@ -664,7 +678,7 @@
     /* ---- bills parked for later ---- */
     async function refreshPending(){
       try{
-        const r=await api('/canteen/uploads'); window.__pend=r.uploads||[];
+        const r=await capi('/canteen/uploads'); window.__pend=r.uploads||[];
         const b=$('#pendingBtn'); b.hidden=!window.__pend.length; b.textContent='🕒 Bills waiting ('+window.__pend.length+')';
       }catch(e){ $('#pendingBtn').hidden=true; }
     }
@@ -682,7 +696,7 @@
         read.onclick=()=>{ hideM('#pendModal'); readParked(u.id); };
         const del=document.createElement('button'); del.className='btn-ghost'; del.textContent='Discard';
         del.onclick=async()=>{ if(!confirm('Discard bill #'+u.id+'? This cannot be undone.')) return;
-          try{ await api('/canteen/uploads/'+u.id,{method:'DELETE'}); toast('Bill discarded','success'); await refreshPending(); renderPending(); }catch(e){ toast(e.message,'error'); } };
+          try{ await capi('/canteen/uploads/'+u.id,{method:'DELETE'}); toast('Bill discarded','success'); await refreshPending(); renderPending(); }catch(e){ toast(e.message,'error'); } };
         row.append(meta,read,del); list.append(row);
       });
     }
@@ -691,7 +705,7 @@
     (function(){ const box=$('#mDows'); ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].forEach((d,i)=>{ const l=document.createElement('label'); const c=document.createElement('input'); c.type='checkbox'; c.id='dow-'+i; c.checked=i<6; c.addEventListener('change',updateMulti); l.append(c,d); box.append(l); }); })();
     function rangeDays(){ const f=$('#mFrom').value, t=$('#mTo').value; if(!f||!t||t<f) return []; const out=[]; const dt=new Date(f+'T00:00:00');
       for(let i=0;i<62;i++){ const k=dk(dt); if(k>t) break; if(document.getElementById('dow-'+((dt.getDay()+6)%7)).checked) out.push(k); dt.setDate(dt.getDate()+1); } return out; }
-    let rT; function loadRange(){ clearTimeout(rT); rT=setTimeout(async()=>{ const f=$('#mFrom').value,t=$('#mTo').value; if(!f||!t||t<f){rangeLines={};return updateMulti();} try{ rangeLines=await api('/canteen/entries?from='+f+'&to='+t); }catch(e){ rangeLines={}; } updateMulti(); },200); }
+    let rT; function loadRange(){ clearTimeout(rT); rT=setTimeout(async()=>{ const f=$('#mFrom').value,t=$('#mTo').value; if(!f||!t||t<f){rangeLines={};return updateMulti();} try{ rangeLines=await capi('/canteen/entries?from='+f+'&to='+t); }catch(e){ rangeLines={}; } updateMulti(); },200); }
     function updateMulti(){
       if(mode!=='multi') return; const days=rangeDays(), ids=Object.keys(draft);
       const per=ids.reduce((s,id)=>s+(+draft[id][1]||0),0);
@@ -712,7 +726,7 @@
       const days=rangeDays(), lines=Object.entries(draft).map(([id,l])=>({item_id:+id,qty:l[0],amount:l[1]}));
       if(!days.length||!lines.length) return;
       const b=$('#mSave'); b.disabled=true; setStatus('Saving…');
-      try{ await api('/canteen/entries',{method:'PUT',body:{dates:days,lines}});
+      try{ await capi('/canteen/entries',{method:'PUT',body:{dates:days,lines}});
         setStatus('All changes saved'); toast('Saved '+lines.length+' item'+(lines.length>1?'s':'')+' to '+days.length+' days','success');
         draft={}; renderRows(); loadRange(); }
       catch(e){ setStatus(''); toast(e.message,'error'); updateMulti(); }
@@ -720,7 +734,7 @@
 
     /* ---------- saved entries, date-wise ---------- */
     async function fillMonthSelect(sel){
-      const ms=await api('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
+      const ms=await capi('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
       const keep=sel.value; sel.innerHTML='';
       ms.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=mLabel(m); sel.append(o); });
       sel.value=keep&&ms.includes(keep)?keep:cur;
@@ -730,7 +744,7 @@
       const mk=$('#eMonth').value; if(!mk) return;
       const y=+mk.slice(0,4), m=+mk.slice(5,7), last=new Date(y,m,0).getDate();
       $('#eTable').innerHTML='<div class="empty">Loading…</div>';
-      eData=await api('/canteen/entries?from='+mk+'-01&to='+mk+'-'+pad(last));
+      eData=await capi('/canteen/entries?from='+mk+'-01&to='+mk+'-'+pad(last));
       if($('#eMonth').value===mk) renderSaved();
     }
     function renderSaved(){
@@ -777,7 +791,7 @@
         if(!nd) return toast('Pick a date','error');
         if(!qv&&!av) return toast('Quantity and amount are both 0. Use Delete instead.','error');
         btn.disabled=true; btn.textContent='Saving…';
-        try{ const r=await api('/canteen/entry',{method:'PUT',body:{date:d,item_id:+id,new_date:nd,qty:qv,amount:av}});
+        try{ const r=await capi('/canteen/entry',{method:'PUT',body:{date:d,item_id:+id,new_date:nd,qty:qv,amount:av}});
           toast(nd!==d?(r.merged?'Moved and added to the entry already on that date':'Moved to '+(+nd.slice(8))+' '+MON[+nd.slice(5,7)-1]):'Entry updated','success');
           await loadSaved(); }
         catch(err){ toast(err.message,'error'); btn.disabled=false; btn.textContent='Save'; }
@@ -785,7 +799,7 @@
         tr.children[4].innerHTML='<span class="note">Delete?</span><button class="lnk del" data-act="delyes">Yes</button><button class="lnk" data-act="cancel">No</button>';
       } else if(act==='delyes'){
         btn.disabled=true;
-        try{ await api('/canteen/entry?date='+d+'&item_id='+id,{method:'DELETE'}); toast('Entry deleted','success'); await loadSaved(); }
+        try{ await capi('/canteen/entry?date='+d+'&item_id='+id,{method:'DELETE'}); toast('Entry deleted','success'); await loadSaved(); }
         catch(err){ toast(err.message,'error'); renderSaved(); }
       }
     });
@@ -798,7 +812,7 @@
 
     /* ---------- print ---------- */
     async function fillMonths(){
-      const ms=await api('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
+      const ms=await capi('/canteen/months'); const cur=dk(new Date()).slice(0,7); if(!ms.includes(cur)) ms.unshift(cur);
       const s=$('#pMonth'), keep=s.value; s.innerHTML='';
       ms.forEach(m=>{ const o=document.createElement('option'); o.value=m; o.textContent=mLabel(m); s.append(o); });
       const prev=(()=>{const d=new Date();d.setDate(1);d.setMonth(d.getMonth()-1);return dk(d).slice(0,7);})();
@@ -806,7 +820,7 @@
     }
     async function renderSheet(){
       const mk=$('#pMonth').value; if(!mk) return;
-      const M=await api('/canteen/print?month='+mk); const half=Math.ceil(M.rows.length/2);
+      const M=await capi('/canteen/print?month='+mk); const half=Math.ceil(M.rows.length/2);
       $('#pInfo').textContent=M.rows.length+' items · '+fmt(M.total)+(M.rows.length>86?' · rows shrink a little so everything fits on one page':'');
       let h='<table class="sheet"><tr><td class="title" colspan="9">'+esc(M.store)+' &nbsp;·&nbsp; '+esc(M.label)+'</td></tr>'+
         '<tr><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th><td class="gap"></td><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th></tr>';
@@ -878,7 +892,7 @@
     })();
     // ---------- analytics ----------
     async function renderAnalytics(){
-      const ys=$('#aYear'); const A=await api('/canteen/analytics'+(ys.value?'?year='+ys.value:''));
+      const ys=$('#aYear'); const A=await capi('/canteen/analytics'+(ys.value?'?year='+ys.value:''));
       const years=(A.years&&A.years.length)?A.years.slice():[String(A.year)];
       if(!years.includes(String(A.year))) years.unshift(String(A.year));
       ys.innerHTML=''; years.forEach(y=>{const o=document.createElement('option');o.value=o.textContent=y;ys.append(o);}); ys.value=String(A.year);
@@ -906,7 +920,7 @@
     }
     document.getElementById('aYear').addEventListener('change',()=>renderAnalytics().catch(e=>toast(e.message,'error')));
     async function renderSummary(){
-      const ys=$('#sYear'); const S=await api('/canteen/summary'+(ys.value?'?year='+ys.value:''));
+      const ys=$('#sYear'); const S=await capi('/canteen/summary'+(ys.value?'?year='+ys.value:''));
       const years=S.years.length?S.years:[String(S.year)]; if(!years.includes(String(S.year))) years.unshift(String(S.year));
       ys.innerHTML=''; years.forEach(y=>{const o=document.createElement('option');o.value=o.textContent=y;ys.append(o);}); ys.value=String(S.year);
       const colTot=Array(12).fill(0);
@@ -917,7 +931,7 @@
       $('#summary').innerHTML=h;
       $('#sumChart').innerHTML=catChart(S.categories,S.cook,S.year);
       document.querySelectorAll('[data-cook]').forEach(inp=>inp.addEventListener('change',async()=>{
-        try{ await api('/canteen/cook/'+inp.dataset.cook,{method:'PUT',body:{amount:+inp.value||0}}); toast('Cook salary saved','success'); renderSummary(); }
+        try{ await capi('/canteen/cook/'+inp.dataset.cook,{method:'PUT',body:{amount:+inp.value||0}}); toast('Cook salary saved','success'); renderSummary(); }
         catch(e){ toast(e.message,'error'); } }));
     }
     $('#sYear').addEventListener('change',()=>renderSummary().catch(e=>toast(e.message,'error')));
@@ -929,7 +943,7 @@
       const t=document.createElement('table'); t.className='grid items';
       t.innerHTML='<thead><tr><th>Item</th><th>Category</th><th>Rate ₹</th><th>In daily list</th></tr></thead>';
       const tb=document.createElement('tbody');
-      const save=async(id,body,msg)=>{ try{ await api('/canteen/items/'+id,{method:'PUT',body}); Object.assign(items[id],body); if(msg) toast(msg,'success'); }catch(e){ toast(e.message,'error'); } };
+      const save=async(id,body,msg)=>{ try{ await capi('/canteen/items/'+id,{method:'PUT',body}); Object.assign(items[id],body); if(msg) toast(msg,'success'); }catch(e){ toast(e.message,'error'); } };
       ids.forEach(id=>{ const it=items[id]; const r=document.createElement('tr');
         const n=document.createElement('td'); n.textContent=it.name;
         const c=document.createElement('td'); const s=document.createElement('select'); s.id='cat-'+id;
@@ -957,15 +971,26 @@
       else if(mode==='one') loadDay(); });
 
     async function loadBoot(){
-      const b=await api('/canteen/bootstrap');
+      const b=await capi('/canteen/bootstrap');
       items={}; b.items.forEach(i=>{ items[i.id]=i; }); cats=b.categories; isAdmin=b.is_admin;
       const s=$('#niCat'), keep=s.value; s.innerHTML=''; cats.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;s.append(o);}); if(keep) s.value=keep;
-      $('#importBox').hidden=!(isAdmin&&!b.has_data);
+      $('#importBox').hidden=!(isAdmin&&!b.has_data&&STORE==='perumal');  // seed is Perumal history only
       return b;
     }
+    // ---- store switch (Perumal / Vegetable) ----
+    async function switchStore(s){
+      if(s===STORE) return;
+      STORE=s;
+      document.querySelectorAll('#storeSeg button').forEach(x=>x.classList.toggle('on', x.dataset.store===s));
+      $('#storeEyebrow').textContent = s==='vegetable' ? 'Vegetable Store' : 'Perumal Supermarket';
+      try{ await loadBoot(); }catch(e){ toast(e.message,'error'); }
+      const act=document.querySelector('.tabs .tab[data-active="true"]');
+      if(tab==='entry'){ setDate(curDate); } else if(act){ act.click(); }
+    }
+    document.querySelectorAll('#storeSeg button').forEach(b=>b.onclick=()=>switchStore(b.dataset.store).catch(e=>toast(e.message,'error')));
     $('#importBtn').onclick=async()=>{
       const btn=$('#importBtn'); btn.disabled=true; btn.textContent='Importing…';
-      try{ const r=await api('/canteen/import-seed',{method:'POST'}); toast('Imported '+r.items+' items and '+r.entries+' entries','success'); await loadBoot(); loadDay(); }
+      try{ const r=await capi('/canteen/import-seed',{method:'POST'}); toast('Imported '+r.items+' items and '+r.entries+' entries','success'); await loadBoot(); loadDay(); }
       catch(e){
         // A slow first request can time out in the browser while the server still finishes — check before calling it failed.
         try{ const b=await loadBoot(); if(b.has_data){ toast('History imported','success'); loadDay(); return; } }catch(_){}

@@ -650,3 +650,21 @@ CREATE TABLE IF NOT EXISTS canteen_uploads (
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_canteen_uploads_status ON canteen_uploads(status);
+
+-- ============================================================
+-- Canteen stores: the existing data is the Perumal supermarket; a second
+-- "vegetable" store runs in parallel with the same structure. All existing
+-- rows default to 'perumal' so nothing moves. (idempotent — safe to re-run)
+-- ============================================================
+ALTER TABLE canteen_items       ADD COLUMN IF NOT EXISTS store TEXT NOT NULL DEFAULT 'perumal';
+ALTER TABLE canteen_entries     ADD COLUMN IF NOT EXISTS store TEXT NOT NULL DEFAULT 'perumal';
+ALTER TABLE canteen_cook_salary ADD COLUMN IF NOT EXISTS store TEXT NOT NULL DEFAULT 'perumal';
+ALTER TABLE canteen_uploads     ADD COLUMN IF NOT EXISTS store TEXT NOT NULL DEFAULT 'perumal';
+-- item names are unique PER STORE now (was a global UNIQUE(name))
+ALTER TABLE canteen_items DROP CONSTRAINT IF EXISTS canteen_items_name_key;
+CREATE UNIQUE INDEX IF NOT EXISTS canteen_items_store_name ON canteen_items(store, name);
+-- cook salary keyed per (store, month) now (was PK(month))
+ALTER TABLE canteen_cook_salary DROP CONSTRAINT IF EXISTS canteen_cook_salary_pkey;
+CREATE UNIQUE INDEX IF NOT EXISTS canteen_cook_store_month ON canteen_cook_salary(store, month);
+CREATE INDEX IF NOT EXISTS idx_canteen_entries_store ON canteen_entries(store, entry_date);
+CREATE INDEX IF NOT EXISTS idx_canteen_items_store   ON canteen_items(store, sort_order, name);
