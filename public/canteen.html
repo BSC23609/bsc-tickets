@@ -828,15 +828,24 @@
       const mk=$('#pMonth').value; if(!mk) return;
       const M=await capi('/canteen/print?month='+mk); const half=Math.ceil(M.rows.length/2);
       $('#pInfo').textContent=M.rows.length+' items · '+fmt(M.total)+(M.rows.length>86?' · rows shrink a little so everything fits on one page':'');
-      let h='<table class="sheet"><tr><td class="title" colspan="9">'+esc(M.store)+' &nbsp;·&nbsp; '+esc(M.label)+'</td></tr>'+
-        '<tr><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th><td class="gap"></td><th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th></tr>';
+      // Vegetable store prints without the ITEM NAME column — only S.NO / QTY / AMOUNT.
+      const veg = (STORE==='vegetable');
+      const perHalf = veg ? 3 : 4;                 // columns in one half
+      const totalCols = perHalf*2 + 1;             // both halves + the middle gap
+      const lblSpan = veg ? 1 : 2;                 // footer label spans S.NO(+NAME)
+      const hdr = veg ? '<th>S.NO</th><th>QTY</th><th>AMOUNT</th>'
+                      : '<th>S.NO</th><th>ITEM NAME</th><th>QTY</th><th>AMOUNT</th>';
+      const cell = (rec,serial)=> veg
+        ? '<td>'+(rec?serial:'')+'</td><td>'+(rec?qn(rec.qty):'')+'</td><td>'+(rec?num(rec.amount):'')+'</td>'
+        : '<td>'+(rec?serial:'')+'</td><td class="l">'+(rec?esc(rec.name):'')+'</td><td>'+(rec?qn(rec.qty):'')+'</td><td>'+(rec?num(rec.amount):'')+'</td>';
+      let h='<table class="sheet"><tr><td class="title" colspan="'+totalCols+'">'+esc(M.store)+' &nbsp;·&nbsp; '+esc(M.label)+'</td></tr>'+
+        '<tr>'+hdr+'<td class="gap"></td>'+hdr+'</tr>';
       const shown=Math.max(half,Math.min(43,half+2));
       for(let i=0;i<shown;i++){ const L=i<half?M.rows[i]:null, R=M.rows[half+i];
-        h+='<tr><td>'+(L?i+1:'')+'</td><td class="l">'+(L?esc(L.name):'')+'</td><td>'+(L?qn(L.qty):'')+'</td><td>'+(L?num(L.amount):'')+'</td><td class="gap"></td>'+
-           '<td>'+(R?half+i+1:'')+'</td><td class="l">'+(R?esc(R.name):'')+'</td><td>'+(R?qn(R.qty):'')+'</td><td>'+(R?num(R.amount):'')+'</td></tr>'; }
-      M.footer.forEach((f,i)=>{ h+='<tr class="foot"><td colspan="2">'+(f?f.label:'')+'</td><td colspan="2"'+(f?' class="tot"':'')+'>'+(f?num(f.total):'')+'</td><td class="gap"></td>';
-        if(i===0) h+='<td colspan="4"></td>';
-        if(i===1) h+='<td colspan="2" rowspan="2" class="gt">Grand Total</td><td colspan="2" rowspan="2" class="gt">'+num(M.total)+'</td>';
+        h+='<tr>'+cell(L,i+1)+'<td class="gap"></td>'+cell(R,half+i+1)+'</tr>'; }
+      M.footer.forEach((f,i)=>{ h+='<tr class="foot"><td colspan="'+lblSpan+'">'+(f?f.label:'')+'</td><td colspan="2"'+(f?' class="tot"':'')+'>'+(f?num(f.total):'')+'</td><td class="gap"></td>';
+        if(i===0) h+='<td colspan="'+perHalf+'"></td>';
+        if(i===1) h+='<td colspan="'+lblSpan+'" rowspan="2" class="gt">Grand Total</td><td colspan="2" rowspan="2" class="gt">'+num(M.total)+'</td>';
         h+='</tr>'; });
       $('#sheet').innerHTML=h+'</table>';
     }
