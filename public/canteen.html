@@ -612,10 +612,12 @@
           // Not in the item list — ask before adding: the entry is saved only if this is ticked.
           const lbl=document.createElement('label'); lbl.className='newtag'; lbl.style.cssText='display:flex;align-items:center;gap:6px;cursor:pointer';
           const chk=document.createElement('input'); chk.type='checkbox'; chk.className='oladd'; chk.style.width='auto';
+          if(STORE==='vegetable') chk.checked=true;   // vegetable store is new — add all by default
           lbl.append(chk, document.createTextNode('Not in your list — tick to add as a new item'));
           const nmIn=document.createElement('input'); nmIn.className='olname'; nmIn.value=l.name; nmIn.placeholder='Item name';
           const sel=document.createElement('select'); sel.className='olcat'; sel.style.cssText='border:1px solid var(--line);border-radius:7px;padding:.28rem;margin-top:5px;max-width:160px';
           cats.forEach(c=>{const o=document.createElement('option');o.value=o.textContent=c;sel.append(o);});
+          if(STORE==='vegetable' && cats.includes('VEGETABLES')) sel.value='VEGETABLES';   // default new veg items to VEGETABLES
           itCell.append(lbl,nmIn,sel);
         } else {
           const nm=document.createElement('div'); nm.textContent=l.name; nm.style.fontWeight='600';
