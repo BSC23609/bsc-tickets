@@ -490,16 +490,16 @@
           try { when = fmtDateTime(t.assigned_at || t.raised_at); } catch (_) { when = esc(t.assigned_at || t.raised_at || ''); }
           try { st = statusBadgeT(t); } catch (_) { st = esc(t.status || ''); }
           return '<tr>'
-            + '<td class="' + cl + '">' + (i + 1) + '</td>'
-            + '<td class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
-            + '<td class="' + cl + '">' + esc(t.subject || '') + '</td>'
-            + '<td class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
-            + '<td class="' + cl + ' whitespace-nowrap">' + when + '</td>'
-            + '<td class="' + cl + '">' + st + '</td>'
+            + '<td data-label="S.No" class="' + cl + '">' + (i + 1) + '</td>'
+            + '<td data-label="Ticket ID" class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
+            + '<td data-label="Description" class="' + cl + '">' + esc(t.subject || '') + '</td>'
+            + '<td data-label="Assigned by" class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
+            + '<td data-label="Assigned time" class="' + cl + ' whitespace-nowrap">' + when + '</td>'
+            + '<td data-label="Status" class="' + cl + '">' + st + '</td>'
             + '</tr>';
         }).join('');
         el.innerHTML =
-          '<table class="w-full text-sm border-collapse">'
+          '<table class="mtable w-full text-sm border-collapse">'
           + '<thead><tr class="bg-slate-50 text-left">'
           + '<th class="' + cl + ' font-bold w-12">S.No</th>'
           + '<th class="' + cl + ' font-bold">Ticket ID</th>'
