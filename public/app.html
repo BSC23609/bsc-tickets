@@ -155,7 +155,7 @@
                 <option value="closed">Closed</option>
                 <option value="">All statuses</option>
               </select></div>
-            <div><label class="fieldlabel">Person</label>
+            <div id="logEmpWrap"><label class="fieldlabel">Person</label>
               <select id="logEmp" class="field" onchange="loadAssignLog()">
                 <option value="">All people</option>
               </select></div>
@@ -186,7 +186,11 @@
     async function init() {
       me = await api('/me');
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
-      if (me.is_admin) { document.getElementById('adminLink').classList.remove('hidden'); document.getElementById('logTab').classList.remove('hidden'); }
+      if (me.is_admin) { document.getElementById('adminLink').classList.remove('hidden'); }
+      // List tab is for everyone: admins see all tickets + the Person filter; users see only
+      // their own (raised by them or assigned to them), and the Person filter is hidden for them.
+      document.getElementById('logTab').classList.remove('hidden');
+      if (!me.is_admin) { const w = document.getElementById('logEmpWrap'); if (w) w.classList.add('hidden'); }
       if (me.can_self_raise) document.getElementById('selfBlock').classList.remove('hidden');
       meta = await api('/tickets/meta');
       fillForm();
@@ -421,7 +425,7 @@
     // Fill the Person dropdown with all admins and users (anyone with app access). Runs once.
     let logEmpFilled = false;
     async function fillLogEmp(){
-      if (logEmpFilled) return;
+      if (logEmpFilled || !me.is_admin) return;
       const sel = document.getElementById('logEmp');
       if (!sel) return;
       try {
@@ -452,18 +456,36 @@
       // endpoint, which loads reliably (it handles auth, cold-start retries, etc.). A 40s race
       // timeout guarantees the list can never spin forever.
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const emp = (document.getElementById('logEmp') || {}).value || '';
-      const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
-        + (st ? '&status=' + encodeURIComponent(st) : '')
-        + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
+      const slow = () => new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 20000));
       let rows;
-      try {
-        rows = await Promise.race([
-          api(path),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 20000)),
-        ]);
-      } catch (e) {
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return;
+      if (me.is_admin) {
+        // Admins: the company-wide list with the Person filter.
+        const emp = (document.getElementById('logEmp') || {}).value || '';
+        const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
+          + (st ? '&status=' + encodeURIComponent(st) : '')
+          + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
+        try { rows = await Promise.race([api(path), slow()]); }
+        catch (e) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return; }
+      } else {
+        // Users: ONLY tickets currently assigned to them (the "Assigned To" handler = l1_emp_id).
+        // Not tickets they raised. Reflects the latest assign/reassign/status because it loads live.
+        try {
+          const asg = await Promise.race([api('/tickets?scope=assigned'), slow()]);
+          const statusOK = (t) => {
+            if (!st) return true;
+            if (st === 'external') return t.external_hold && ['open', 'in_progress', 'reopened'].includes(t.status);
+            if (['open', 'in_progress', 'reopened'].includes(st)) return t.status === st && !t.external_hold;
+            return t.status === st;
+          };
+          rows = (Array.isArray(asg) ? asg : [])
+            .filter(t => t && Number(t.l1_emp_id) === Number(me.id))
+            .map(t => Object.assign({}, t, { assigned_to: t.l1_name }))
+            .filter(t => { const d = String(t.raised_at || '').slice(0, 10); return (!from || d >= from) && (!to || d <= to); })
+            .filter(statusOK)
+            .sort((a, b) => new Date(b.assigned_at || b.raised_at || 0) - new Date(a.assigned_at || a.raised_at || 0));
+        } catch (e) {
+          el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return;
+        }
       }
       try {
         const dash = '<span class="text-slate-400">—</span>';
@@ -633,7 +655,11 @@
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
     const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened',external_hold:'Sent to external/vendor support'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
-    function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
+    function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); if(!document.getElementById('tab-log').classList.contains('hidden')) return loadAssignLog(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
+    // Keep the List tab current: reload it whenever the user returns to the page (covers a ticket
+    // assigned/reassigned or its status changed elsewhere since they last looked).
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && !document.getElementById('tab-log').classList.contains('hidden')) loadAssignLog(); });
+    window.addEventListener('focus', () => { if (!document.getElementById('tab-log').classList.contains('hidden')) loadAssignLog(); });
 
     async function startTicket(id){ await act(id,'in-progress','Marked in progress'); }
     async function confirmTicket(id){ await act(id,'confirm','Ticket closed'); }
