@@ -424,26 +424,19 @@
       }
       const el = document.getElementById('logTable');
       el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading list… <span class="text-slate-400">(the first load can take a few seconds while the database wakes up)</span></div>';
-      // Fetch directly with just the login cookie (the shared api() helper's extra headers stalled
-      // this call). A cold Neon database can take 20s+ to wake on the first hit of the day, so allow
-      // 30s and one retry — otherwise it looks "stuck" on the first open.
+      // Load via the shared api() helper — the EXACT method the Admin console uses for this same
+      // endpoint, which loads reliably (it handles auth, cold-start retries, etc.). A 40s race
+      // timeout guarantees the list can never spin forever.
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const url = '/api/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (st ? '&status=' + encodeURIComponent(st) : '');
-      let rows = null, lastErr = null;
-      for (let attempt = 1; attempt <= 2 && rows === null; attempt++) {
-        const ac = new AbortController();
-        const timer = setTimeout(() => ac.abort(), 30000);
-        try {
-          const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: ac.signal });
-          clearTimeout(timer);
-          if (res.status === 401) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Your session expired — please sign in again.</div>'; return; }
-          if (!res.ok) throw new Error('server returned HTTP ' + res.status);
-          rows = await res.json();
-        } catch (e) { clearTimeout(timer); lastErr = e; if (attempt < 2) await new Promise((r) => setTimeout(r, 800)); }
-      }
-      if (rows === null) {
-        const msg = (lastErr && (lastErr.name === 'AbortError' || /abort/i.test(lastErr.message || ''))) ? 'the server took too long — tap Apply to try again' : (lastErr && lastErr.message || 'error');
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(msg) + '</div>'; return;
+      const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (st ? '&status=' + encodeURIComponent(st) : '');
+      let rows;
+      try {
+        rows = await Promise.race([
+          api(path),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 40000)),
+        ]);
+      } catch (e) {
+        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return;
       }
       try {
         const dash = '<span class="text-slate-400">—</span>';
