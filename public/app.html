@@ -452,40 +452,35 @@
       }
       const el = document.getElementById('logTable');
       el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Fetching tickets…</div>';
-      // Load via the shared api() helper — the EXACT method the Admin console uses for this same
-      // endpoint, which loads reliably (it handles auth, cold-start retries, etc.). A 40s race
-      // timeout guarantees the list can never spin forever.
+      // Both views load from /api/tickets — the SAME endpoint that loads reliably in this page
+      // (admins: scope=all = every ticket; users: scope=assigned = tickets routed to them). All
+      // filtering (Person, Status, date range) is done here so we never depend on /admin/ticket-list,
+      // which has been the one call that stalls inside app.html.
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const slow = () => new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 20000));
+      const emp = me.is_admin ? ((document.getElementById('logEmp') || {}).value || '') : String(me.id);
       let rows;
-      if (me.is_admin) {
-        // Admins: the company-wide list with the Person filter.
-        const emp = (document.getElementById('logEmp') || {}).value || '';
-        const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
-          + (st ? '&status=' + encodeURIComponent(st) : '')
-          + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
-        try { rows = await Promise.race([api(path), slow()]); }
-        catch (e) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return; }
-      } else {
-        // Users: ONLY tickets currently assigned to them (the "Assigned To" handler = l1_emp_id).
-        // Not tickets they raised. Reflects the latest assign/reassign/status because it loads live.
-        try {
-          const asg = await Promise.race([api('/tickets?scope=assigned'), slow()]);
-          const statusOK = (t) => {
-            if (!st) return true;
-            if (st === 'external') return t.external_hold && ['open', 'in_progress', 'reopened'].includes(t.status);
-            if (['open', 'in_progress', 'reopened'].includes(st)) return t.status === st && !t.external_hold;
-            return t.status === st;
-          };
-          rows = (Array.isArray(asg) ? asg : [])
-            .filter(t => t && Number(t.l1_emp_id) === Number(me.id))
-            .map(t => Object.assign({}, t, { assigned_to: t.l1_name }))
-            .filter(t => { const d = String(t.raised_at || '').slice(0, 10); return (!from || d >= from) && (!to || d <= to); })
-            .filter(statusOK)
-            .sort((a, b) => new Date(b.assigned_at || b.raised_at || 0) - new Date(a.assigned_at || a.raised_at || 0));
-        } catch (e) {
-          el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return;
-        }
+      try {
+        rows = await api(me.is_admin ? '/tickets?scope=all' : '/tickets?scope=assigned');
+      } catch (e) {
+        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + ' Tap Apply to try again.</div>'; return;
+      }
+      try {
+        const statusOK = (t) => {
+          if (!st) return true;
+          if (st === 'external') return t.external_hold && ['open', 'in_progress', 'reopened'].includes(t.status);
+          if (['open', 'in_progress', 'reopened'].includes(st)) return t.status === st && !t.external_hold;
+          return t.status === st;
+        };
+        rows = (Array.isArray(rows) ? rows : [])
+          // A ticket belongs to a person only through its "Assigned To" handler (l1_emp_id).
+          // Users always see just their own; admins see everyone, or one person when picked.
+          .filter(t => t && (emp ? Number(t.l1_emp_id) === Number(emp) : true))
+          .map(t => Object.assign({}, t, { assigned_to: t.l1_name != null ? t.l1_name : t.assigned_to }))
+          .filter(t => { const d = String(t.raised_at || '').slice(0, 10); return (!from || d >= from) && (!to || d <= to); })
+          .filter(statusOK)
+          .sort((a, b) => new Date(b.assigned_at || b.raised_at || 0) - new Date(a.assigned_at || a.raised_at || 0));
+      } catch (e) {
+        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>'; return;
       }
       try {
         const dash = '<span class="text-slate-400">—</span>';
