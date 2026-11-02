@@ -155,6 +155,10 @@
                 <option value="closed">Closed</option>
                 <option value="">All statuses</option>
               </select></div>
+            <div><label class="fieldlabel">Person</label>
+              <select id="logEmp" class="field" onchange="loadAssignLog()">
+                <option value="">All people</option>
+              </select></div>
             <div><label class="fieldlabel">From</label><input type="date" id="logFrom" class="field"></div>
             <div><label class="fieldlabel">To</label><input type="date" id="logTo" class="field"></div>
             <button onclick="loadAssignLog()" class="btn text-sm">Apply</button>
@@ -321,7 +325,7 @@
       if (tab === 'mine') loadList('mine', 'mineList');
       if (tab === 'assigned') loadList('assigned', 'assignedList');
       if (tab === 'dash') loadDashboard();
-      if (tab === 'log') loadAssignLog();
+      if (tab === 'log') { fillLogEmp(); loadAssignLog(); }
     }
 
     async function loadList(scope, elId) {
@@ -414,6 +418,26 @@
       document.getElementById('logTo').value = to;
       loadAssignLog();
     }
+    // Fill the Person dropdown with all admins and users (anyone with app access). Runs once.
+    let logEmpFilled = false;
+    async function fillLogEmp(){
+      if (logEmpFilled) return;
+      const sel = document.getElementById('logEmp');
+      if (!sel) return;
+      try {
+        const rows = await api('/admin/employees');
+        const people = (Array.isArray(rows) ? rows : [])
+          .filter(e => e.active !== false && (e.is_admin || e.app_access))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        const keep = sel.value;
+        sel.innerHTML = '<option value="">All people</option>'
+          + people.map(e => '<option value="' + e.id + '">' + esc(e.name || ('#' + e.id))
+              + (e.is_admin ? ' (admin)' : '') + (e.department ? ' — ' + esc(e.department) : '')
+              + '</option>').join('');
+        sel.value = keep;
+        logEmpFilled = true;
+      } catch (_) { /* leave the "All people" option; filter still optional */ }
+    }
     async function loadAssignLog(){
       let from = document.getElementById('logFrom').value, to = document.getElementById('logTo').value;
       if (!from || !to) {   // default to the last 7 days
@@ -423,17 +447,20 @@
         document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
       }
       const el = document.getElementById('logTable');
-      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading list… <span class="text-slate-400">(the first load can take a few seconds while the database wakes up)</span></div>';
+      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Fetching tickets…</div>';
       // Load via the shared api() helper — the EXACT method the Admin console uses for this same
       // endpoint, which loads reliably (it handles auth, cold-start retries, etc.). A 40s race
       // timeout guarantees the list can never spin forever.
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (st ? '&status=' + encodeURIComponent(st) : '');
+      const emp = (document.getElementById('logEmp') || {}).value || '';
+      const path = '/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
+        + (st ? '&status=' + encodeURIComponent(st) : '')
+        + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
       let rows;
       try {
         rows = await Promise.race([
           api(path),
-          new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 40000)),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('the server took too long — tap Apply to try again')), 20000)),
         ]);
       } catch (e) {
         el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + '</div>'; return;
