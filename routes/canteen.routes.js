@@ -174,6 +174,17 @@ router.delete('/entry', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Delete every entry for one day (store-scoped) — used by "Delete this day" ----
+router.delete('/day', async (req, res) => {
+  const d = req.query.date;
+  if (!C.isDate(d)) return res.status(400).json({ error: 'Bad date' });
+  const store = storeOf(req);
+  const n = (await q(`DELETE FROM canteen_entries WHERE entry_date=$1 AND store=$2`, [d, store])).rowCount;
+  console.log(`[canteen day delete] ${req.user.name}: ${n} entr${n === 1 ? 'y' : 'ies'} on ${d} (${store})`);
+  if (n) syncLog();
+  res.json({ ok: true, deleted: n });
+});
+
 // ---- Items ----
 router.post('/items', async (req, res) => {
   const name = C.normName(req.body && req.body.name);

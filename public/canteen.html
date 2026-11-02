@@ -232,6 +232,7 @@
           <button class="btn-ghost" id="toggleNew">+ New item</button>
           <button class="btn-ghost" id="scanBtn" title="Scan a bill with the camera">📷 Scan bill</button>
           <button class="btn-ghost" id="photoBtn" title="Pick one or more saved bill photos">🖼 Upload photos</button>
+          <button class="btn-ghost" id="delDay" title="Remove every entry on this day" style="color:#b91c1c;border-color:#fecaca">🗑 Delete this day</button>
           <button class="btn-ghost" id="pendingBtn" hidden></button>
           <input type="file" id="billScan" accept="image/*" capture="environment" hidden>
           <input type="file" id="billFile" accept="image/*" multiple hidden>
@@ -442,6 +443,21 @@
     $('#prevDay').onclick=()=>shift(-1); $('#nextDay').onclick=()=>shift(1);
     let sT; $('#search').addEventListener('input',()=>{ clearTimeout(sT); sT=setTimeout(renderRows,120); });
     $('#toggleNew').onclick=()=>{ const p=$('#newPanel'); p.hidden=!p.hidden; if(!p.hidden){ $('#niName').value=$('#search').value; $('#niName').focus(); } };
+    $('#delDay').onclick=async()=>{
+      const d=curDate;
+      const n=Object.keys(dayLines).length;
+      if(!n) return toast('No entries on this day');
+      const when=(+d.slice(8))+' '+MON[+d.slice(5,7)-1]+' '+d.slice(0,4);
+      const where=(STORE==='vegetable'?'Vegetable store':'Perumal store');
+      if(!confirm('Delete all '+n+' entr'+(n===1?'y':'ies')+' on '+when+' from the '+where+'? This cannot be undone.')) return;
+      try{
+        setStatus('Deleting…');
+        const r=await capi('/canteen/day?date='+d,{method:'DELETE'});
+        if(d===curDate){ dayLines={}; }
+        setStatus('All changes saved'); toast('Deleted '+(r.deleted||n)+' entr'+((r.deleted||n)===1?'y':'ies')+' on '+when,'success');
+        if(d===curDate) loadDay();
+      }catch(e){ setStatus(''); toast(e.message,'error'); }
+    };
     $('#copyPrev').onclick=async()=>{
       try{
         const r=await capi('/canteen/last-day?before='+curDate);
