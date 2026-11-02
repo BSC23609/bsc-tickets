@@ -145,6 +145,16 @@
             <h2 class="font-display text-xl font-bold text-ink">List</h2>
           </div>
           <div class="flex items-end gap-2 flex-wrap">
+            <div><label class="fieldlabel">Status</label>
+              <select id="logStatus" class="field" onchange="loadAssignLog()">
+                <option value="open" selected>Open</option>
+                <option value="external">Escalated externally</option>
+                <option value="in_progress">In progress</option>
+                <option value="reopened">Reopened</option>
+                <option value="resolved">Resolved</option>
+                <option value="closed">Closed</option>
+                <option value="">All statuses</option>
+              </select></div>
             <div><label class="fieldlabel">From</label><input type="date" id="logFrom" class="field"></div>
             <div><label class="fieldlabel">To</label><input type="date" id="logTo" class="field"></div>
             <button onclick="loadAssignLog()" class="btn text-sm">Apply</button>
@@ -417,7 +427,8 @@
       // Fetch directly with just the login cookie — this mirrors the bare request proven to return
       // instantly. The shared api() helper adds Content-Type/Authorization headers that were
       // stalling this specific call. Hard 15s timeout so it can never sit on "Loading" forever.
-      const url = '/api/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+      const st = (document.getElementById('logStatus') || {}).value || '';
+      const url = '/api/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (st ? '&status=' + encodeURIComponent(st) : '');
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), 15000);
       try {

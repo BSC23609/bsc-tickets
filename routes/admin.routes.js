@@ -464,6 +464,9 @@ router.get('/ticket-list', async (req, res) => {
   let where = 't.raised_at::date BETWEEN $1 AND $2';
   if (req.query.status === 'external') {
     where += " AND t.external_hold=TRUE AND t.status IN ('open','in_progress','reopened')";
+  } else if (['open', 'in_progress', 'reopened'].includes(req.query.status)) {
+    // "Escalated externally" is an open ticket on external hold — exclude those from the plain-open view.
+    params.push(req.query.status); where += ` AND t.status=$${params.length} AND t.external_hold=FALSE`;
   } else if (req.query.status) {
     params.push(req.query.status); where += ` AND t.status=$${params.length}`;
   }
@@ -1119,7 +1122,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED270', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED272', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
