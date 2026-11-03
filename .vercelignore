@@ -1,0 +1,7 @@
+# The QMS FastAPI app (api/index.py, app/, templates/) was merged into this
+# repo by mistake. This repo deploys ONLY the Node ticket app (api/index.js).
+# Exclude the Python files so Vercel builds the Node app and doesn't try to
+# create a conflicting Python function at api/index. Files stay in the repo.
+api/index.py
+app/
+templates/
