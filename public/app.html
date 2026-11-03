@@ -451,19 +451,34 @@
         document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
       }
       const el = document.getElementById('logTable');
-      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Fetching tickets…</div>';
-      // Both views load from /api/tickets — the SAME endpoint that loads reliably in this page
-      // (admins: scope=all = every ticket; users: scope=assigned = tickets routed to them). All
-      // filtering (Person, Status, date range) is done here so we never depend on /admin/ticket-list,
-      // which has been the one call that stalls inside app.html.
+      const t0 = Date.now();
+      const show = (m, cls) => { el.innerHTML = '<div class="text-sm ' + (cls || 'text-slate-500') + ' py-6 text-center">' + m + '</div>'; };
+      let secs = 0; show('Fetching tickets… (0s)');
+      // Live counter so a slow load never looks frozen.
+      const tick = setInterval(() => { secs = Math.round((Date.now() - t0) / 1000); if (/Fetching tickets/.test(el.textContent)) show('Fetching tickets… (' + secs + 's)'); }, 1000);
       const st = (document.getElementById('logStatus') || {}).value || '';
       const emp = me.is_admin ? ((document.getElementById('logEmp') || {}).value || '') : String(me.id);
+      const scope = me.is_admin ? 'all' : 'assigned';
       let rows;
       try {
-        rows = await api(me.is_admin ? '/tickets?scope=all' : '/tickets?scope=assigned');
+        // Plain cookie-auth fetch — exactly what opening the URL in the address bar does (which
+        // works) — with its own 25s hard timeout so it can never spin forever.
+        const ac = new AbortController();
+        const killer = setTimeout(() => ac.abort(), 25000);
+        const res = await fetch('/api/tickets?scope=' + scope, { credentials: 'same-origin', signal: ac.signal });
+        clearTimeout(killer);
+        secs = Math.round((Date.now() - t0) / 1000);
+        if (!res.ok) { clearInterval(tick); show('Server returned HTTP ' + res.status + ' after ' + secs + 's. Tap Apply to retry.', 'text-red-600'); return; }
+        rows = await res.json();
+        clearInterval(tick);
       } catch (e) {
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(e && e.message || 'error') + ' Tap Apply to try again.</div>'; return;
+        clearInterval(tick);
+        secs = Math.round((Date.now() - t0) / 1000);
+        const aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
+        show((aborted ? 'Timed out after ' + secs + 's' : ('Could not load — ' + esc(e && e.message || 'error'))) + '. Tap Apply to retry.', 'text-red-600');
+        return;
       }
+      const rawCount = Array.isArray(rows) ? rows.length : -1;
       try {
         const statusOK = (t) => {
           if (!st) return true;
@@ -508,7 +523,7 @@
           + '<th class="' + cl + ' font-bold whitespace-nowrap">Assigned time</th>'
           + '<th class="' + cl + ' font-bold">Status</th>'
           + '</tr></thead>'
-          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>') + '</tbody>'
+          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No tickets match the current filters. (received ' + rawCount + ' assigned, ' + rows.length + ' after filters — try Status: All statuses and widen the dates)</td></tr>') + '</tbody>'
           + '</table>';
       } catch (e) {
         el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>';
