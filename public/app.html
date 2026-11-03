@@ -142,7 +142,7 @@
         <div class="flex items-end justify-between flex-wrap gap-3 mb-4">
           <div>
             <div class="eyebrow">Ticket assignments</div>
-            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v285 · fast</span></h2>
+            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v286 · fast</span></h2>
           </div>
           <div class="flex items-end gap-2 flex-wrap">
             <div><label class="fieldlabel">Status</label>
@@ -494,6 +494,13 @@
           let when, st;
           try { when = fmtDateTime(t.assigned_at || t.raised_at); } catch (_) { when = esc(t.assigned_at || t.raised_at || ''); }
           try { st = statusBadgeT(t); } catch (_) { st = esc(t.status || ''); }
+          // The List shows tickets assigned to this person, so they can resolve them right here.
+          const canResolve = ['open', 'in_progress', 'reopened'].includes(t.status);
+          const act = canResolve
+            ? '<button onclick="resolveTicket(' + t.id + ')" class="px-2.5 py-1 rounded-md bg-violet-600 text-white text-xs font-semibold hover:bg-violet-700 whitespace-nowrap">Mark resolved</button>'
+            : (t.status === 'resolved'
+                ? '<span class="text-xs text-emerald-600">Resolved — awaiting confirmation</span>'
+                : '<span class="text-xs text-slate-400">—</span>');
           return '<tr>'
             + '<td data-label="S.No" class="' + cl + '">' + (i + 1) + '</td>'
             + '<td data-label="Ticket ID" class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
@@ -501,6 +508,7 @@
             + '<td data-label="Assigned by" class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
             + '<td data-label="Assigned time" class="' + cl + ' whitespace-nowrap">' + when + '</td>'
             + '<td data-label="Status" class="' + cl + '">' + st + '</td>'
+            + '<td data-label="Action" class="' + cl + '">' + act + '</td>'
             + '</tr>';
         }).join('');
         el.innerHTML =
@@ -512,8 +520,9 @@
           + '<th class="' + cl + ' font-bold">Assigned by</th>'
           + '<th class="' + cl + ' font-bold whitespace-nowrap">Assigned time</th>'
           + '<th class="' + cl + ' font-bold">Status</th>'
+          + '<th class="' + cl + ' font-bold">Action</th>'
           + '</tr></thead>'
-          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No tickets for these filters — try Status: All statuses and widen the dates.</td></tr>') + '</tbody>'
+          + '<tbody>' + (body || '<tr><td colspan="7" class="' + cl + ' text-center text-slate-400 py-6">No tickets for these filters — try Status: All statuses and widen the dates.</td></tr>') + '</tbody>'
           + '</table>';
       } catch (e) {
         el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>';
