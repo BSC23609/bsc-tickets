@@ -200,6 +200,11 @@ router.get('/', async (req, res) => {
 // ---- Slim list for the "List" tab — only the columns it shows, filtered server-side so the
 // payload stays tiny even for a handler with hundreds of tickets. Non-admins see only tickets
 // assigned to them (l1); admins see all, or one person via ?emp_id. ----
+// ---- Keep-warm: a cheap query so Neon doesn't sleep during an active session ----
+router.get('/warm', async (req, res) => {
+  try { await q('SELECT 1'); res.json({ ok: true }); } catch (e) { res.json({ ok: false }); }
+});
+
 router.get('/list-slim', async (req, res) => {
   const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
   const from = okDate(req.query.from) ? req.query.from : '2000-01-01';

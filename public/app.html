@@ -142,7 +142,7 @@
         <div class="flex items-end justify-between flex-wrap gap-3 mb-4">
           <div>
             <div class="eyebrow">Ticket assignments</div>
-            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v284 · fast</span></h2>
+            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v285 · fast</span></h2>
           </div>
           <div class="flex items-end gap-2 flex-wrap">
             <div><label class="fieldlabel">Status</label>
@@ -198,6 +198,10 @@
       const assigned = await api('/tickets?scope=assigned');
       if (assigned.length) document.getElementById('assignedTab').classList.remove('hidden');
       setupTabs();
+      // Keep the free-tier database awake while this tab is open, so the first load after a
+      // short idle doesn't have to wait for it to wake up. Fire once now, then every 4 minutes.
+      const warm = () => { try { fetch('/api/tickets/warm', { credentials: 'same-origin' }).catch(() => {}); } catch (_) {} };
+      warm(); setInterval(() => { if (!document.hidden) warm(); }, 240000);
       // Deep link from a WhatsApp notification: open that ticket straight away.
       const deep = new URLSearchParams(location.search).get('t');
       if (deep) { switchTab('mine'); openDetail(deep); }
