@@ -197,6 +197,39 @@ router.get('/', async (req, res) => {
   res.json(rows.map((t) => ({ ...t, downtime_mins: downtimeMins(t) })));
 });
 
+// ---- Slim list for the "List" tab — only the columns it shows, filtered server-side so the
+// payload stays tiny even for a handler with hundreds of tickets. Non-admins see only tickets
+// assigned to them (l1); admins see all, or one person via ?emp_id. ----
+router.get('/list-slim', async (req, res) => {
+  const okDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d);
+  const from = okDate(req.query.from) ? req.query.from : '2000-01-01';
+  const to = okDate(req.query.to) ? req.query.to : '2999-12-31';
+  const params = [from, to];
+  let where = 't.raised_at::date BETWEEN $1 AND $2';
+  if (!req.user.is_admin) {
+    params.push(req.user.id); where += ` AND t.l1_emp_id=$${params.length}`;
+  } else if (req.query.emp_id && Number.isInteger(Number(req.query.emp_id))) {
+    params.push(Number(req.query.emp_id)); where += ` AND t.l1_emp_id=$${params.length}`;
+  }
+  const s = req.query.status;
+  if (s === 'external') {
+    where += " AND t.external_hold=TRUE AND t.status IN ('open','in_progress','reopened')";
+  } else if (['open', 'in_progress', 'reopened'].includes(s)) {
+    params.push(s); where += ` AND t.status=$${params.length} AND t.external_hold=FALSE`;
+  } else if (s) {
+    params.push(s); where += ` AND t.status=$${params.length}`;
+  }
+  const { rows } = await q(
+    `SELECT t.id, t.ref_no, t.subject, t.status, t.external_hold,
+            to_char(t.raised_at,'YYYY-MM-DD"T"HH24:MI:SS') AS raised_at,
+            to_char(t.assigned_at,'YYYY-MM-DD"T"HH24:MI:SS') AS assigned_at,
+            t.l1_emp_id, l1.name AS assigned_to
+     FROM tickets t LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
+     WHERE ${where}
+     ORDER BY t.raised_at DESC LIMIT 500`, params);
+  res.json(rows);
+});
+
 // ---- personal dashboard: my raised, my assigned, daily activity (IST) with date range ----
 router.get('/my-dashboard', async (req, res) => {
   const me = req.user.id;

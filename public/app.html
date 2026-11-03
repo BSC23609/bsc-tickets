@@ -457,15 +457,18 @@
       // Live counter so a slow load never looks frozen.
       const tick = setInterval(() => { secs = Math.round((Date.now() - t0) / 1000); if (/Fetching tickets/.test(el.textContent)) show('Fetching tickets… (' + secs + 's)'); }, 1000);
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const emp = me.is_admin ? ((document.getElementById('logEmp') || {}).value || '') : String(me.id);
-      const scope = me.is_admin ? 'all' : 'assigned';
+      const emp = me.is_admin ? ((document.getElementById('logEmp') || {}).value || '') : '';
+      const qs = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
+        + (st ? '&status=' + encodeURIComponent(st) : '')
+        + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
       let rows;
       try {
-        // Plain cookie-auth fetch — exactly what opening the URL in the address bar does (which
-        // works) — with its own 25s hard timeout so it can never spin forever.
+        // Slim, server-filtered list — only the 6 columns shown, already scoped to this person,
+        // status and date. Tiny payload even for a handler with hundreds of tickets, so the page
+        // never chokes parsing/rendering. 25s hard timeout so it can never spin forever.
         const ac = new AbortController();
         const killer = setTimeout(() => ac.abort(), 25000);
-        const res = await fetch('/api/tickets?scope=' + scope, { credentials: 'same-origin', signal: ac.signal });
+        const res = await fetch('/api/tickets/list-slim' + qs, { credentials: 'same-origin', signal: ac.signal });
         clearTimeout(killer);
         secs = Math.round((Date.now() - t0) / 1000);
         if (!res.ok) { clearInterval(tick); show('Server returned HTTP ' + res.status + ' after ' + secs + 's. Tap Apply to retry.', 'text-red-600'); return; }
@@ -478,25 +481,8 @@
         show((aborted ? 'Timed out after ' + secs + 's' : ('Could not load — ' + esc(e && e.message || 'error'))) + '. Tap Apply to retry.', 'text-red-600');
         return;
       }
-      const rawCount = Array.isArray(rows) ? rows.length : -1;
-      try {
-        const statusOK = (t) => {
-          if (!st) return true;
-          if (st === 'external') return t.external_hold && ['open', 'in_progress', 'reopened'].includes(t.status);
-          if (['open', 'in_progress', 'reopened'].includes(st)) return t.status === st && !t.external_hold;
-          return t.status === st;
-        };
-        rows = (Array.isArray(rows) ? rows : [])
-          // A ticket belongs to a person only through its "Assigned To" handler (l1_emp_id).
-          // Users always see just their own; admins see everyone, or one person when picked.
-          .filter(t => t && (emp ? Number(t.l1_emp_id) === Number(emp) : true))
-          .map(t => Object.assign({}, t, { assigned_to: t.l1_name != null ? t.l1_name : t.assigned_to }))
-          .filter(t => { const d = String(t.raised_at || '').slice(0, 10); return (!from || d >= from) && (!to || d <= to); })
-          .filter(statusOK)
-          .sort((a, b) => new Date(b.assigned_at || b.raised_at || 0) - new Date(a.assigned_at || a.raised_at || 0));
-      } catch (e) {
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>'; return;
-      }
+      // Server already filtered by person, status and date and sorted newest-first — just render.
+      if (!Array.isArray(rows)) rows = [];
       try {
         const dash = '<span class="text-slate-400">—</span>';
         const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
@@ -523,7 +509,7 @@
           + '<th class="' + cl + ' font-bold whitespace-nowrap">Assigned time</th>'
           + '<th class="' + cl + ' font-bold">Status</th>'
           + '</tr></thead>'
-          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No tickets match the current filters. (received ' + rawCount + ' assigned, ' + rows.length + ' after filters — try Status: All statuses and widen the dates)</td></tr>') + '</tbody>'
+          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No tickets for these filters — try Status: All statuses and widen the dates.</td></tr>') + '</tbody>'
           + '</table>';
       } catch (e) {
         el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>';
