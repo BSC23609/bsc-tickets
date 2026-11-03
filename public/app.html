@@ -142,7 +142,7 @@
         <div class="flex items-end justify-between flex-wrap gap-3 mb-4">
           <div>
             <div class="eyebrow">Ticket assignments</div>
-            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v286 · fast</span></h2>
+            <h2 class="font-display text-xl font-bold text-ink">List <span class="text-[10px] font-normal text-emerald-600 align-middle">v287 · fast</span></h2>
           </div>
           <div class="flex items-end gap-2 flex-wrap">
             <div><label class="fieldlabel">Status</label>
@@ -476,6 +476,8 @@
         clearTimeout(killer);
         secs = Math.round((Date.now() - t0) / 1000);
         if (!res.ok) { clearInterval(tick); show('Server returned HTTP ' + res.status + ' after ' + secs + 's. Tap Apply to retry.', 'text-red-600'); return; }
+        window.__listServerMs = res.headers.get('X-Query-Ms');
+        window.__listTotalMs = Date.now() - t0;
         rows = await res.json();
         clearInterval(tick);
       } catch (e) {
@@ -523,7 +525,8 @@
           + '<th class="' + cl + ' font-bold">Action</th>'
           + '</tr></thead>'
           + '<tbody>' + (body || '<tr><td colspan="7" class="' + cl + ' text-center text-slate-400 py-6">No tickets for these filters — try Status: All statuses and widen the dates.</td></tr>') + '</tbody>'
-          + '</table>';
+          + '</table>'
+          + '<div class="text-[10px] text-slate-400 mt-1 text-right">loaded in ' + (window.__listTotalMs || '?') + ' ms · database query ' + (window.__listServerMs || '?') + ' ms</div>';
       } catch (e) {
         el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>';
       }

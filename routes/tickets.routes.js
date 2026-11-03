@@ -225,6 +225,7 @@ router.get('/list-slim', async (req, res) => {
   } else if (s) {
     params.push(s); where += ` AND t.status=$${params.length}`;
   }
+  const _t0 = Date.now();
   const { rows } = await q(
     `SELECT t.id, t.ref_no, t.subject, t.status, t.external_hold,
             to_char(t.raised_at,'YYYY-MM-DD"T"HH24:MI:SS') AS raised_at,
@@ -233,6 +234,7 @@ router.get('/list-slim', async (req, res) => {
      FROM tickets t LEFT JOIN employees l1 ON l1.id=t.l1_emp_id
      WHERE ${where}
      ORDER BY t.raised_at DESC LIMIT 500`, params);
+  res.set('X-Query-Ms', String(Date.now() - _t0));  // how long the DB query itself took
   res.json(rows);
 });
 
