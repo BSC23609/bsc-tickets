@@ -155,10 +155,6 @@
                 <option value="closed">Closed</option>
                 <option value="">All statuses</option>
               </select></div>
-            <div id="logEmpWrap"><label class="fieldlabel">Person</label>
-              <select id="logEmp" class="field" onchange="loadAssignLog()">
-                <option value="">All people</option>
-              </select></div>
             <div><label class="fieldlabel">From</label><input type="date" id="logFrom" class="field"></div>
             <div><label class="fieldlabel">To</label><input type="date" id="logTo" class="field"></div>
             <button onclick="loadAssignLog()" class="btn text-sm">Apply</button>
@@ -186,11 +182,7 @@
     async function init() {
       me = await api('/me');
       document.getElementById('who').textContent = `${me.name} · ${me.emp_no}`;
-      if (me.is_admin) { document.getElementById('adminLink').classList.remove('hidden'); }
-      // List tab is for everyone: admins see all tickets + the Person filter; users see only
-      // their own (raised by them or assigned to them), and the Person filter is hidden for them.
-      document.getElementById('logTab').classList.remove('hidden');
-      if (!me.is_admin) { const w = document.getElementById('logEmpWrap'); if (w) w.classList.add('hidden'); }
+      if (me.is_admin) { document.getElementById('adminLink').classList.remove('hidden'); document.getElementById('logTab').classList.remove('hidden'); }
       if (me.can_self_raise) document.getElementById('selfBlock').classList.remove('hidden');
       meta = await api('/tickets/meta');
       fillForm();
@@ -329,7 +321,7 @@
       if (tab === 'mine') loadList('mine', 'mineList');
       if (tab === 'assigned') loadList('assigned', 'assignedList');
       if (tab === 'dash') loadDashboard();
-      if (tab === 'log') { fillLogEmp(); loadAssignLog(); }
+      if (tab === 'log') loadAssignLog();
     }
 
     async function loadList(scope, elId) {
@@ -422,26 +414,6 @@
       document.getElementById('logTo').value = to;
       loadAssignLog();
     }
-    // Fill the Person dropdown with all admins and users (anyone with app access). Runs once.
-    let logEmpFilled = false;
-    async function fillLogEmp(){
-      if (logEmpFilled || !me.is_admin) return;
-      const sel = document.getElementById('logEmp');
-      if (!sel) return;
-      try {
-        const rows = await api('/admin/employees');
-        const people = (Array.isArray(rows) ? rows : [])
-          .filter(e => e.active !== false && (e.is_admin || e.app_access))
-          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-        const keep = sel.value;
-        sel.innerHTML = '<option value="">All people</option>'
-          + people.map(e => '<option value="' + e.id + '">' + esc(e.name || ('#' + e.id))
-              + (e.is_admin ? ' (admin)' : '') + (e.department ? ' — ' + esc(e.department) : '')
-              + '</option>').join('');
-        sel.value = keep;
-        logEmpFilled = true;
-      } catch (_) { /* leave the "All people" option; filter still optional */ }
-    }
     async function loadAssignLog(){
       let from = document.getElementById('logFrom').value, to = document.getElementById('logTo').value;
       if (!from || !to) {   // default to the last 7 days
@@ -451,39 +423,20 @@
         document.getElementById('logFrom').value = from; document.getElementById('logTo').value = to;
       }
       const el = document.getElementById('logTable');
-      const t0 = Date.now();
-      const show = (m, cls) => { el.innerHTML = '<div class="text-sm ' + (cls || 'text-slate-500') + ' py-6 text-center">' + m + '</div>'; };
-      let secs = 0; show('Fetching tickets… (0s)');
-      // Live counter so a slow load never looks frozen.
-      const tick = setInterval(() => { secs = Math.round((Date.now() - t0) / 1000); if (/Fetching tickets/.test(el.textContent)) show('Fetching tickets… (' + secs + 's)'); }, 1000);
+      el.innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">Loading list…</div>';
+      // Fetch directly with just the login cookie — this mirrors the bare request proven to return
+      // instantly. The shared api() helper adds Content-Type/Authorization headers that were
+      // stalling this specific call. Hard 15s timeout so it can never sit on "Loading" forever.
       const st = (document.getElementById('logStatus') || {}).value || '';
-      const emp = me.is_admin ? ((document.getElementById('logEmp') || {}).value || '') : '';
-      const qs = '?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to)
-        + (st ? '&status=' + encodeURIComponent(st) : '')
-        + (emp ? '&emp_id=' + encodeURIComponent(emp) : '');
-      let rows;
+      const url = '/api/admin/ticket-list?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to) + (st ? '&status=' + encodeURIComponent(st) : '');
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 15000);
       try {
-        // Slim, server-filtered list — only the 6 columns shown, already scoped to this person,
-        // status and date. Tiny payload even for a handler with hundreds of tickets, so the page
-        // never chokes parsing/rendering. 25s hard timeout so it can never spin forever.
-        const ac = new AbortController();
-        const killer = setTimeout(() => ac.abort(), 25000);
-        const res = await fetch('/api/tickets/list-slim' + qs, { credentials: 'same-origin', signal: ac.signal });
-        clearTimeout(killer);
-        secs = Math.round((Date.now() - t0) / 1000);
-        if (!res.ok) { clearInterval(tick); show('Server returned HTTP ' + res.status + ' after ' + secs + 's. Tap Apply to retry.', 'text-red-600'); return; }
-        rows = await res.json();
-        clearInterval(tick);
-      } catch (e) {
-        clearInterval(tick);
-        secs = Math.round((Date.now() - t0) / 1000);
-        const aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
-        show((aborted ? 'Timed out after ' + secs + 's' : ('Could not load — ' + esc(e && e.message || 'error'))) + '. Tap Apply to retry.', 'text-red-600');
-        return;
-      }
-      // Server already filtered by person, status and date and sorted newest-first — just render.
-      if (!Array.isArray(rows)) rows = [];
-      try {
+        const res = await fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' }, credentials: 'same-origin', signal: ac.signal });
+        clearTimeout(timer);
+        if (res.status === 401) { el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Your session expired — please sign in again.</div>'; return; }
+        if (!res.ok) throw new Error('server returned HTTP ' + res.status);
+        const rows = await res.json();
         const dash = '<span class="text-slate-400">—</span>';
         const cl = 'border border-slate-200 px-2 py-1.5 text-xs';
         const body = (Array.isArray(rows) ? rows : []).map((t, i) => {
@@ -491,16 +444,16 @@
           try { when = fmtDateTime(t.assigned_at || t.raised_at); } catch (_) { when = esc(t.assigned_at || t.raised_at || ''); }
           try { st = statusBadgeT(t); } catch (_) { st = esc(t.status || ''); }
           return '<tr>'
-            + '<td data-label="S.No" class="' + cl + '">' + (i + 1) + '</td>'
-            + '<td data-label="Ticket ID" class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
-            + '<td data-label="Description" class="' + cl + '">' + esc(t.subject || '') + '</td>'
-            + '<td data-label="Assigned by" class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
-            + '<td data-label="Assigned time" class="' + cl + ' whitespace-nowrap">' + when + '</td>'
-            + '<td data-label="Status" class="' + cl + '">' + st + '</td>'
+            + '<td class="' + cl + '">' + (i + 1) + '</td>'
+            + '<td class="' + cl + ' mono whitespace-nowrap">' + esc(t.ref_no || '') + '</td>'
+            + '<td class="' + cl + '">' + esc(t.subject || '') + '</td>'
+            + '<td class="' + cl + '">' + (t.assigned_to ? esc(t.assigned_to) : dash) + '</td>'
+            + '<td class="' + cl + ' whitespace-nowrap">' + when + '</td>'
+            + '<td class="' + cl + '">' + st + '</td>'
             + '</tr>';
         }).join('');
         el.innerHTML =
-          '<table class="mtable w-full text-sm border-collapse">'
+          '<table class="w-full text-sm border-collapse">'
           + '<thead><tr class="bg-slate-50 text-left">'
           + '<th class="' + cl + ' font-bold w-12">S.No</th>'
           + '<th class="' + cl + ' font-bold">Ticket ID</th>'
@@ -509,10 +462,12 @@
           + '<th class="' + cl + ' font-bold whitespace-nowrap">Assigned time</th>'
           + '<th class="' + cl + ' font-bold">Status</th>'
           + '</tr></thead>'
-          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No tickets for these filters — try Status: All statuses and widen the dates.</td></tr>') + '</tbody>'
+          + '<tbody>' + (body || '<tr><td colspan="6" class="' + cl + ' text-center text-slate-400 py-6">No ticket assignments in this range.</td></tr>') + '</tbody>'
           + '</table>';
       } catch (e) {
-        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not display the list — ' + esc(e && e.message || 'error') + '</div>';
+        clearTimeout(timer);
+        const msg = (e && (e.name === 'AbortError' || /abort/i.test(e.message || ''))) ? 'the server took too long (timed out)' : (e && e.message || 'error');
+        el.innerHTML = '<div class="text-sm text-red-600 py-6 text-center">Could not load the list — ' + esc(msg) + '</div>';
       }
     }
 
@@ -651,11 +606,7 @@
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
     const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened',external_hold:'Sent to external/vendor support'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
-    function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); if(!document.getElementById('tab-log').classList.contains('hidden')) return loadAssignLog(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
-    // Keep the List tab current: reload it whenever the user returns to the page (covers a ticket
-    // assigned/reassigned or its status changed elsewhere since they last looked).
-    document.addEventListener('visibilitychange', () => { if (!document.hidden && !document.getElementById('tab-log').classList.contains('hidden')) loadAssignLog(); });
-    window.addEventListener('focus', () => { if (!document.getElementById('tab-log').classList.contains('hidden')) loadAssignLog(); });
+    function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
 
     async function startTicket(id){ await act(id,'in-progress','Marked in progress'); }
     async function confirmTicket(id){ await act(id,'confirm','Ticket closed'); }

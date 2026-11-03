@@ -474,11 +474,6 @@ router.get('/ticket-list', async (req, res) => {
     params.push('%' + String(req.query.q).toLowerCase() + '%');
     where += ` AND (lower(t.ref_no) LIKE $${params.length} OR lower(t.subject) LIKE $${params.length})`;
   }
-  // Filter by the handler the ticket is assigned to (admin/user picked in the List tab).
-  if (req.query.emp_id && Number.isInteger(Number(req.query.emp_id))) {
-    params.push(Number(req.query.emp_id));
-    where += ` AND t.l1_emp_id=$${params.length}`;
-  }
   const rows = (await q(
     `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.resolved_at,t.closed_at,t.external_hold,
             COALESCE(t.reminders_off,false) AS reminders_off,
@@ -1127,7 +1122,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED282', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED272', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];
