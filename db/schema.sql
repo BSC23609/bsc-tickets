@@ -668,3 +668,12 @@ ALTER TABLE canteen_cook_salary DROP CONSTRAINT IF EXISTS canteen_cook_salary_pk
 CREATE UNIQUE INDEX IF NOT EXISTS canteen_cook_store_month ON canteen_cook_salary(store, month);
 CREATE INDEX IF NOT EXISTS idx_canteen_entries_store ON canteen_entries(store, entry_date);
 CREATE INDEX IF NOT EXISTS idx_canteen_items_store   ON canteen_items(store, sort_order, name);
+
+-- ============================================================
+-- Faster "List" tab: the slim list filters tickets by handler (l1_emp_id) and
+-- a date range, newest first. A composite index lets Postgres seek straight to
+-- one handler's tickets already ordered by date, so a wide range stays fast
+-- even for a handler with many tickets. (idempotent — safe to re-run)
+-- ============================================================
+CREATE INDEX IF NOT EXISTS idx_tickets_l1_raised ON tickets(l1_emp_id, raised_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tickets_raised    ON tickets(raised_at DESC);

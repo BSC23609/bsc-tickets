@@ -205,7 +205,8 @@ router.get('/list-slim', async (req, res) => {
   const from = okDate(req.query.from) ? req.query.from : '2000-01-01';
   const to = okDate(req.query.to) ? req.query.to : '2999-12-31';
   const params = [from, to];
-  let where = 't.raised_at::date BETWEEN $1 AND $2';
+  // Sargable range (no ::date cast on the column) so the (l1_emp_id, raised_at) index can be used.
+  let where = "t.raised_at >= $1::date AND t.raised_at < ($2::date + INTERVAL '1 day')";
   if (!req.user.is_admin) {
     params.push(req.user.id); where += ` AND t.l1_emp_id=$${params.length}`;
   } else if (req.query.emp_id && Number.isInteger(Number(req.query.emp_id))) {
