@@ -70,7 +70,7 @@
       return `<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">
         <div class="text-sm"><b>${label}</b> <span class="text-slate-400 text-xs">${count?('· '+count+' '):''}</span> · ${rupee(total)}
           ${sentAt?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(sentAt)}</span>`:''}</div>
-        <div class="flex items-center gap-2">${manage?`<button onclick="manageEntries('${manage.kind}','${manage.company}')" class="text-[11px] text-slate-400 hover:text-red-600 hover:underline">Fix duplicates</button>`:''}${previewUrl?`<a href="${previewUrl}" target="_blank" class="btn-ghost text-xs">Preview</a>`:''}</div></div>`;
+        <div class="flex items-center gap-2">${manage?`<button onclick="manageEntries('${manage.kind}','${manage.company}')" class="text-[11px] text-slate-400 hover:text-red-600 hover:underline">Fix duplicates</button>`:''}${previewUrl?`<a href="${previewUrl}" target="_blank" class="btn-ghost text-xs">Preview</a> <a href="${previewUrl.replace('/report/','/report-xlsx/')}" class="btn-ghost text-xs">⬇ Excel</a>`:''}</div></div>`;
     }
     async function manageEntries(kind, company){
       let d; try{ d=await api('/final/report-people/'+kind+'/'+company+'/'+M()); }catch(e){ return toast(e.message,'error'); }

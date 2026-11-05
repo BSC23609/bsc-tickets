@@ -3,6 +3,7 @@
 // labour OT+shearing (grouped under a single "Labours" payee). Approvals reuse the existing
 // per-module endpoints so all their side-effects (PDFs, accounts emails) stay intact.
 const express = require('express');
+const ExcelJS = require('exceljs');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
 const chain = require('../lib/chain');
@@ -244,6 +245,69 @@ router.get('/report/shearing/:company/:month', async (req, res) => {
     if (!pdf) return res.status(404).send('No approved shearing for this company/month.');
     res.setHeader('Content-Type', 'application/pdf'); res.setHeader('Content-Disposition', `inline; filename="Shearing_${req.params.company}_${req.params.month}.pdf"`); res.end(pdf);
   } catch (e) { console.error('[shearing report]', e); res.status(500).send(e.message); }
+});
+
+// Excel export of the same OT / Shearing consolidated report (flat per-date rows + total),
+// pulled live from the DB so the numbers match the Preview exactly.
+router.get('/report-xlsx/:kind/:company/:month', async (req, res) => {
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).send('Not allowed');
+  const kind = req.params.kind, C = COMPANIES[req.params.company], month = req.params.month;
+  if (!C || !/^\d{4}-\d{2}$/.test(month) || !['ot', 'shearing'].includes(kind)) return res.status(400).send('Bad request');
+  try {
+    const inc = req.query.all === '1';
+    let rows = [], unitLabel, qtyFmt;
+    if (kind === 'ot') {
+      unitLabel = 'HOURS'; qtyFmt = '0.00';
+      const staff = (await q(
+        `SELECT e.emp_no AS code, e.name, to_char(o.ot_date,'YYYY-MM-DD') AS d, o.hours AS qty, o.amount
+         FROM ot_entries o JOIN employees e ON e.id=o.employee_id
+         WHERE e.emp_no LIKE $1 AND o.status ${inc ? "IN ('mgmt_approved','paid')" : "= 'mgmt_approved'"}
+           AND o.ot_date >= ($2||'-01')::date AND o.ot_date < (($2||'-01')::date + interval '1 month')`,
+        [C.staffPrefix + '/%', month])).rows;
+      const labour = (await q(
+        `SELECT lo.labour_code AS code, lo.labour_name AS name, to_char(lo.ot_date,'YYYY-MM-DD') AS d, lo.hours AS qty, lo.amount
+         FROM labour_ot lo JOIN labour_period lp ON lp.company=lo.company AND lp.period=lo.period
+         WHERE lo.company=$1 AND lo.period=$2 AND lp.ot_status='approved' AND lo.paid_at IS NULL`,
+        [C.labourCo, month])).rows;
+      rows = staff.concat(labour);
+    } else {
+      unitLabel = 'DAYS'; qtyFmt = '0.0';
+      rows = (await q(
+        `SELECT ls.labour_code AS code, ls.labour_name AS name, to_char(ls.sh_date,'YYYY-MM-DD') AS d, ls.days AS qty, ls.amount
+         FROM labour_shearing ls JOIN labour_period lp ON lp.company=ls.company AND lp.period=ls.period
+         WHERE ls.company=$1 AND ls.period=$2 AND lp.shearing_status='approved' AND ls.paid_at IS NULL`,
+        [C.labourCo, month])).rows;
+    }
+    rows.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')) || String(a.d).localeCompare(String(b.d)));
+    const grand = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+    const thin = { style: 'thin', color: { argb: 'FFDCE3EA' } };
+    const border = { top: thin, left: thin, bottom: thin, right: thin };
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(kind === 'ot' ? 'Overtime' : 'Shearing');
+    ws.columns = [{ width: 12 }, { width: 30 }, { width: 14 }, { width: 10 }, { width: 14 }];
+    ws.mergeCells('A1:E1');
+    ws.getCell('A1').value = (kind === 'ot' ? 'Overtime' : 'Shed-B Shearing') + ' — ' + C.label + ' — ' + monthLabel(month);
+    ws.getCell('A1').font = { bold: true, size: 13, color: { argb: 'FF0A2B66' } };
+    ws.getRow(1).height = 22;
+    const hr = ws.addRow(['CODE', 'NAME', 'DATE', unitLabel, 'AMOUNT']);
+    hr.eachCell((c) => { c.font = { bold: true, color: { argb: 'FFFFFFFF' } }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A2B66' } }; c.alignment = { vertical: 'middle' }; c.border = border; });
+    rows.forEach((r) => {
+      const row = ws.addRow([r.code || '—', r.name || '', r.d, Number(r.qty || 0), Number(r.amount || 0)]);
+      row.getCell(4).numFmt = qtyFmt; row.getCell(4).alignment = { horizontal: 'right' };
+      row.getCell(5).numFmt = '₹#,##0'; row.getCell(5).alignment = { horizontal: 'right' };
+      row.eachCell((c) => { c.border = border; });
+    });
+    const tr = ws.addRow(['', '', '', 'Total', grand]);
+    tr.getCell(4).font = { bold: true }; tr.getCell(4).alignment = { horizontal: 'right' };
+    tr.getCell(5).font = { bold: true }; tr.getCell(5).numFmt = '₹#,##0'; tr.getCell(5).alignment = { horizontal: 'right' };
+    tr.eachCell((c) => { c.border = border; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }; });
+    ws.views = [{ state: 'frozen', ySplit: 2 }];
+    const buf = Buffer.from(await wb.xlsx.writeBuffer());
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${kind === 'ot' ? 'OT' : 'Shearing'}_${req.params.company}_${month}.xlsx"`);
+    res.end(buf);
+  } catch (e) { console.error('[report xlsx]', e); res.status(500).send(e.message); }
 });
 
 // ---- Send to Accounts: what's ready per company + the send action ----
