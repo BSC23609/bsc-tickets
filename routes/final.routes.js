@@ -630,9 +630,9 @@ router.post('/monthly-run', async (req, res) => {
   catch (e) { console.error('[monthly-run]', e); res.status(500).json({ error: e.message }); }
 });
 
-// Late catch-up: send one employee's consolidated report on demand (after the 5th).
+// Late catch-up / per-employee re-send: send one employee's consolidated report on demand.
 router.post('/send-employee', async (req, res) => {
-  if (!(await isMgmt(req.user))) return res.status(403).json({ error: 'Management / admin only.' });
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
   const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : prevMonth();
   const empId = +req.body.emp_id;
   const r = await buildEmployeeConsolidatedPdf(empId, month);
