@@ -1,0 +1,33 @@
+name: Report edit (one-off OT/Shearing correction)
+
+# Manual, management-triggered correction to an already-approved month's OT/Shearing.
+# Hits /api/cron/report-edit (protected by CRON_SECRET). The payload is a JSON string:
+#   {"company":"BSC","month":"2026-10","ops":[{"op":"remove","kind":"ot","name":"Krishna"}, ...]}
+# Empty ops => dry run (returns current name lists only).
+on:
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: 'JSON {company, month, ops:[...]}'
+        required: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply correction
+        run: |
+          cat > payload.json <<'JSON'
+          ${{ github.event.inputs.payload }}
+          JSON
+          echo "---- PAYLOAD ----"; cat payload.json; echo
+          code=$(curl -sS --max-time 120 -o resp.json -w "%{http_code}" -X POST \
+            "https://tickets.bharatsteels.in/api/cron/report-edit" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            --data @payload.json || echo "000")
+          echo "HTTP $code"
+          echo "---- RESPONSE ----"
+          cat resp.json; echo
+          echo "---- END ----"
+          [ "$code" = "200" ] || exit 1

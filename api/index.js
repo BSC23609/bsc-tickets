@@ -505,6 +505,20 @@ app.all('/api/cron/hr-monthly-ot', async (req, res) => {
   } catch (e) { console.error('[hr-monthly-ot]', e); res.status(500).json({ error: e.message }); }
 });
 
+// One-off OT/Shearing correction on an already-approved month (management fix), applied
+// server-side. Fired by a GitHub Action (workflow_dispatch). Body: {company, month, ops:[...]}.
+// Protected by CRON_SECRET. With empty ops it just returns the current name lists (dry run).
+app.all('/api/cron/report-edit', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+  recordCron('report-edit');
+  try {
+    const r = await require('../lib/report_edit').applyEdits(req.body || {});
+    res.json(r);
+  } catch (e) { console.error('[report-edit]', e); res.status(500).json({ error: e.message }); }
+});
+
 // ---- Ticket resolve: one-tap Confirm-close / Reopen from the requester's WhatsApp ----
 // Token = the ticket's confirm_token (rotated on every resolve). No login needed.
 async function loadTicketByToken(token) {
