@@ -36,7 +36,9 @@
       <div class="flex items-end gap-2 mb-4 flex-wrap">
         <div><label class="fieldlabel">Month</label><input id="month" type="month" class="field !w-auto text-sm" onchange="load()"></div>
         <button onclick="load()" class="btn-ghost text-sm">↻ Refresh</button>
+        <button onclick="emailHr(this)" class="btn-ghost text-sm">📧 Email OT + Shearing to HR</button>
       </div>
+      <p class="text-xs text-slate-400 -mt-2 mb-3">HR also gets this automatically on the 1st of every month.</p>
       <div id="companies"></div>
     </div>
   </main>
@@ -59,6 +61,14 @@
       await load();
     })();
     async function logout(){ await api('/logout',{method:'POST'}); location.href='/'; }
+    async function emailHr(btn){
+      const m=M(); if(!m) return toast('Pick a month','error');
+      if(!confirm('Email the Overtime & Shearing report for '+m+' to HR (hr@bharatsteels.in)?')) return;
+      await clickBusy(btn,'Sending…',async()=>{
+        const r=await api('/final/email-hr',{method:'POST',body:{month:m}});
+        toast(r.skipped?('Nothing approved for '+m):('Sent to '+r.to+' — OT '+r.otCount+' ppl, Shearing '+r.shCount+' ppl'),'success');
+      });
+    }
     const M=()=>document.getElementById('month').value||new Date().toISOString().slice(0,7);
 
     async function load(){

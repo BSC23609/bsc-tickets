@@ -310,6 +310,17 @@ router.get('/report-xlsx/:kind/:company/:month', async (req, res) => {
   } catch (e) { console.error('[report xlsx]', e); res.status(500).send(e.message); }
 });
 
+// Manual "Email OT + Shearing to HR" for the selected month (same report the monthly cron sends).
+router.post('/email-hr', async (req, res) => {
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
+  if (!month) return res.status(400).json({ error: 'Bad month' });
+  try {
+    const r = await require('../lib/hr_monthly').emailMonthlyToHr(month);
+    res.json(r);
+  } catch (e) { console.error('[email-hr]', e); res.status(500).json({ error: e.message }); }
+});
+
 // ---- Send to Accounts: what's ready per company + the send action ----
 // Cleanup: list the people in an OT/Shearing report, and remove one person's entries (for
 // duplicate-entry mistakes). Management/admin only. The report regenerates live afterwards.

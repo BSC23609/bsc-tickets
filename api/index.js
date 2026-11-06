@@ -492,6 +492,19 @@ app.all('/api/cron/auto-close', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Monthly: email the OT + Shearing report (editable Excel) to HR. Fired by a GitHub Action on
+// the 1st of each month for the previous month; ?month=YYYY-MM overrides for a manual run.
+app.all('/api/cron/hr-monthly-ot', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
+  if (secret && provided !== secret) return res.status(401).json({ error: 'unauthorized' });
+  recordCron('hr-monthly-ot');
+  try {
+    const r = await require('../lib/hr_monthly').emailMonthlyToHr(req.query.month);
+    res.json(r);
+  } catch (e) { console.error('[hr-monthly-ot]', e); res.status(500).json({ error: e.message }); }
+});
+
 // ---- Ticket resolve: one-tap Confirm-close / Reopen from the requester's WhatsApp ----
 // Token = the ticket's confirm_token (rotated on every resolve). No login needed.
 async function loadTicketByToken(token) {

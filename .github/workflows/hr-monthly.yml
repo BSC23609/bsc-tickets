@@ -1,0 +1,39 @@
+name: Monthly OT + Shearing to HR
+
+# On the 1st of each month, email HR the previous month's Overtime & Shearing report
+# (editable Excel, live from the DB). The endpoint defaults to the previous month and is
+# idempotent-enough to re-run. Protected by CRON_SECRET.
+on:
+  schedule:
+    - cron: '0 4 1 * *'   # 1st of month, 04:00 UTC = 09:30 IST
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Month YYYY-MM (blank = previous month)'
+        required: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /api/cron/hr-monthly-ot
+        run: |
+          URL="https://tickets.bharatsteels.in/api/cron/hr-monthly-ot"
+          if [ -n "${{ github.event.inputs.month }}" ]; then URL="$URL?month=${{ github.event.inputs.month }}"; fi
+          hit() {
+            curl -sS --max-time 90 -o /tmp/resp.txt -w "%{http_code}" -X POST \
+              "$URL" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" || echo "000"
+          }
+          code=$(hit)
+          echo "HTTP $code"; cat /tmp/resp.txt; echo
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::first attempt $code - retrying in 30s"; sleep 30
+            code=$(hit); echo "retry HTTP $code"; cat /tmp/resp.txt; echo
+          fi
+          if [ "$code" -ge 400 ] && [ "$code" -lt 500 ]; then
+            echo "::error::hr-monthly-ot returned $code - check CRON_SECRET / route"; exit 1
+          fi
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "::warning::still $code after retry"; exit 0
+          fi
+          echo "OK"
