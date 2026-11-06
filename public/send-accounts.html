@@ -95,8 +95,29 @@
         <div class="p-4 border-b border-line flex items-center justify-between sticky top-0 bg-white"><h3 class="font-bold text-sm">${esc(title)}</h3>
           <button onclick="document.getElementById('mgModal').remove()" class="text-slate-400 hover:text-ink text-xl leading-none">&times;</button></div>
         <div class="p-4"><p class="text-xs text-slate-500 mb-2">Delete anyone who should not be in this report (wrong entry, non-employee, or a duplicate where someone shows twice). This removes their ${kind} entries; the report regenerates automatically.</p>
-          ${rows||'<div class="text-sm text-slate-400">No entries.</div>'}</div></div>`;
+          ${rows||'<div class="text-sm text-slate-400">No entries.</div>'}
+          <div class="mt-3 pt-3 border-t border-line">
+            <div class="text-xs font-semibold text-slate-600 mb-1">➕ Add a line</div>
+            <div class="flex items-end gap-2 flex-wrap">
+              <div><label class="fieldlabel">Name</label><input id="addName" class="field !w-40 text-sm" placeholder="Name"></div>
+              <div><label class="fieldlabel">Amount ₹</label><input id="addAmt" type="number" min="1" class="field !w-24 text-sm" placeholder="0"></div>
+              <button onclick="addPerson('${kind}','${company}',this)" class="text-white text-sm font-semibold px-3 py-2 rounded-lg" style="background:#0A4566">Add</button>
+            </div>
+            <p class="text-[10px] text-slate-400 mt-1">Adds one ${kind} line with this exact amount (for corrections that don't follow the hours formula).</p>
+          </div></div></div>`;
       document.body.appendChild(w);
+    }
+    async function addPerson(kind, company, btn){
+      const name=(document.getElementById('addName').value||'').trim();
+      const amt=Math.round(Number(document.getElementById('addAmt').value));
+      if(!name) return toast('Enter a name','error');
+      if(!(amt>0)) return toast('Enter an amount','error');
+      await clickBusy(btn,'Adding…',async()=>{
+        const r=await api('/final/report-add',{method:'POST',body:{kind,company,name,amount:amt,month:M()}});
+        toast('Added '+r.name+' — '+rupee(r.amount),'success');
+        document.getElementById('mgModal')?.remove();
+        await load(); await manageEntries(kind, company);
+      });
     }
     async function removePerson(kind, company, key, btn){
       if(!confirm('Delete this person\'s '+kind+' entries for '+M()+'? This cannot be undone.')) return;

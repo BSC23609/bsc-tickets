@@ -370,6 +370,34 @@ router.post('/report-remove', async (req, res) => {
   res.json({ ok: true, changed });
 });
 
+// Add a single manual labour line (OT or Shearing) with an exact amount, e.g. a management
+// correction that does not follow the hours formula. Management/HR/admin only. Bypasses the
+// monthly lock on purpose (same as report-remove); the report regenerates live afterwards.
+router.post('/report-add', async (req, res) => {
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
+  const kind = req.body.kind, C = COMPANIES[req.body.company];
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
+  const name = String(req.body.name || '').trim();
+  const code = String(req.body.code || '').trim();
+  const amount = Math.round(Number(req.body.amount));
+  if (!C || !month || !name || !['ot', 'shearing'].includes(kind)) return res.status(400).json({ error: 'Bad request' });
+  if (!(amount > 0)) return res.status(400).json({ error: 'Enter an amount greater than 0.' });
+  await q(`INSERT INTO labour_period(company,period) VALUES($1,$2) ON CONFLICT (company,period) DO NOTHING`, [C.labourCo, month]);
+  if (kind === 'ot') {
+    const hours = +(amount / 100).toFixed(2);   // display only (Rs.100/hr); amount is explicit
+    await q(`INSERT INTO labour_ot(company,labour_code,labour_name,ot_date,period,hours,amount,entered_by_id,entered_by_name)
+             VALUES($1,$2,$3,($4||'-01')::date,$4,$5,$6,$7,$8)`,
+      [C.labourCo, code, name, month, hours, amount, req.user.id, req.user.name]);
+  } else {
+    const days = +(amount / 50).toFixed(1);      // display only (Rs.50/day); amount is explicit
+    await q(`INSERT INTO labour_shearing(company,labour_code,labour_name,days,amount,period,entered_by_id,entered_by_name)
+             VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [C.labourCo, code, name, days, amount, month, req.user.id, req.user.name]);
+  }
+  await refreshLabourTotals(C.labourCo, month);
+  res.json({ ok: true, name, amount });
+});
+
 async function companyExpenseEmployees(companyKey, month) {
   const C = COMPANIES[companyKey];
   return (await q(
