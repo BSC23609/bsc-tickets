@@ -80,11 +80,11 @@
       return `<div class="flex items-center justify-between gap-3 py-2 border-b border-line/50 last:border-0">
         <div class="text-sm"><b>${label}</b> <span class="text-slate-400 text-xs">${count?('· '+count+' '):''}</span> · ${rupee(total)}
           ${sentAt?`<span class="pill bg-emerald-100 text-emerald-700 text-[10px] ml-1">Sent ${esc(sentAt)}</span>`:''}</div>
-        <div class="flex items-center gap-2">${manage?`<button onclick="manageEntries('${manage.kind}','${manage.company}')" class="text-[11px] text-slate-400 hover:text-red-600 hover:underline">Fix duplicates</button>`:''}${previewUrl?`<a href="${previewUrl}" target="_blank" class="btn-ghost text-xs">Preview</a> <a href="${previewUrl.replace('/report/','/report-xlsx/')}" class="btn-ghost text-xs">⬇ Excel</a>`:''}</div></div>`;
+        <div class="flex items-center gap-2">${manage?`<button onclick="manageEntries('${manage.kind}','${manage.company}')" class="text-[11px] text-slate-400 hover:text-red-600 hover:underline">✎ Remove people</button>`:''}${previewUrl?`<a href="${previewUrl}" target="_blank" class="btn-ghost text-xs">Preview</a> <a href="${previewUrl.replace('/report/','/report-xlsx/')}" class="btn-ghost text-xs">⬇ Excel</a>`:''}</div></div>`;
     }
     async function manageEntries(kind, company){
       let d; try{ d=await api('/final/report-people/'+kind+'/'+company+'/'+M()); }catch(e){ return toast(e.message,'error'); }
-      const title=(kind==='ot'?'Overtime':'Shearing')+' — '+company+' — remove a duplicate';
+      const title=(kind==='ot'?'Overtime':'Shearing')+' — '+company+' — remove a person';
       const rows=(d.people||[]).map(p=>`<div class="flex items-center justify-between gap-2 py-2 border-b border-line/50" data-key="${esc(p.key)}">
         <div class="text-sm"><b>${esc(p.name)}</b> <span class="text-xs text-slate-400 mono">${esc(p.code||'')}</span>
           <span class="text-[10px] px-1.5 py-0.5 rounded ${p.kind==='staff'?'bg-blue-100 text-blue-700':'bg-emerald-100 text-emerald-700'}">${p.kind}</span>
@@ -94,7 +94,7 @@
       w.innerHTML=`<div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto">
         <div class="p-4 border-b border-line flex items-center justify-between sticky top-0 bg-white"><h3 class="font-bold text-sm">${esc(title)}</h3>
           <button onclick="document.getElementById('mgModal').remove()" class="text-slate-400 hover:text-ink text-xl leading-none">&times;</button></div>
-        <div class="p-4"><p class="text-xs text-slate-500 mb-2">Delete the wrongly-entered line. A staff person entered as <b>labour</b> (or vice-versa) shows twice — delete the wrong one. This removes their ${kind} entries; the report regenerates automatically.</p>
+        <div class="p-4"><p class="text-xs text-slate-500 mb-2">Delete anyone who should not be in this report (wrong entry, non-employee, or a duplicate where someone shows twice). This removes their ${kind} entries; the report regenerates automatically.</p>
           ${rows||'<div class="text-sm text-slate-400">No entries.</div>'}</div></div>`;
       document.body.appendChild(w);
     }
