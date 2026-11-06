@@ -505,6 +505,47 @@ router.post('/send-to-accounts', async (req, res) => {
   res.json({ ok: true, company, email, attachments: attachments.length, kinds: done.map(d => d.kind) });
 });
 
+// Re-send ONE report's updated PDF to the accounts team (after an edit), instead of the
+// whole batch. kind = expense | ot | shearing. Updates that kind's accounts_send stamp.
+router.post('/send-one', async (req, res) => {
+  if (!(await isMgmtOrHr(req.user))) return res.status(403).json({ error: 'Management, HR or admin only.' });
+  const company = COMPANIES[req.body.company] ? req.body.company : null;
+  const month = /^\d{4}-\d{2}$/.test(String(req.body.month || '')) ? req.body.month : null;
+  const kind = ['expense', 'ot', 'shearing'].includes(req.body.kind) ? req.body.kind : null;
+  if (!company || !month || !kind) return res.status(400).json({ error: 'Bad request' });
+  const C = COMPANIES[company];
+  const graph = require('../lib/graph');
+  const email = await companyEmail(company);
+  if (!email) return res.status(400).json({ error: 'No accounts email configured for ' + company });
+
+  const attachments = []; let total = 0; let label = '';
+  if (kind === 'expense') {
+    const emps = await companyExpenseEmployees(company, month);
+    for (const e of emps) { const r = await buildEmployeeConsolidatedPdf(e.id, month); if (r) attachments.push({ name: `Expense - ${e.name.replace(/[^\w .-]/g, '')} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: r.pdf.toString('base64') }); }
+    total = emps.reduce((s, e) => s + Number(e.total), 0); label = 'Employee expenses';
+  } else if (kind === 'ot') {
+    const pdf = await buildOtCombinedPdf(company, month);
+    if (pdf) attachments.push({ name: `Overtime - ${company} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') });
+    total = (await companyOtTotal(company, month)).total; label = 'Overtime (consolidated)';
+  } else {
+    const pdf = await buildShearingCombinedPdf(company, month);
+    if (pdf) attachments.push({ name: `Shearing - ${company} - ${month}.pdf`, contentType: 'application/pdf', contentBytes: pdf.toString('base64') });
+    total = (await companyShearingTotal(company, month)).total; label = 'Shed-B Shearing (consolidated)';
+  }
+  if (!attachments.length) return res.status(400).json({ error: 'Nothing to send for this report.' });
+  await graph.sendMail({
+    to: email,
+    subject: `Updated — ${label} — ${C.label} — ${monthLabel(month)}`,
+    html: `<p>Please find attached the <b>updated</b> ${label} report for <b>${C.label} — ${monthLabel(month)}</b>. This replaces the earlier version sent for this month.</p>
+           <p>Kindly process the revised report.</p>`,
+    attachments,
+  });
+  await q(`INSERT INTO accounts_send(period,company,kind,total,email,sent_by) VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (period,company,kind) DO UPDATE SET total=EXCLUDED.total, email=EXCLUDED.email, sent_at=now(), sent_by=EXCLUDED.sent_by`,
+    [month, company, kind, Math.round(total), email, req.user.name]);
+  res.json({ ok: true, kind, email, total: Math.round(total), attachments: attachments.length });
+});
+
 async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   const includePaid = !!opts.includePaid;
   const emp = (await q(`SELECT id,name,emp_no FROM employees WHERE id=$1`, [empId])).rows[0];
