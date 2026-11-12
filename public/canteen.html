@@ -550,8 +550,17 @@
         prog(++done); if(!ocrQueue) return; } };
       await Promise.all(Array.from({length:Math.min(4,images.length)},worker));   // up to 4 at a time
       if(!ocrQueue) return;   // cancelled while reading
-      const allBills=[]; let fails=0;
-      results.forEach(r=>{ if(!r||r.__error){ if(r&&r.__error) fails++; return; } (r.bills||[]).forEach(b=>allBills.push(b)); });
+      const allBills=[]; let fails=0, firstErr='';
+      results.forEach(r=>{ if(!r||r.__error){ fails++; if(r&&r.__error&&!firstErr) firstErr=r.__error; return; } (r.bills||[]).forEach(b=>allBills.push(b)); });
+      // If EVERY photo failed, show the real server reason on screen (don't silently close) so the
+      // actual cause — missing API key, model error, timeout — is visible instead of "nothing happened".
+      if(!allBills.length && fails){
+        const msg=String(firstErr||'The photo could not be read.').replace(/[<>&]/g,'');
+        $('#ocrTitle').textContent='Could not read the bill';
+        $('#ocrLines').innerHTML='<div class="empty" style="padding:22px;color:#b91c1c;white-space:pre-wrap;line-height:1.5">'+msg+'</div>';
+        $('#ocrSum').textContent=''; $('#ocrDateNote').textContent=''; $('#ocrSave').disabled=true; $('#ocrSkip').hidden=true;
+        toast(msg,'error'); ocrQueue=null; return;
+      }
       if(fails) toast(fails+' photo'+(fails===1?'':'s')+' couldn’t be read and '+(fails===1?'was':'were')+' skipped.','error');
       beginReview(allBills, null);
     }
