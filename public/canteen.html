@@ -566,19 +566,18 @@
     }
     // Group a set of bills by date, merge each date's items, and start the date-by-date review.
     function beginReview(bills, fromUpload){
-      // The date printed on a bill is unreliable (e.g. "11/1/2026" is ambiguous and lands entries in
-      // the wrong month), so we IGNORE it and put every item from the photo under the day the user
-      // has selected on the register. The date stays editable in the review popup for back-dating.
-      const allLines=[]; let printedTotal=0, hasTotal=true, billCount=0;
+      const byDate=new Map();
       (bills||[]).forEach(b=>{
-        billCount++;
-        allLines.push(...(b.lines||[]));
-        if(b && b.total!=null) printedTotal+=(+b.total||0); else hasTotal=false;   // for the total cross-check
+        const d=/^\d{4}-\d{2}-\d{2}$/.test((b&&b.date)||'')?b.date:null;
+        const key=d||'~';
+        if(!byDate.has(key)) byDate.set(key,{date:d,lines:[],bills:0,printedTotal:0,hasTotal:true});
+        const g=byDate.get(key); g.lines.push(...(b.lines||[])); g.bills++;
+        if(b && b.total!=null) g.printedTotal+=(+b.total||0); else g.hasTotal=false;   // for the total cross-check
       });
-      const lines=mergeOcrLines(allLines);
-      if(!lines.length){ hideM('#ocrModal'); ocrQueue=null; toast('No items could be read.','error'); return; }
-      const g={date:null, lines, bills:billCount, printedTotal:hasTotal?printedTotal:null, hasTotal};
-      ocrQueue={groups:[g],idx:0,entries:0,fromUpload:fromUpload||null};
+      const groups=[...byDate.values()].sort((a,b)=>{ const da=a.date||'~', db=b.date||'~'; return da<db?-1:da>db?1:0; });
+      groups.forEach(g=>{ g.lines=mergeOcrLines(g.lines); if(!g.hasTotal) g.printedTotal=null; });
+      if(!groups.length){ hideM('#ocrModal'); ocrQueue=null; toast('No items could be read.','error'); return; }
+      ocrQueue={groups,idx:0,entries:0,fromUpload:fromUpload||null};
       reviewQueueItem();
     }
     // Merge item lines: the same item (by id, or by name for new items) is summed into one row.
@@ -620,7 +619,7 @@
       const fmtD=s=>{const p=String(s).split('-');return p.length===3?((+p[2])+' '+MON[+p[1]-1]+' '+p[0]):s;};
       let titleTxt='Review bill';
       if(groups){
-        titleTxt = date ? fmtD(date) : fmtD(curDate);
+        titleTxt = date ? fmtD(date) : 'Undated bills';
         if(group && group.bills>1) titleTxt += ' · '+group.bills+' bills';
         if(multi) titleTxt += '  ('+(ocrQueue.idx+1)+' of '+groups.length+')';
       } else if(date){ titleTxt='Review bill — '+fmtD(date); }
@@ -633,7 +632,7 @@
       const last = !groups || ocrQueue.idx>=groups.length-1;
       $('#ocrSave').disabled=false; $('#ocrSave').textContent = (groups && !last) ? 'Save & next date' : 'Save entries';
       $('#ocrDate').value=date||curDate;
-      $('#ocrDateNote').textContent='(saving to the day selected on the register — change the date above to back-date)';
+      $('#ocrDateNote').textContent=date?'(read from the bill — change if wrong)':'(no date on the bill — using the selected day)';
       const box=$('#ocrLines'); box.innerHTML='';
       (lines||[]).forEach((l,idx)=>{
         const row=document.createElement('div'); row.className='ol'+(l.status==='new'?' new':''); row.dataset.idx=idx; row.__line=l;
