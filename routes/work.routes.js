@@ -18,6 +18,26 @@ const NEXT_STATUS = { approve: 'pending_check', check: 'pending_authorize', auth
 const clean = (s, max = 200) => String(s == null ? '' : s).trim().slice(0, max);
 const adjustOf = (a) => (String(a) === 'payment' ? 'payment' : 'leave');
 
+// Build the two team lists from a request body. Employees are resolved against the
+// directory (server-trusted name); labour are free text.
+async function buildTeams(body) {
+  const team_emp = [];
+  for (const it of (Array.isArray(body.team_emp) ? body.team_emp : [])) {
+    const id = Number(it && it.emp_id);
+    if (!id) continue;
+    const e = (await q(`SELECT id, name, COALESCE(job_title,'') AS job_title FROM employees WHERE id=$1 AND active=TRUE`, [id])).rows[0];
+    if (!e) continue;
+    team_emp.push({ emp_id: e.id, name: e.name, designation: clean(it.designation, 120) || e.job_title, adjust: adjustOf(it.adjust) });
+  }
+  const team_labour = [];
+  for (const it of (Array.isArray(body.team_labour) ? body.team_labour : [])) {
+    const name = clean(it && it.name, 120);
+    if (!name) continue;
+    team_labour.push({ name, designation: clean(it && it.designation, 120), adjust: adjustOf(it && it.adjust) });
+  }
+  return { team_emp, team_labour };
+}
+
 // AFW/<place>/YYMMDD/NNN — daily serial per place.
 async function nextRef(place) {
   const n = new Date();
@@ -84,28 +104,11 @@ router.post('/config', async (req, res) => {
 router.post('/', async (req, res) => {
   const place = PLACES[req.body.place] ? req.body.place : null;
   const work_date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.work_date || '')) ? req.body.work_date : null;
-  const work_time = clean(req.body.work_time, 40);
+  const work_time = clean(req.body.work_time, 60);
   const nature = clean(req.body.nature, 2000);
   if (!place || !work_date || !nature) return res.status(400).json({ error: 'Place, date and nature of work are required.' });
 
-  // Employees: trust the server for the name; keep the chosen designation/adjust.
-  const empIn = Array.isArray(req.body.team_emp) ? req.body.team_emp : [];
-  const team_emp = [];
-  for (const it of empIn) {
-    const id = Number(it && it.emp_id);
-    if (!id) continue;
-    const e = (await q(`SELECT id, name, COALESCE(job_title,'') AS job_title FROM employees WHERE id=$1 AND active=TRUE`, [id])).rows[0];
-    if (!e) continue;
-    team_emp.push({ emp_id: e.id, name: e.name, designation: clean(it.designation, 120) || e.job_title, adjust: adjustOf(it.adjust) });
-  }
-  // Labour: free text.
-  const labIn = Array.isArray(req.body.team_labour) ? req.body.team_labour : [];
-  const team_labour = [];
-  for (const it of labIn) {
-    const name = clean(it && it.name, 120);
-    if (!name) continue;
-    team_labour.push({ name, designation: clean(it && it.designation, 120), adjust: adjustOf(it && it.adjust) });
-  }
+  const { team_emp, team_labour } = await buildTeams(req.body);
   if (!team_emp.length && !team_labour.length) return res.status(400).json({ error: 'Add at least one team member (employee or labour).' });
 
   const ref = await nextRef(place);
@@ -114,6 +117,32 @@ router.post('/', async (req, res) => {
      VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9) RETURNING *`,
     [ref, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour), req.user.id, req.user.name])).rows[0];
   res.json({ ok: true, ref_no: ref, id: row.id });
+});
+
+// ---- Edit & resubmit (raiser or admin; only before anyone has acted) ----
+router.post('/:id/edit', async (req, res) => {
+  const row = (await q(`SELECT * FROM work_approvals WHERE id=$1`, [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (!(req.user.is_admin || row.raised_by_id === req.user.id)) return res.status(403).json({ error: 'Only the person who raised it (or an admin) can edit.' });
+  if (!['pending_approve', 'rejected'].includes(row.status)) return res.status(400).json({ error: 'This request has already been actioned and can no longer be edited.' });
+
+  const place = PLACES[req.body.place] ? req.body.place : row.place;
+  const work_date = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body.work_date || '')) ? req.body.work_date : null;
+  const work_time = clean(req.body.work_time, 60);
+  const nature = clean(req.body.nature, 2000);
+  if (!work_date || !nature) return res.status(400).json({ error: 'Date and nature of work are required.' });
+  const { team_emp, team_labour } = await buildTeams(req.body);
+  if (!team_emp.length && !team_labour.length) return res.status(400).json({ error: 'Add at least one team member (employee or labour).' });
+
+  await q(
+    `UPDATE work_approvals SET place=$2, work_date=$3, work_time=$4, nature=$5, team_emp=$6::jsonb, team_labour=$7::jsonb,
+       status='pending_approve', reject_reason=NULL, reject_stage=NULL,
+       approve_by_id=NULL, approve_by_name=NULL, approve_at=NULL,
+       check_by_id=NULL, check_by_name=NULL, check_at=NULL,
+       authorize_by_id=NULL, authorize_by_name=NULL, authorize_at=NULL,
+       updated_at=now() WHERE id=$1`,
+    [row.id, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour)]);
+  res.json({ ok: true, id: row.id, ref_no: row.ref_no });
 });
 
 // ---- My requests ----

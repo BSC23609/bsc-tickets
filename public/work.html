@@ -58,10 +58,11 @@
               <button type="button" id="pl-G2" onclick="setPlace('G2')" class="plBtn border-2 rounded-lg px-3 py-2.5 text-sm font-semibold">Salem G2 (1001)</button>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-2">
-            <div><label class="fieldlabel">Date</label><input type="date" id="wDate" class="field"></div>
-            <div><label class="fieldlabel">Time <span class="text-slate-400 font-normal normal-case">(optional)</span></label><input type="text" id="wTime" class="field" placeholder="e.g. 8am–5pm"></div>
-          </div>
+          <div><label class="fieldlabel">Date</label><input type="date" id="wDate" class="field"></div>
+        </div>
+        <div class="mb-4">
+          <label class="fieldlabel">Time <span class="text-slate-400 font-normal normal-case">(optional)</span></label>
+          <div id="timeWrap" class="flex items-center gap-1.5 flex-wrap text-sm"></div>
         </div>
         <div class="mb-4">
           <label class="fieldlabel">Nature of work</label>
@@ -94,8 +95,9 @@
           <div id="labEmpty" class="text-xs text-slate-400 py-2">No labour added.</div>
         </div>
 
-        <div class="flex justify-end">
-          <button onclick="submitReq(this)" class="text-white text-sm font-semibold px-5 py-2.5 rounded-lg" style="background:#0A4566">Submit for approval</button>
+        <div class="flex items-center justify-end gap-3">
+          <span id="editNote" class="hidden text-xs text-amber-600 mr-auto">Editing an existing request · <button type="button" onclick="cancelEdit()" class="underline">cancel</button></span>
+          <button id="submitBtn" onclick="submitReq(this)" class="text-white text-sm font-semibold px-5 py-2.5 rounded-lg" style="background:#0A4566">Submit for approval</button>
         </div>
       </div>
     </section>
@@ -131,7 +133,21 @@
     const PLACE={BSC:'Bharat (001)',G2:'Salem G2 (1001)'};
     const ST={pending_approve:['Awaiting approval','bg-amber-100 text-amber-700'],pending_check:['Awaiting check','bg-amber-100 text-amber-700'],pending_authorize:['Awaiting authorization','bg-amber-100 text-amber-700'],approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700']};
     const STAGE_BTN={approve:'Approve',check:'Check & forward',authorize:'Authorize'};
-    let me=null, EMP=[], curPlace='BSC';
+    let me=null, EMP=[], curPlace='BSC', editingId=null;
+
+    // --- Time picker (From / To), hour + minute + AM/PM boxes like Outpass ---
+    function hrOpts(){let s='<option value="">hh</option>';for(let h=1;h<=12;h++)s+='<option>'+h+'</option>';return s;}
+    function minOpts(){let s='<option value="">mm</option>';for(let m=0;m<60;m+=5)s+='<option>'+String(m).padStart(2,'0')+'</option>';return s;}
+    function tpGroup(pfx,lbl){return '<span class="inline-flex items-center gap-1"><span class="text-slate-500 text-xs mr-0.5">'+lbl+'</span>'+
+      '<select class="field !w-auto" id="'+pfx+'H">'+hrOpts()+'</select><span class="text-slate-400">:</span>'+
+      '<select class="field !w-auto" id="'+pfx+'M">'+minOpts()+'</select>'+
+      '<select class="field !w-auto" id="'+pfx+'A"><option>AM</option><option>PM</option></select></span>';}
+    function fillTime(){ document.getElementById('timeWrap').innerHTML=tpGroup('tf','From')+'<span class="mx-1 text-slate-400">–</span>'+tpGroup('tt','To'); }
+    function tpRead(pfx){const h=document.getElementById(pfx+'H').value;if(!h)return '';return h+':'+(document.getElementById(pfx+'M').value||'00')+' '+(document.getElementById(pfx+'A').value||'AM');}
+    function readTime(){const f=tpRead('tf'),t=tpRead('tt');return (f&&t)?(f+' – '+t):(f||t||'');}
+    function setTime(str){const parts=String(str||'').match(/(\d{1,2}):(\d{2})\s*(AM|PM)/gi)||[];
+      const put=(pfx,s)=>{const x=s&&s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);document.getElementById(pfx+'H').value=x?String(+x[1]):'';document.getElementById(pfx+'M').value=x?x[2]:'';document.getElementById(pfx+'A').value=x?x[3].toUpperCase():'AM';};
+      put('tf',parts[0]); put('tt',parts[1]); }
 
     async function logout(){ try{await api('/logout',{method:'POST'});}catch(e){} location.href='/'; }
     function stBadge(s){ const x=ST[s]||[s,'bg-slate-100 text-slate-600']; return '<span class="st '+x[1]+'">'+x[0]+'</span>'; }
@@ -140,7 +156,7 @@
       try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
       document.getElementById('who').textContent=me.name||'';
       document.getElementById('wDate').value=new Date().toISOString().slice(0,10);
-      setPlace('BSC');
+      setPlace('BSC'); fillTime();
       try{ EMP=await api('/work/employees'); }catch(e){ EMP=[]; }
       addEmp();
       setupTabs();
@@ -185,7 +201,7 @@
       if(kind==='lab'&&!document.querySelectorAll('#labRows tr').length) document.getElementById('labEmpty').classList.remove('hidden'); }
 
     async function submitReq(btn){
-      const place=curPlace, work_date=document.getElementById('wDate').value, work_time=document.getElementById('wTime').value.trim(), nature=document.getElementById('wNature').value.trim();
+      const place=curPlace, work_date=document.getElementById('wDate').value, work_time=readTime(), nature=document.getElementById('wNature').value.trim();
       if(!work_date) return toast('Pick a date','error');
       if(!nature) return toast('Enter the nature of work','error');
       const team_emp=[...document.querySelectorAll('#empRows tr')].map(tr=>({emp_id:tr.querySelector('.eSel').value,designation:tr.querySelector('.eDes').value.trim(),adjust:tr.querySelector('.eAdj').value})).filter(x=>x.emp_id);
@@ -193,17 +209,43 @@
       if(!team_emp.length && !team_labour.length) return toast('Add at least one employee or labour','error');
       btn.disabled=true;
       try{
-        const r=await api('/work',{method:'POST',body:{place,work_date,work_time,nature,team_emp,team_labour}});
-        toast('Submitted — '+r.ref_no,'success');
-        document.getElementById('wNature').value=''; document.getElementById('wTime').value='';
-        document.getElementById('empRows').innerHTML=''; document.getElementById('labRows').innerHTML='';
-        document.getElementById('empEmpty').classList.remove('hidden'); document.getElementById('labEmpty').classList.remove('hidden');
-        addEmp(); loadMine();
+        const url=editingId?('/work/'+editingId+'/edit'):'/work';
+        const r=await api(url,{method:'POST',body:{place,work_date,work_time,nature,team_emp,team_labour}});
+        toast((editingId?'Updated & resubmitted — ':'Submitted — ')+(r.ref_no||''),'success');
+        resetForm(); loadMine(); loadPending();
       }catch(e){ toast(e.message||'Could not submit','error'); }
       finally{ btn.disabled=false; }
     }
+    function resetForm(){
+      editingId=null;
+      document.getElementById('submitBtn').textContent='Submit for approval';
+      document.getElementById('editNote').classList.add('hidden');
+      document.getElementById('wNature').value=''; setTime('');
+      document.getElementById('wDate').value=new Date().toISOString().slice(0,10); setPlace('BSC');
+      document.getElementById('empRows').innerHTML=''; document.getElementById('labRows').innerHTML='';
+      document.getElementById('labEmpty').classList.remove('hidden');
+      addEmp();
+    }
+    function cancelEdit(){ resetForm(); toast('Edit cancelled'); }
+    async function editReq(id){
+      let r; try{ r=await api('/work/'+id); }catch(e){ return toast(e.message,'error'); }
+      document.querySelector('.tabBtn[data-tab="raise"]').click();
+      setPlace(r.place||'BSC');
+      document.getElementById('wDate').value=String(r.work_date||'').slice(0,10);
+      setTime(r.work_time||'');
+      document.getElementById('wNature').value=r.nature||'';
+      document.getElementById('empRows').innerHTML=''; document.getElementById('labRows').innerHTML='';
+      (r.team_emp||[]).forEach(p=>{ addEmp(); const tr=document.querySelector('#empRows tr:last-child'); tr.querySelector('.eSel').value=p.emp_id; tr.querySelector('.eDes').value=p.designation||''; tr.querySelector('.eAdj').value=p.adjust||'leave'; });
+      (r.team_labour||[]).forEach(p=>{ addLab(); const tr=document.querySelector('#labRows tr:last-child'); tr.querySelector('.lNm').value=p.name||''; tr.querySelector('.lDes').value=p.designation||''; tr.querySelector('.lAdj').value=p.adjust||'leave'; });
+      if(!(r.team_emp||[]).length) document.getElementById('empEmpty').classList.remove('hidden');
+      if(!(r.team_labour||[]).length) document.getElementById('labEmpty').classList.remove('hidden');
+      editingId=id;
+      document.getElementById('submitBtn').textContent='Update & resubmit';
+      document.getElementById('editNote').classList.remove('hidden');
+      window.scrollTo(0,0);
+    }
 
-    function rowCard(r, actions){
+    function rowCard(r, actions, editable){
       const team=(r.team_emp||[]).length+(r.team_labour||[]).length;
       return '<div class="card p-4 mb-3"><div class="flex items-start justify-between gap-3 flex-wrap">'+
         '<div><div class="font-semibold text-sm">'+esc(r.ref_no)+' · '+esc(r.place_label||PLACE[r.place]||r.place)+'</div>'+
@@ -211,13 +253,15 @@
         '<div class="text-xs text-slate-600 mt-1">'+esc(r.nature||'')+'</div>'+
         (r.raised_by_name?('<div class="text-[11px] text-slate-400 mt-1">Raised by '+esc(r.raised_by_name)+'</div>'):'')+
         (r.status==='rejected'&&r.reject_reason?('<div class="text-[11px] text-red-600 mt-1">Rejected: '+esc(r.reject_reason)+'</div>'):'')+
-        '</div><div class="text-right">'+stBadge(r.status)+'<div class="mt-2"><button class="btn-ghost text-xs" onclick="viewReq('+r.id+')">View</button></div></div>'+
+        '</div><div class="text-right">'+stBadge(r.status)+'<div class="mt-2 flex justify-end gap-2">'+
+          (editable?('<button class="btn-ghost text-xs" onclick="editReq('+r.id+')">Edit</button>'):'')+
+          '<button class="btn-ghost text-xs" onclick="viewReq('+r.id+')">View</button></div></div>'+
         '</div>'+(actions||'')+'</div>';
     }
 
     async function loadMine(){
       const box=document.getElementById('mineBox'); box.innerHTML='<div class="text-sm text-slate-400 py-6">Loading…</div>';
-      try{ const rows=await api('/work/mine'); box.innerHTML=rows.length?rows.map(r=>rowCard(r,'')).join(''):'<div class="text-sm text-slate-400 py-6">You haven\'t raised any requests yet.</div>'; }
+      try{ const rows=await api('/work/mine'); box.innerHTML=rows.length?rows.map(r=>rowCard(r,'',(r.status==='pending_approve'||r.status==='rejected'))).join(''):'<div class="text-sm text-slate-400 py-6">You haven\'t raised any requests yet.</div>'; }
       catch(e){ box.innerHTML='<div class="text-sm text-red-600 py-6">'+esc(e.message)+'</div>'; }
     }
     async function loadPending(){
