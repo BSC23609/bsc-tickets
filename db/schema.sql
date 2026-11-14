@@ -677,3 +677,30 @@ CREATE INDEX IF NOT EXISTS idx_canteen_items_store   ON canteen_items(store, sor
 -- ============================================================
 CREATE INDEX IF NOT EXISTS idx_tickets_l1_raised ON tickets(l1_emp_id, raised_at DESC);
 CREATE INDEX IF NOT EXISTS idx_tickets_raised    ON tickets(raised_at DESC);
+
+-- ============================================================
+-- Sunday "Approval for Work" (overtime work approval) — a request with a team
+-- list and a 3-stage sign-off: Approve -> Checked By -> Authorized Signatory.
+-- Employees are picked from the directory; labour are free-text. (idempotent)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS work_approvals (
+  id               SERIAL PRIMARY KEY,
+  ref_no           TEXT UNIQUE NOT NULL,
+  place            TEXT NOT NULL DEFAULT 'BSC',            -- 'BSC' (Bharat 001) or 'G2' (Salem 1001)
+  work_date        DATE NOT NULL,
+  work_time        TEXT,
+  nature           TEXT NOT NULL,
+  team_emp         JSONB NOT NULL DEFAULT '[]'::jsonb,     -- [{emp_id,name,designation,adjust}]
+  team_labour      JSONB NOT NULL DEFAULT '[]'::jsonb,     -- [{name,designation,adjust}]
+  status           TEXT NOT NULL DEFAULT 'pending_approve', -- pending_approve|pending_check|pending_authorize|approved|rejected
+  raised_by_id     INTEGER,
+  raised_by_name   TEXT,
+  approve_by_id    INTEGER, approve_by_name   TEXT, approve_at   TIMESTAMPTZ,
+  check_by_id      INTEGER, check_by_name     TEXT, check_at     TIMESTAMPTZ,
+  authorize_by_id  INTEGER, authorize_by_name TEXT, authorize_at TIMESTAMPTZ,
+  reject_reason    TEXT, reject_stage TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_work_approvals_status ON work_approvals(status, work_date DESC);
+CREATE INDEX IF NOT EXISTS idx_work_approvals_raiser ON work_approvals(raised_by_id, created_at DESC);

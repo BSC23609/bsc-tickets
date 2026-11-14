@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Approval for Work — BSC</title>
+  <link rel="stylesheet" href="/css/bsc.css">
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0A4566">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/theme.css?v=5">
+  <style>
+    body{font-family:'Inter',ui-sans-serif,system-ui,sans-serif}
+    .tbl{width:100%;border-collapse:collapse;font-size:13px}
+    .tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b;padding:6px 8px;border-bottom:1px solid #e2e8f0;font-weight:700}
+    .tbl td{padding:6px 6px;border-bottom:1px solid #eef2f6;vertical-align:middle}
+    .tbl .field{width:100%;font-size:13px;padding:7px 8px}
+    .rm{color:#b91c1c;font-weight:700;cursor:pointer;border:0;background:none;font-size:16px;line-height:1}
+    .st{font-size:10px;padding:2px 8px;border-radius:999px;font-weight:700;white-space:nowrap}
+  </style>
+</head>
+<body class="min-h-screen text-ink">
+  <header class="deckbar">
+    <div class="max-w-4xl mx-auto px-4 deckbar-in">
+      <span class="deck-plate"><img src="/img/group-logo.png" alt="The Bharat Steel Group" /></span>
+      <span class="deck-sp"></span>
+      <a href="/home.html" class="deck-link">Home</a>
+      <span id="who" class="hidden sm:inline deck-who"></span>
+      <button onclick="logout()" class="deck-out">Sign out</button>
+    </div>
+    <div class="seam"></div>
+  </header>
+
+  <main class="max-w-4xl mx-auto px-4 py-7">
+    <div class="mb-4">
+      <div class="eyebrow">Overtime</div>
+      <h1 class="font-display text-2xl font-bold text-ink mt-0.5">Approval for Work</h1>
+      <p class="text-sm text-slate-500 mt-1">Raise a Sunday / overtime work approval with the team required. Goes through Approve → Checked By → Authorized Signatory.</p>
+      <p class="text-[11px] text-slate-400 mt-1">Note: Time logs (punch in &amp; punch out) are required for the corresponding dates of overtime.</p>
+    </div>
+
+    <div class="flex gap-6 border-b border-line mb-6 flex-wrap">
+      <button data-tab="raise" class="tabBtn tab" data-active="true">New request</button>
+      <button data-tab="mine" class="tabBtn tab" data-active="false">My requests</button>
+      <button data-tab="appr" id="apprTab" class="tabBtn tab hidden" data-active="false">To approve <span id="apprCount" class="pill bg-amber-100 text-amber-700 ml-1 hidden"></span></button>
+      <button data-tab="cfg" id="cfgTab" class="tabBtn tab hidden" data-active="false">Approvers</button>
+    </div>
+
+    <!-- ========== RAISE ========== -->
+    <section id="tab-raise">
+      <div class="card p-5 max-w-3xl">
+        <div class="grid sm:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="fieldlabel">Place</label>
+            <div class="grid grid-cols-2 gap-2 mt-1">
+              <button type="button" id="pl-BSC" onclick="setPlace('BSC')" class="plBtn border-2 rounded-lg px-3 py-2.5 text-sm font-semibold">Bharat (001)</button>
+              <button type="button" id="pl-G2" onclick="setPlace('G2')" class="plBtn border-2 rounded-lg px-3 py-2.5 text-sm font-semibold">Salem G2 (1001)</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div><label class="fieldlabel">Date</label><input type="date" id="wDate" class="field"></div>
+            <div><label class="fieldlabel">Time <span class="text-slate-400 font-normal normal-case">(optional)</span></label><input type="text" id="wTime" class="field" placeholder="e.g. 8am–5pm"></div>
+          </div>
+        </div>
+        <div class="mb-4">
+          <label class="fieldlabel">Nature of work</label>
+          <textarea id="wNature" rows="2" class="field" placeholder="What work is being done, which machine / area…"></textarea>
+        </div>
+
+        <!-- Employees -->
+        <div class="mb-4">
+          <div class="flex items-center justify-between mb-1">
+            <label class="fieldlabel !mb-0">Team — Employees</label>
+            <button type="button" onclick="addEmp()" class="btn-ghost text-xs">+ Add employee</button>
+          </div>
+          <div class="overflow-x-auto"><table class="tbl">
+            <thead><tr><th style="width:40%">Name</th><th style="width:32%">Designation</th><th style="width:22%">Adjust</th><th></th></tr></thead>
+            <tbody id="empRows"></tbody>
+          </table></div>
+          <div id="empEmpty" class="text-xs text-slate-400 py-2">No employees added.</div>
+        </div>
+
+        <!-- Labour -->
+        <div class="mb-4">
+          <div class="flex items-center justify-between mb-1">
+            <label class="fieldlabel !mb-0">Team — Labour</label>
+            <button type="button" onclick="addLab()" class="btn-ghost text-xs">+ Add labour</button>
+          </div>
+          <div class="overflow-x-auto"><table class="tbl">
+            <thead><tr><th style="width:40%">Name</th><th style="width:32%">Designation</th><th style="width:22%">Adjust</th><th></th></tr></thead>
+            <tbody id="labRows"></tbody>
+          </table></div>
+          <div id="labEmpty" class="text-xs text-slate-400 py-2">No labour added.</div>
+        </div>
+
+        <div class="flex justify-end">
+          <button onclick="submitReq(this)" class="text-white text-sm font-semibold px-5 py-2.5 rounded-lg" style="background:#0A4566">Submit for approval</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== MINE ========== -->
+    <section id="tab-mine" class="hidden"><div id="mineBox"></div></section>
+
+    <!-- ========== APPROVALS ========== -->
+    <section id="tab-appr" class="hidden"><div id="apprBox"></div></section>
+
+    <!-- ========== APPROVER CONFIG (admin) ========== -->
+    <section id="tab-cfg" class="hidden">
+      <div class="card p-5 max-w-lg">
+        <h3 class="font-bold text-sm mb-1">Approver chain</h3>
+        <p class="text-xs text-slate-500 mb-3">Who signs off each stage. An admin can always act on any stage too.</p>
+        <div class="space-y-3">
+          <div><label class="fieldlabel">1. Kindly Approve</label><select id="cfgApprove" class="field"></select></div>
+          <div><label class="fieldlabel">2. Checked By</label><select id="cfgCheck" class="field"></select></div>
+          <div><label class="fieldlabel">3. Authorized Signatory</label><select id="cfgAuthorize" class="field"></select></div>
+        </div>
+        <div class="flex justify-end mt-4"><button onclick="saveCfg(this)" class="text-white text-sm font-semibold px-4 py-2.5 rounded-lg" style="background:#0A4566">Save</button></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="modal"></div>
+
+  <script src="/js/common.js?v=89"></script>
+  <script>
+    const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const fmtD = s => { if(!s) return ''; const p=String(s).slice(0,10).split('-'); return p.length===3?(+p[2]+' '+MON[+p[1]-1]+' '+p[0]):s; };
+    const PLACE={BSC:'Bharat (001)',G2:'Salem G2 (1001)'};
+    const ST={pending_approve:['Awaiting approval','bg-amber-100 text-amber-700'],pending_check:['Awaiting check','bg-amber-100 text-amber-700'],pending_authorize:['Awaiting authorization','bg-amber-100 text-amber-700'],approved:['Approved','bg-emerald-100 text-emerald-700'],rejected:['Rejected','bg-red-100 text-red-700']};
+    const STAGE_BTN={approve:'Approve',check:'Check & forward',authorize:'Authorize'};
+    let me=null, EMP=[], curPlace='BSC';
+
+    async function logout(){ try{await api('/logout',{method:'POST'});}catch(e){} location.href='/'; }
+    function stBadge(s){ const x=ST[s]||[s,'bg-slate-100 text-slate-600']; return '<span class="st '+x[1]+'">'+x[0]+'</span>'; }
+
+    (async function init(){
+      try{ me=await api('/me'); }catch(e){ location.href='/'; return; }
+      document.getElementById('who').textContent=me.name||'';
+      document.getElementById('wDate').value=new Date().toISOString().slice(0,10);
+      setPlace('BSC');
+      try{ EMP=await api('/work/employees'); }catch(e){ EMP=[]; }
+      addEmp();
+      setupTabs();
+      if(me.is_admin){ document.getElementById('cfgTab').classList.remove('hidden'); loadCfg(); }
+      loadMine(); loadPending();
+    })();
+
+    function setupTabs(){
+      document.querySelectorAll('.tabBtn').forEach(b=>b.onclick=()=>{
+        document.querySelectorAll('.tabBtn').forEach(x=>x.dataset.active='false'); b.dataset.active='true';
+        ['raise','mine','appr','cfg'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==b.dataset.tab));
+        if(b.dataset.tab==='mine') loadMine();
+        if(b.dataset.tab==='appr') loadPending();
+      });
+    }
+    function setPlace(p){ curPlace=p; document.querySelectorAll('.plBtn').forEach(b=>b.style.background=b.style.color=''); const el=document.getElementById('pl-'+p); el.style.background='#0A4566'; el.style.color='#fff'; }
+
+    function empOptions(sel){ return '<option value="">— pick employee —</option>'+EMP.map(e=>'<option value="'+e.id+'" data-job="'+esc(e.job_title)+'"'+(String(sel)===String(e.id)?' selected':'')+'>'+esc(e.name)+(e.emp_no?(' ('+esc(e.emp_no)+')'):'')+'</option>').join(''); }
+    function adjOptions(sel){ return '<option value="leave"'+(sel==='leave'?' selected':'')+'>Leave adjustment</option><option value="payment"'+(sel==='payment'?' selected':'')+'>Payment</option>'; }
+
+    function addEmp(){
+      document.getElementById('empEmpty').classList.add('hidden');
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td><select class="field eSel" onchange="onEmp(this)">'+empOptions('')+'</select></td>'+
+        '<td><input class="field eDes" placeholder="Designation"></td>'+
+        '<td><select class="field eAdj">'+adjOptions('leave')+'</select></td>'+
+        '<td><button class="rm" onclick="delRow(this,\'emp\')">&times;</button></td>';
+      document.getElementById('empRows').appendChild(tr);
+    }
+    function onEmp(sel){ const o=sel.options[sel.selectedIndex]; const des=sel.closest('tr').querySelector('.eDes'); if(o && o.dataset.job && !des.value) des.value=o.dataset.job; }
+    function addLab(){
+      document.getElementById('labEmpty').classList.add('hidden');
+      const tr=document.createElement('tr');
+      tr.innerHTML='<td><input class="field lNm" placeholder="Name"></td>'+
+        '<td><input class="field lDes" placeholder="Designation"></td>'+
+        '<td><select class="field lAdj">'+adjOptions('leave')+'</select></td>'+
+        '<td><button class="rm" onclick="delRow(this,\'lab\')">&times;</button></td>';
+      document.getElementById('labRows').appendChild(tr);
+    }
+    function delRow(btn,kind){ btn.closest('tr').remove();
+      if(kind==='emp'&&!document.querySelectorAll('#empRows tr').length) document.getElementById('empEmpty').classList.remove('hidden');
+      if(kind==='lab'&&!document.querySelectorAll('#labRows tr').length) document.getElementById('labEmpty').classList.remove('hidden'); }
+
+    async function submitReq(btn){
+      const place=curPlace, work_date=document.getElementById('wDate').value, work_time=document.getElementById('wTime').value.trim(), nature=document.getElementById('wNature').value.trim();
+      if(!work_date) return toast('Pick a date','error');
+      if(!nature) return toast('Enter the nature of work','error');
+      const team_emp=[...document.querySelectorAll('#empRows tr')].map(tr=>({emp_id:tr.querySelector('.eSel').value,designation:tr.querySelector('.eDes').value.trim(),adjust:tr.querySelector('.eAdj').value})).filter(x=>x.emp_id);
+      const team_labour=[...document.querySelectorAll('#labRows tr')].map(tr=>({name:tr.querySelector('.lNm').value.trim(),designation:tr.querySelector('.lDes').value.trim(),adjust:tr.querySelector('.lAdj').value})).filter(x=>x.name);
+      if(!team_emp.length && !team_labour.length) return toast('Add at least one employee or labour','error');
+      btn.disabled=true;
+      try{
+        const r=await api('/work',{method:'POST',body:{place,work_date,work_time,nature,team_emp,team_labour}});
+        toast('Submitted — '+r.ref_no,'success');
+        document.getElementById('wNature').value=''; document.getElementById('wTime').value='';
+        document.getElementById('empRows').innerHTML=''; document.getElementById('labRows').innerHTML='';
+        document.getElementById('empEmpty').classList.remove('hidden'); document.getElementById('labEmpty').classList.remove('hidden');
+        addEmp(); loadMine();
+      }catch(e){ toast(e.message||'Could not submit','error'); }
+      finally{ btn.disabled=false; }
+    }
+
+    function rowCard(r, actions){
+      const team=(r.team_emp||[]).length+(r.team_labour||[]).length;
+      return '<div class="card p-4 mb-3"><div class="flex items-start justify-between gap-3 flex-wrap">'+
+        '<div><div class="font-semibold text-sm">'+esc(r.ref_no)+' · '+esc(r.place_label||PLACE[r.place]||r.place)+'</div>'+
+        '<div class="text-xs text-slate-500 mt-0.5">'+fmtD(r.work_date)+(r.work_time?(' · '+esc(r.work_time)):'')+' · '+team+' in team</div>'+
+        '<div class="text-xs text-slate-600 mt-1">'+esc(r.nature||'')+'</div>'+
+        (r.raised_by_name?('<div class="text-[11px] text-slate-400 mt-1">Raised by '+esc(r.raised_by_name)+'</div>'):'')+
+        (r.status==='rejected'&&r.reject_reason?('<div class="text-[11px] text-red-600 mt-1">Rejected: '+esc(r.reject_reason)+'</div>'):'')+
+        '</div><div class="text-right">'+stBadge(r.status)+'<div class="mt-2"><button class="btn-ghost text-xs" onclick="viewReq('+r.id+')">View</button></div></div>'+
+        '</div>'+(actions||'')+'</div>';
+    }
+
+    async function loadMine(){
+      const box=document.getElementById('mineBox'); box.innerHTML='<div class="text-sm text-slate-400 py-6">Loading…</div>';
+      try{ const rows=await api('/work/mine'); box.innerHTML=rows.length?rows.map(r=>rowCard(r,'')).join(''):'<div class="text-sm text-slate-400 py-6">You haven\'t raised any requests yet.</div>'; }
+      catch(e){ box.innerHTML='<div class="text-sm text-red-600 py-6">'+esc(e.message)+'</div>'; }
+    }
+    async function loadPending(){
+      let rows=[]; try{ rows=await api('/work/pending'); }catch(e){}
+      const tab=document.getElementById('apprTab'), cnt=document.getElementById('apprCount');
+      if(rows.length){ tab.classList.remove('hidden'); cnt.classList.remove('hidden'); cnt.textContent=rows.length; }
+      else { cnt.classList.add('hidden'); }
+      const box=document.getElementById('apprBox');
+      box.innerHTML=rows.length?rows.map(r=>{
+        const lbl=STAGE_BTN[r.stage]||'Approve';
+        const act='<div class="flex justify-end gap-2 mt-3 pt-3 border-t border-line"><button class="btn-ghost text-xs text-red-600" onclick="act('+r.id+',\'reject\')">Reject</button>'+
+          '<button class="text-white text-xs font-semibold px-3 py-1.5 rounded-lg" style="background:#0A4566" onclick="act('+r.id+',\'approve\')">'+lbl+'</button></div>';
+        return rowCard(r,act);
+      }).join(''):'<div class="text-sm text-slate-400 py-6">Nothing waiting for your approval.</div>';
+    }
+
+    async function act(id,decision){
+      let reason='';
+      if(decision==='reject'){ reason=prompt('Reason for rejecting?')||''; if(!reason.trim()) return; }
+      try{ await api('/work/'+id+'/action',{method:'POST',body:{decision,reason}}); toast(decision==='reject'?'Rejected':'Done','success'); loadPending(); loadMine(); }
+      catch(e){ toast(e.message||'Action failed','error'); }
+    }
+
+    async function viewReq(id){
+      let r; try{ r=await api('/work/'+id); }catch(e){ return toast(e.message,'error'); }
+      const emp=(r.team_emp||[]).map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>').join('');
+      const lab=(r.team_labour||[]).map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>').join('');
+      const chain=[['Kindly Approve',r.approve_by_name,r.approve_at],['Checked By',r.check_by_name,r.check_at],['Authorized Signatory',r.authorize_by_name,r.authorize_at]]
+        .map(c=>'<div class="flex justify-between text-xs py-1 border-b border-line/50"><span class="text-slate-500">'+c[0]+'</span><span>'+(c[1]?esc(c[1]):'<span class="text-slate-400">pending</span>')+'</span></div>').join('');
+      document.getElementById('modal').innerHTML='<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)this.innerHTML=\'\'">'+
+        '<div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto">'+
+        '<div class="p-4 border-b border-line flex items-center justify-between sticky top-0 bg-white"><h3 class="font-bold text-sm">'+esc(r.ref_no)+'</h3>'+
+        '<button onclick="document.getElementById(\'modal\').innerHTML=\'\'" class="text-slate-400 text-xl leading-none">&times;</button></div>'+
+        '<div class="p-4 text-sm">'+
+        '<div class="text-xs text-slate-500 mb-2">'+esc(r.place_label||r.place)+' · '+fmtD(r.work_date)+(r.work_time?(' · '+esc(r.work_time)):'')+' · '+stBadge(r.status)+'</div>'+
+        '<div class="mb-3"><div class="fieldlabel">Nature of work</div>'+esc(r.nature||'')+'</div>'+
+        (emp?('<div class="fieldlabel">Employees</div><table class="tbl mb-3"><thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Adjust</th></tr></thead><tbody>'+emp+'</tbody></table>'):'')+
+        (lab?('<div class="fieldlabel">Labour</div><table class="tbl mb-3"><thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Adjust</th></tr></thead><tbody>'+lab+'</tbody></table>'):'')+
+        '<div class="fieldlabel mt-2">Sign-off</div>'+chain+
+        '</div></div></div>';
+    }
+
+    // ---- admin: approver config ----
+    async function loadCfg(){
+      let d; try{ d=await api('/work/config'); }catch(e){ return; }
+      const opt=sel=>'<option value="">— none —</option>'+EMP.map(e=>'<option value="'+e.id+'"'+(sel&&String(sel)===String(e.id)?' selected':'')+'>'+esc(e.name)+'</option>').join('');
+      document.getElementById('cfgApprove').innerHTML=opt(d.approvers.approve&&d.approvers.approve.id);
+      document.getElementById('cfgCheck').innerHTML=opt(d.approvers.check&&d.approvers.check.id);
+      document.getElementById('cfgAuthorize').innerHTML=opt(d.approvers.authorize&&d.approvers.authorize.id);
+    }
+    async function saveCfg(btn){
+      btn.disabled=true;
+      try{ await api('/work/config',{method:'POST',body:{approve_emp_id:document.getElementById('cfgApprove').value,check_emp_id:document.getElementById('cfgCheck').value,authorize_emp_id:document.getElementById('cfgAuthorize').value}});
+        toast('Saved','success'); loadPending(); }
+      catch(e){ toast(e.message||'Save failed','error'); }
+      finally{ btn.disabled=false; }
+    }
+  </script>
+</body>
+</html>
