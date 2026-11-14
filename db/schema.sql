@@ -704,3 +704,6 @@ CREATE TABLE IF NOT EXISTS work_approvals (
 );
 CREATE INDEX IF NOT EXISTS idx_work_approvals_status ON work_approvals(status, work_date DESC);
 CREATE INDEX IF NOT EXISTS idx_work_approvals_raiser ON work_approvals(raised_by_id, created_at DESC);
+-- one-tap WhatsApp action link for Approval for Work (rotated each stage)
+ALTER TABLE work_approvals ADD COLUMN IF NOT EXISTS action_token TEXT;
+CREATE INDEX IF NOT EXISTS idx_work_approvals_token ON work_approvals(action_token);

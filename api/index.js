@@ -44,6 +44,69 @@ app.get('/e/:id', (req, res) =>
 // Gate self-return: the QR poster points here. Static page handles auth + GPS.
 app.get('/gate', (req, res) => res.redirect('/gate.html'));
 
+// ---- Approval for Work: one-tap WhatsApp action page (no login; token = authorisation) ----
+const workInt = require('../routes/work.routes')._internal;
+const WORK_STAGE_UI = {
+  approve:   { title: 'Approval for Work — your approval', ok: 'Approve', after: 'Approved — sent to HR for verification.' },
+  check:     { title: 'Approval for Work — HR verification', ok: 'Verify', after: 'Verified — sent for final authorization.' },
+  authorize: { title: 'Approval for Work — final authorization', ok: 'Authorize', after: 'Authorized — approval complete.' },
+};
+function workActPage(token) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Approval for Work</title>
+<style>body{font-family:system-ui,Arial,sans-serif;margin:0;background:#eef2f6;color:#0f172a}
+.wrap{max-width:460px;margin:0 auto;padding:18px}.card{background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:18px;margin-top:16px}
+h1{font-size:17px;margin:0 0 2px}.muted{color:#64748b;font-size:13px}.row{font-size:14px;margin:8px 0}.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}td,th{text-align:left;padding:4px 6px;border-bottom:1px solid #eef2f6}
+.btn{display:block;width:100%;padding:13px;border:0;border-radius:10px;font-size:15px;font-weight:700;margin-top:10px;cursor:pointer}
+.ok{background:#0A4566;color:#fff}.no{background:#fff;color:#b91c1c;border:1px solid #fecaca}
+.hd{background:#0A4566;color:#fff;padding:16px 18px;font-weight:700;letter-spacing:.02em}
+.msg{padding:14px;border-radius:10px;margin-top:12px;font-size:14px}.good{background:#ecfdf5;color:#065f46}.bad{background:#fef2f2;color:#991b1b}</style></head>
+<body><div class="hd">THE BHARAT STEEL GROUP</div><div class="wrap"><div id="box" class="card"><div class="muted">Loading…</div></div></div>
+<script>
+var token=${JSON.stringify(token)}, UI=${JSON.stringify(WORK_STAGE_UI)}, box=document.getElementById('box');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function team(list,unit){if(!list||!list.length)return '';var r=list.map(function(p,i){return '<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>';}).join('');return '<div class="lbl" style="margin-top:10px">'+unit+'</div><table><tr><th>#</th><th>Name</th><th>Designation</th><th>Adjust</th></tr>'+r+'</table>';}
+function render(d){
+  if(!d.found){box.innerHTML='<div class="msg bad">This link is no longer valid — the request may already have been actioned.</div>';return;}
+  var ui=UI[d.stage]||{title:'Approval for Work',ok:'Approve'};
+  box.innerHTML='<h1>'+esc(ui.title)+'</h1><div class="muted">'+esc(d.ref)+' · '+esc(d.place)+' · '+esc(d.date)+'</div>'+
+    '<div class="row"><div class="lbl">Nature of work</div>'+esc(d.nature)+'</div>'+
+    (d.raiser?'<div class="row muted">Raised by '+esc(d.raiser)+'</div>':'')+
+    (d.approver?'<div class="row muted">Approved by '+esc(d.approver)+'</div>':'')+
+    (d.checker?'<div class="row muted">HR verified by '+esc(d.checker)+'</div>':'')+
+    team(d.team_emp,'Employees')+team(d.team_labour,'Labour')+
+    '<button class="btn ok" onclick="act(\\'approve\\')">'+esc(ui.ok)+'</button><button class="btn no" onclick="act(\\'reject\\')">Reject</button>';
+}
+function act(decision){
+  var reason='';
+  if(decision==='reject'){reason=prompt('Reason for rejecting?')||'';if(!reason.trim())return;}
+  box.innerHTML='<div class="muted">Working…</div>';
+  fetch('/w/'+token+'/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision:decision,reason:reason})}).then(function(r){return r.json();}).then(function(d){
+    if(d.error){box.innerHTML='<div class="msg bad">'+esc(d.error)+'</div>';return;}
+    var ui=UI[d.stage]||{}, txt=d.status==='rejected'?'Rejected. The person who raised it will see this.':(ui.after||'Done.');
+    box.innerHTML='<div class="msg good">'+esc(d.ref)+' — '+esc(txt)+'</div>';
+  }).catch(function(){box.innerHTML='<div class="msg bad">Action failed. Please try again.</div>';});
+}
+fetch('/w/'+token+'/info').then(function(r){return r.json();}).then(render).catch(function(){box.innerHTML='<div class="msg bad">Could not load. Please try again.</div>';});
+</script></body></html>`;
+}
+app.get('/w/:token', (req, res) => res.set('Content-Type', 'text/html; charset=utf-8').send(workActPage(req.params.token)));
+app.get('/w/:token/info', async (req, res) => {
+  try {
+    const row = await workInt.loadByToken(req.params.token);
+    if (!row) return res.json({ found: false });
+    res.json({ found: true, stage: workInt.STAGE_OF[row.status] || null, status: row.status, ref: row.ref_no,
+      place: workInt.PLACES[row.place] || row.place, date: workInt.fmtDate(row.work_date) + (row.work_time ? (' · ' + row.work_time) : ''),
+      nature: row.nature, team_emp: row.team_emp || [], team_labour: row.team_labour || [],
+      raiser: row.raised_by_name || '', approver: row.approve_by_name || '', checker: row.check_by_name || '' });
+  } catch (e) { res.status(500).json({ found: false }); }
+});
+app.post('/w/:token/act', async (req, res) => {
+  try { res.json(await workInt.tokenAct(req.params.token, (req.body && req.body.decision) === 'reject' ? 'reject' : 'approve', req.body && req.body.reason)); }
+  catch (e) { console.error('[work token act]', e.message); res.status(500).json({ error: 'Action failed.' }); }
+});
+
 // One-tap approve/reject straight from the WhatsApp buttons (token = the request's
 // action_token). No login: the unguessable token is the authorisation. Single-use
 // (a second tap shows the current status) and dead once the pass date has passed.

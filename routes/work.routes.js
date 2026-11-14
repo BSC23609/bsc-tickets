@@ -4,8 +4,11 @@
 // The three approver roles are configured in admin (app_settings). Any logged-in
 // user can raise one. Digital approval only (no PDF).
 const express = require('express');
+const crypto = require('crypto');
 const { q } = require('../lib/db');
 const auth = require('../lib/auth');
+const wati = require('../lib/wati');
+const { background } = require('../lib/bg');
 
 const router = express.Router();
 router.use(auth.requireAuth);
@@ -78,6 +81,60 @@ function decorate(row, cfg, user) {
   };
 }
 
+// ---------- WhatsApp (WATI) notifications + one-tap token flow ----------
+const newToken = () => crypto.randomBytes(18).toString('hex');
+const fmtDate = (d) => { try { return new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' }); } catch (_) { return String(d).slice(0, 10); } };
+const teamCount = (row) => ((row.team_emp || []).length + (row.team_labour || []).length);
+
+// The active employee (with phone) configured for a stage, or null.
+async function stageEmp(stage) {
+  const s = (await q(`SELECT value FROM app_settings WHERE key=$1`, [CFG_KEYS[stage]])).rows[0];
+  const id = Number(s && s.value);
+  if (!id) return null;
+  return (await q(`SELECT id, name, phone FROM employees WHERE id=$1 AND active=TRUE`, [id])).rows[0] || null;
+}
+
+// Fire the WhatsApp template for a row's CURRENT stage (fire-and-forget; never blocks the request).
+function notifyStage(row, stage) {
+  background((async () => {
+    try {
+      const to = await stageEmp(stage);
+      if (!to || !to.phone) return;
+      const base = {
+        ref: row.ref_no, place: PLACES[row.place] || row.place,
+        date: fmtDate(row.work_date) + (row.work_time ? (' · ' + row.work_time) : ''),
+        nature: row.nature, token: row.action_token || '',
+      };
+      if (stage === 'approve') await wati.notify.work.approve(to, { ...base, team: teamCount(row), raiser: row.raised_by_name || '' });
+      else if (stage === 'check') await wati.notify.work.hrVerify(to, { ...base, approver: row.approve_by_name || '' });
+      else if (stage === 'authorize') await wati.notify.work.final(to, { ...base, checker: row.check_by_name || '' });
+    } catch (e) { console.error('[work notify]', e.message); }
+  })());
+}
+
+// Advance one stage: stamp the signer, rotate the token, move to next status, notify next (or finish).
+async function applyApprove(row, stage, actor) {
+  const next = NEXT_STATUS[stage];
+  const token = next === 'approved' ? null : newToken();
+  await q(
+    `UPDATE work_approvals SET status=$2, ${stage}_by_id=$3, ${stage}_by_name=$4, ${stage}_at=now(), action_token=$5, updated_at=now() WHERE id=$1`,
+    [row.id, next, actor.id || null, actor.name || '', token]);
+  if (token) {
+    const fresh = (await q(`SELECT * FROM work_approvals WHERE id=$1`, [row.id])).rows[0];
+    notifyStage(fresh, STAGE_OF[next]);
+  }
+  return next;
+}
+async function applyReject(row, stage, reason) {
+  await q(`UPDATE work_approvals SET status='rejected', reject_reason=$2, reject_stage=$3, action_token=NULL, updated_at=now() WHERE id=$1`,
+    [row.id, reason || 'No reason given', stage]);
+  return 'rejected';
+}
+async function loadByToken(token) {
+  if (!token || !/^[a-f0-9]{12,}$/i.test(String(token))) return null;
+  return (await q(`SELECT * FROM work_approvals WHERE action_token=$1`, [token])).rows[0] || null;
+}
+
 // ---- Directory for the employee dropdown (any logged-in user) ----
 router.get('/employees', async (req, res) => {
   const rows = (await q(`SELECT id, name, emp_no, COALESCE(job_title,'') AS job_title FROM employees WHERE active=TRUE ORDER BY name`)).rows;
@@ -112,10 +169,12 @@ router.post('/', async (req, res) => {
   if (!team_emp.length && !team_labour.length) return res.status(400).json({ error: 'Add at least one team member (employee or labour).' });
 
   const ref = await nextRef(place);
+  const token = newToken();
   const row = (await q(
-    `INSERT INTO work_approvals(ref_no, place, work_date, work_time, nature, team_emp, team_labour, raised_by_id, raised_by_name)
-     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9) RETURNING *`,
-    [ref, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour), req.user.id, req.user.name])).rows[0];
+    `INSERT INTO work_approvals(ref_no, place, work_date, work_time, nature, team_emp, team_labour, raised_by_id, raised_by_name, action_token)
+     VALUES($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8,$9,$10) RETURNING *`,
+    [ref, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour), req.user.id, req.user.name, token])).rows[0];
+  notifyStage(row, 'approve');   // WhatsApp to the stage-1 approver (Kannan)
   res.json({ ok: true, ref_no: ref, id: row.id });
 });
 
@@ -134,14 +193,16 @@ router.post('/:id/edit', async (req, res) => {
   const { team_emp, team_labour } = await buildTeams(req.body);
   if (!team_emp.length && !team_labour.length) return res.status(400).json({ error: 'Add at least one team member (employee or labour).' });
 
-  await q(
+  const token = newToken();
+  const updated = (await q(
     `UPDATE work_approvals SET place=$2, work_date=$3, work_time=$4, nature=$5, team_emp=$6::jsonb, team_labour=$7::jsonb,
-       status='pending_approve', reject_reason=NULL, reject_stage=NULL,
+       status='pending_approve', reject_reason=NULL, reject_stage=NULL, action_token=$8,
        approve_by_id=NULL, approve_by_name=NULL, approve_at=NULL,
        check_by_id=NULL, check_by_name=NULL, check_at=NULL,
        authorize_by_id=NULL, authorize_by_name=NULL, authorize_at=NULL,
-       updated_at=now() WHERE id=$1`,
-    [row.id, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour)]);
+       updated_at=now() WHERE id=$1 RETURNING *`,
+    [row.id, place, work_date, work_time, nature, JSON.stringify(team_emp), JSON.stringify(team_labour), token])).rows[0];
+  notifyStage(updated, 'approve');   // re-notify the stage-1 approver after an edit/resubmit
   res.json({ ok: true, id: row.id, ref_no: row.ref_no });
 });
 
@@ -188,16 +249,21 @@ router.post('/:id/action', async (req, res) => {
   if (!stage) return res.status(400).json({ error: 'This request is already ' + row.status.replace('_', ' ') + '.' });
   if (!canAct(req.user, stage, cfg)) return res.status(403).json({ error: 'You are not the approver for this stage.' });
 
-  if (decision === 'reject') {
-    await q(`UPDATE work_approvals SET status='rejected', reject_reason=$2, reject_stage=$3, updated_at=now() WHERE id=$1`,
-      [row.id, reason || 'No reason given', stage]);
-    return res.json({ ok: true, status: 'rejected' });
-  }
-  const col = { approve: 'approve', check: 'check', authorize: 'authorize' }[stage];
-  await q(
-    `UPDATE work_approvals SET status=$2, ${col}_by_id=$3, ${col}_by_name=$4, ${col}_at=now(), updated_at=now() WHERE id=$1`,
-    [row.id, NEXT_STATUS[stage], req.user.id, req.user.name]);
-  res.json({ ok: true, status: NEXT_STATUS[stage] });
+  if (decision === 'reject') { await applyReject(row, stage, reason); return res.json({ ok: true, status: 'rejected' }); }
+  const status = await applyApprove(row, stage, { id: req.user.id, name: req.user.name });
+  res.json({ ok: true, status });
 });
 
 module.exports = router;
+// One-tap WhatsApp flow (no login) — used by the public /w/:token page in api/index.js.
+async function tokenAct(token, decision, reason) {
+  const row = await loadByToken(token);
+  if (!row) return { error: 'This link is no longer valid — the request may already have been actioned.' };
+  const stage = STAGE_OF[row.status];
+  if (!stage) return { error: 'This request is already ' + row.status.replace('_', ' ') + '.' };
+  if (decision === 'reject') { await applyReject(row, stage, clean(reason, 500)); return { ok: true, status: 'rejected', stage, ref: row.ref_no }; }
+  const actor = (await stageEmp(stage)) || { id: null, name: 'Approver' };
+  const status = await applyApprove(row, stage, actor);
+  return { ok: true, status, stage, ref: row.ref_no };
+}
+module.exports._internal = { loadByToken, tokenAct, STAGE_OF, PLACES, fmtDate, teamCount };
