@@ -107,6 +107,43 @@ app.post('/w/:token/act', async (req, res) => {
   catch (e) { console.error('[work token act]', e.message); res.status(500).json({ error: 'Action failed.' }); }
 });
 
+// Direct Approve (/wa) and Reject (/wr) buttons on the stage-1 WhatsApp. The action runs
+// in the browser via JS (never on the raw GET), so a link-preview prefetch can't trigger it.
+function workDirectPage(token, action) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Approval for Work</title>
+<style>body{font-family:system-ui,Arial,sans-serif;margin:0;background:#eef2f6;color:#0f172a}
+.wrap{max-width:460px;margin:0 auto;padding:18px}.card{background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:18px;margin-top:16px}
+h1{font-size:17px;margin:0 0 2px}.muted{color:#64748b;font-size:13px}.row{font-size:14px;margin:8px 0}.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
+.field{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px;box-sizing:border-box}
+.btn{display:block;width:100%;padding:13px;border:0;border-radius:10px;font-size:15px;font-weight:700;margin-top:12px;cursor:pointer}
+.ok{background:#0A4566;color:#fff}.no{background:#b91c1c;color:#fff}
+.hd{background:#0A4566;color:#fff;padding:16px 18px;font-weight:700}.msg{padding:14px;border-radius:10px;margin-top:12px;font-size:14px}.good{background:#ecfdf5;color:#065f46}.bad{background:#fef2f2;color:#991b1b}</style></head>
+<body><div class="hd">THE BHARAT STEEL GROUP</div><div class="wrap"><div id="box" class="card"><div class="muted">Loading…</div></div></div>
+<script>
+var token=${JSON.stringify(token)}, action=${JSON.stringify(action)}, box=document.getElementById('box');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function team(list,unit){if(!list||!list.length)return '';var r=list.map(function(p,i){return '<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>';}).join('');return '<div class="lbl" style="margin-top:10px">'+unit+'</div><table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="text-align:left">#</th><th style="text-align:left">Name</th><th style="text-align:left">Designation</th><th style="text-align:left">Adjust</th></tr>'+r+'</table>';}
+function details(d){return '<h1>'+esc(d.ref)+'</h1><div class="muted">'+esc(d.place)+' · '+esc(d.date)+'</div>'+
+  '<div class="row"><div class="lbl">Nature of work</div>'+esc(d.nature)+'</div>'+(d.raiser?'<div class="row muted">Raised by '+esc(d.raiser)+'</div>':'')+team(d.team_emp,'Employees')+team(d.team_labour,'Labour');}
+function post(reason){box.innerHTML='<div class="muted">Working…</div>';
+  fetch('/w/'+token+'/act',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision:action,reason:reason||''})}).then(function(r){return r.json();}).then(function(d){
+    if(d.error){box.innerHTML='<div class="msg bad">'+esc(d.error)+'</div>';return;}
+    var txt=d.status==='rejected'?'Rejected. The person who raised it will see this.':(d.status==='pending_check'?'Approved — sent to HR for verification.':'Done.');
+    box.innerHTML='<div class="msg good">'+esc(d.ref||'')+' — '+esc(txt)+'</div>';
+  }).catch(function(){box.innerHTML='<div class="msg bad">Action failed. Please try again.</div>';});}
+fetch('/w/'+token+'/info').then(function(r){return r.json();}).then(function(d){
+  if(!d.found){box.innerHTML='<div class="msg bad">This link is no longer valid — the request may already have been actioned.</div>';return;}
+  if(d.stage!=='approve'){ // token moved on; fall back to the review page
+    box.innerHTML=details(d)+'<div class="msg bad" style="margin-top:12px">This request has moved to the next stage. <a href="/w/'+token+'">Open it</a>.</div>';return;}
+  if(action==='approve'){ box.innerHTML=details(d)+'<div class="msg good">Approving…</div>'; post(''); }
+  else { box.innerHTML=details(d)+'<div class="row" style="margin-top:12px"><div class="lbl">Reason (optional)</div><textarea id="rsn" class="field" rows="2" placeholder="Why is this rejected?"></textarea></div><button class="btn no" onclick="post(document.getElementById(\\'rsn\\').value)">Confirm reject</button>'; }
+}).catch(function(){box.innerHTML='<div class="msg bad">Could not load. Please try again.</div>';});
+</script></body></html>`;
+}
+app.get('/wa/:token', (req, res) => res.set('Content-Type', 'text/html; charset=utf-8').send(workDirectPage(req.params.token, 'approve')));
+app.get('/wr/:token', (req, res) => res.set('Content-Type', 'text/html; charset=utf-8').send(workDirectPage(req.params.token, 'reject')));
+
 // One-tap approve/reject straight from the WhatsApp buttons (token = the request's
 // action_token). No login: the unguessable token is the authorisation. Single-use
 // (a second tap shows the current status) and dead once the pass date has passed.
