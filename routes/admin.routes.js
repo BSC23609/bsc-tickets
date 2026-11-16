@@ -382,6 +382,34 @@ router.post('/tickets/:id/remind', async (req, res) => {
   } catch (e) { console.error('[remind one]', id, e.message); res.status(500).json({ error: e.message }); }
 });
 
+// Remind the maintenance gatekeeper to act on a ticket still waiting at the gate (no L1 yet).
+// Re-sends the same one-tap approve/reject WhatsApp, reusing the ticket's existing gate token.
+router.post('/tickets/:id/remind-approver', async (req, res) => {
+  const id = req.params.id;
+  if (!/^\d+$/.test(id)) return res.status(400).json({ error: 'Bad id' });
+  const t = (await q(
+    `SELECT t.id, t.ref_no, t.subject, t.maint_gate, t.maint_gate_token, t.status,
+            c.name AS category_name, r.name AS requester_name
+     FROM tickets t
+     JOIN categories c ON c.id = t.category_id
+     JOIN employees r ON r.id = t.requester_id
+     WHERE t.id = $1`, [id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Ticket not found' });
+  if (t.maint_gate !== 'pending') return res.json({ ok: true, sent: false, reason: 'not_pending' });
+  const apprRow = (await q(`SELECT value FROM app_settings WHERE key='maint_gate_approver_id'`)).rows[0];
+  const gk = apprRow && apprRow.value
+    ? (await q('SELECT id,name,phone FROM employees WHERE id=$1 AND active=TRUE', [Number(apprRow.value)])).rows[0]
+    : null;
+  if (!gk || !gk.phone) return res.json({ ok: true, sent: false, reason: 'no_approver' });
+  try {
+    await wati.notify.maintGate({ name: gk.name, phone: gk.phone }, t);
+    await q(`UPDATE tickets SET last_reminder_at = now() WHERE id = $1`, [id]);
+    await q(`INSERT INTO ticket_events(ticket_id,event,note) VALUES($1,'reminder',$2)`,
+      [id, `Manual gate reminder to ${gk.name} (admin)`]);
+    res.json({ ok: true, sent: true, handler: gk.name });
+  } catch (e) { console.error('[remind approver]', id, e.message); res.status(500).json({ error: e.message }); }
+});
+
 // Admin force-resolve: mark a ticket resolved directly from the cleanup list. Mirrors the normal
 // resolve flow (sets resolved_at + confirm token, nudges requester/L2 to confirm closure).
 router.post('/tickets/:id/resolve', async (req, res) => {
@@ -481,6 +509,7 @@ router.get('/ticket-list', async (req, res) => {
   }
   const rows = (await q(
     `SELECT t.id,t.ref_no,t.subject,t.status,t.priority,t.raised_at,t.resolved_at,t.closed_at,t.external_hold,
+            t.maint_gate,
             COALESCE(t.reminders_off,false) AS reminders_off,
             c.name AS category_name, r.name AS requester_name,
             l1.name AS assigned_to,
@@ -1127,7 +1156,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED306', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED307', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

@@ -1276,7 +1276,9 @@
             : `<button onclick="muteTicket(${t.id},true)" class="text-slate-500 hover:underline text-xs">🔔 On — mute</button>`),
           (canResolve(t) && t.assigned_to
             ? `<button onclick="remindTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-blue-600 hover:underline text-xs font-semibold mr-3">🔔 Remind</button>`
-            : '')
+            : (canResolve(t) && t.maint_gate==='pending'
+              ? `<button onclick="remindApprover(${t.id}, ${jsArg(t.ref_no)})" class="text-amber-600 hover:underline text-xs font-semibold mr-3">🔔 Remind approver</button>`
+              : ''))
           + (canResolve(t)
             ? `<button onclick="resolveTicket(${t.id}, ${jsArg(t.ref_no)})" class="text-emerald-700 hover:underline text-xs font-semibold mr-3">Mark resolved</button>`
             : '')
@@ -1297,6 +1299,15 @@
       try {
         const r = await api('/admin/tickets/'+id+'/remind', { method:'POST' });
         toast(r.sent ? ('Reminder sent to '+r.handler) : 'No assigned handler to remind', r.sent ? 'success' : 'info');
+      } catch(e){ toast('Could not send: '+e.message, 'error'); }
+    }
+    async function remindApprover(id, ref){
+      try {
+        const r = await api('/admin/tickets/'+id+'/remind-approver', { method:'POST' });
+        const msg = r.sent ? ('Reminder sent to approver '+r.handler)
+          : (r.reason==='no_approver' ? 'No maintenance approver is configured (Admin → maintenance gate)'
+          : (r.reason==='not_pending' ? 'This ticket is not waiting at the gate' : 'Could not send reminder'));
+        toast(msg, r.sent ? 'success' : 'info');
       } catch(e){ toast('Could not send: '+e.message, 'error'); }
     }
     async function resolveTicket(id, ref){
