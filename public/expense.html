@@ -208,7 +208,7 @@
         <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
         <button onclick="clickBusy(this,'Saving…',saveMiscChanges)" id="ms_save" class="btn text-sm hidden">Save changes</button>
         <button onclick="clickBusy(this,'Submitting…',submitMisc)" id="ms_gen" class="btn text-sm">Submit for approval</button>
-        <button onclick="clickBusy(this,'Submitting…',submitMiscUrgent)" id="ms_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
+        <button onclick="clickBusy(this,'Submitting…',submitMiscUrgent)" id="ms_urgent" class="btn-ghost text-sm hidden" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
         <button onclick="clickBusy(this,'Saving…',settleMiscOffline)" id="ms_settle" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
       </div>
     </section>
@@ -264,6 +264,9 @@
   <script src="/js/common.js?v=88"></script>
   <script>
     let me = {}, meta = {}, cv = { trips:[], submission:null, manager:null, needs_manager:true, can_submit:false, log_hours:48, editingId:null };
+    // Employees allowed to use "Submit as urgent" (keep in sync with URGENT_EMP_NOS in expense.routes.js).
+    const URGENT_EMP_NOS = ['BSC/119'];
+    const canUrgent = () => URGENT_EMP_NOS.includes(me.emp_no);
     // Disables a button + shows a spinner while its async action runs; blocks double-clicks.
     async function clickBusy(btn, label, fn){
       if(!btn || btn.dataset.busy) return;
@@ -941,7 +944,7 @@
       // Submit buttons stay available on a settled-offline claim so it can be converted into the approval
       // chain; they are hidden only once the claim is already in the chain (pending_hr).
       document.getElementById('ms_gen').classList.toggle('hidden', submitted);    // Submit for approval
-      document.getElementById('ms_urgent').classList.toggle('hidden', submitted); // Submit as urgent
+      document.getElementById('ms_urgent').classList.toggle('hidden', submitted || !canUrgent()); // Submit as urgent (restricted)
       document.getElementById('ms_settle').classList.toggle('hidden', offline);   // already settled → hide
       const save=document.getElementById('ms_save');
       save.classList.toggle('hidden', !editingExisting);

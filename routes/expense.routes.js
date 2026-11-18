@@ -15,6 +15,9 @@ const report = require('../lib/expense_report');
 
 const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation Travel', misc: 'Miscellaneous' };
 const STAGE_LABEL = { hr: 'HR review', final: 'final approval' };
+// Employees allowed to use "Submit as urgent" (standalone, out-of-cycle) misc claims. Keep in sync
+// with the same list in public/expense.html (URGENT_EMP_NOS).
+const URGENT_EMP_NOS = ['BSC/119'];
 
 async function empById(id) { if (!id) return null; return (await q('SELECT id,name,phone,emp_no,email FROM employees WHERE id=$1', [id])).rows[0] || null; }
 // TEMP test CC for CMD WhatsApp — set env CMD_TEST_PHONE (e.g. 7395956648); unset to disable.
@@ -877,8 +880,12 @@ router.post('/misc/:id/submit', async (req, res) => {
   const items = (row.payload && row.payload.items) || [];
   if (!items.length) return res.status(400).json({ error: 'Add at least one item.' });
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
+  // Urgent/standalone is limited to specific employees (see URGENT_EMP_NOS). Reject if anyone else asks.
+  const wantsUrgent = !!(req.body && req.body.standalone);
+  if (wantsUrgent && !URGENT_EMP_NOS.includes(req.user.emp_no))
+    return res.status(403).json({ error: 'Urgent submission is not enabled for your account.' });
   // Set the standalone flag and clear any settled-offline stamps (so a converted claim isn't both).
-  await q(`UPDATE expense_submissions SET standalone=$2, settled_offline_at=NULL, settled_offline_by_name=NULL WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
+  await q(`UPDATE expense_submissions SET standalone=$2, settled_offline_at=NULL, settled_offline_by_name=NULL WHERE id=$1`, [row.id, wantsUrgent]);
   await enterChain(row.id);
   res.json({ ok: true });
 });
