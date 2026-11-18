@@ -127,7 +127,6 @@
         </div>
         <div class="flex gap-2">
           <button onclick="clickBusy(this,'Submitting…',submitConveyance)" id="cv_submit" class="btn text-sm">Submit new trips for approval</button>
-          <button onclick="clickBusy(this,'Submitting…',submitConveyanceUrgent)" id="cv_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
         </div>
       </div>
     </section>
@@ -185,7 +184,6 @@
         <div class="flex gap-2">
           <button onclick="clickBusy(this,'Saving…',()=>saveOutstation())" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
           <button onclick="clickBusy(this,'Submitting…',submitOutstation)" id="ot_submit" class="btn text-sm">Submit to HR</button>
-          <button onclick="clickBusy(this,'Submitting…',submitOutstationUrgent)" id="ot_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
           <button onclick="clickBusy(this,'Saving…',settleOutstationOffline)" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
         </div>
       </div>
@@ -507,7 +505,6 @@
       await api('/expense/conveyance/'+period+'/submit',{method:'POST',body:{standalone:urgent}});
       toast(urgent?'Submitted as urgent':'Submitted for approval','success'); await loadConveyance();
     }
-    function submitConveyanceUrgent(){ return submitConveyance(true); }
     const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected',settled_offline:'settled offline'}[s]||s);
     function statusText(s){ return ({
       pending_hr:'It is with HR for review.',
@@ -916,7 +913,6 @@
       try{ await api('/expense/outstation/'+otDraft.id+'/submit',{method:'POST',body:{standalone:urgent}}); toast(urgent?'Submitted as urgent':'Submitted to HR','success'); loadOutstation(); }
       catch(e){ toast(e.message,'error'); }
     }
-    function submitOutstationUrgent(){ return submitOutstation(true); }
     async function settleOutstationOffline(){
       try{ await saveOutstation(true); }catch(e){ return; }
       if(!confirm("Settle this OFFLINE?\n\nA PDF will open for you to print, get signed by management, and hand to accounts. It will NOT go through in-app HR / management approval.")) return;

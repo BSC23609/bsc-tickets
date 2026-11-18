@@ -329,7 +329,8 @@ router.post('/conveyance/:period/submit', async (req, res) => {
   // Lock these trips to this claim so they can't be edited or re-claimed.
   await q(`UPDATE conveyance_trips SET claim_ref=$3, updated_at=now() WHERE employee_id=$1 AND id = ANY($2)`,
     [req.user.id, claimTrips.map(t => t.id), row.ref_no]);
-  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
+  // Urgent/standalone is Miscellaneous-only — conveyance always goes through the normal monthly flow.
+  await q(`UPDATE expense_submissions SET standalone=FALSE WHERE id=$1`, [row.id]);
   await enterChain(row.id);
   res.json({ ok: true, claimed: claimTrips.length });
 });
@@ -840,7 +841,8 @@ router.post('/outstation/:id/submit', async (req, res) => {
   const trips = (row.payload && row.payload.trips) || [];
   const itemCount = trips.reduce((s, t) => s + ((t.items || []).length), 0);
   if (!itemCount) return res.status(400).json({ error: 'Add at least one expense line before submitting.' });
-  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
+  // Urgent/standalone is Miscellaneous-only — outstation always goes through the normal monthly flow.
+  await q(`UPDATE expense_submissions SET standalone=FALSE WHERE id=$1`, [row.id]);
   await enterChain(row.id);
   res.json({ ok: true });
 });
