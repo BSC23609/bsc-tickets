@@ -870,11 +870,13 @@ router.put('/misc/:id', async (req, res) => {
 router.post('/misc/:id/submit', async (req, res) => {
   const row = (await q('SELECT * FROM expense_submissions WHERE id=$1', [req.params.id])).rows[0];
   if (!row || row.employee_id !== req.user.id) return res.status(403).json({ error: 'Not allowed' });
-  if (!['draft', 'generated', 'returned'].includes(row.status)) return res.status(409).json({ error: 'Locked' });
+  // Allow a settled-offline misc claim to be pushed into the approval chain (convert to normal/urgent).
+  if (!['draft', 'generated', 'returned', 'settled_offline'].includes(row.status)) return res.status(409).json({ error: 'Locked' });
   const items = (row.payload && row.payload.items) || [];
   if (!items.length) return res.status(400).json({ error: 'Add at least one item.' });
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
-  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
+  // Set the standalone flag and clear any settled-offline stamps (so a converted claim isn't both).
+  await q(`UPDATE expense_submissions SET standalone=$2, settled_offline_at=NULL, settled_offline_by_name=NULL WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
   await enterChain(row.id);
   res.json({ ok: true });
 });

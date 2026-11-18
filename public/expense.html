@@ -942,9 +942,11 @@
       const submitted = msStatus==='pending_hr';
       const offline = msStatus==='settled_offline';
       const editingExisting = submitted || offline;
-      document.getElementById('ms_gen').classList.toggle('hidden', editingExisting);   // Submit for approval
-      document.getElementById('ms_urgent').classList.toggle('hidden', editingExisting); // Submit as urgent
-      document.getElementById('ms_settle').classList.toggle('hidden', offline);         // already settled → hide
+      // Submit buttons stay available on a settled-offline claim so it can be converted into the approval
+      // chain; they are hidden only once the claim is already in the chain (pending_hr).
+      document.getElementById('ms_gen').classList.toggle('hidden', submitted);    // Submit for approval
+      document.getElementById('ms_urgent').classList.toggle('hidden', submitted); // Submit as urgent
+      document.getElementById('ms_settle').classList.toggle('hidden', offline);   // already settled → hide
       const save=document.getElementById('ms_save');
       save.classList.toggle('hidden', !editingExisting);
       save.textContent = offline ? 'Save & reprint' : 'Save changes';
