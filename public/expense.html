@@ -127,6 +127,7 @@
         </div>
         <div class="flex gap-2">
           <button onclick="clickBusy(this,'Submitting…',submitConveyance)" id="cv_submit" class="btn text-sm">Submit new trips for approval</button>
+          <button onclick="clickBusy(this,'Submitting…',submitConveyanceUrgent)" id="cv_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
         </div>
       </div>
     </section>
@@ -184,6 +185,7 @@
         <div class="flex gap-2">
           <button onclick="clickBusy(this,'Saving…',()=>saveOutstation())" id="ot_save" class="btn-ghost text-sm" style="background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.22);color:#fff">Save draft</button>
           <button onclick="clickBusy(this,'Submitting…',submitOutstation)" id="ot_submit" class="btn text-sm">Submit to HR</button>
+          <button onclick="clickBusy(this,'Submitting…',submitOutstationUrgent)" id="ot_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
           <button onclick="clickBusy(this,'Saving…',settleOutstationOffline)" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
         </div>
       </div>
@@ -195,7 +197,7 @@
         <div class="ic">i</div>
         <div class="text-sm leading-tight flex-1">
           <div class="font-semibold text-ink">Two ways to settle</div>
-          <div class="text-slate-500 text-xs mt-0.5"><b>Submit for approval</b> — goes through HR &amp; final approval in the app. &nbsp;<b>Settle offline</b> — generates a PDF to print, get signed by management and hand to accounts (no in-app approval).</div>
+          <div class="text-slate-500 text-xs mt-0.5"><b>Submit for approval</b> — goes through HR &amp; final approval, paid in the monthly report. &nbsp;<b>⚡ Submit as urgent</b> — same HR &amp; final approval, but paid out-of-cycle: not in the monthly report, and accounts are emailed the instant it is approved. &nbsp;<b>Settle offline</b> — PDF to print, get signed and hand to accounts (no in-app approval).</div>
         </div>
         <button onclick="newMisc()" class="btn-ghost text-xs shrink-0">Start new</button>
       </div>
@@ -208,6 +210,7 @@
         <div><div class="cap">Total</div><div class="amt" id="ms_total">₹0</div></div>
         <button onclick="clickBusy(this,'Saving…',saveMiscChanges)" id="ms_save" class="btn text-sm hidden">Save changes</button>
         <button onclick="clickBusy(this,'Submitting…',submitMisc)" id="ms_gen" class="btn text-sm">Submit for approval</button>
+        <button onclick="clickBusy(this,'Submitting…',submitMiscUrgent)" id="ms_urgent" class="btn-ghost text-sm" style="color:#b45309" title="Full HR + final approval, paid out-of-cycle — not in the monthly report, accounts emailed on approval">⚡ Submit as urgent</button>
         <button onclick="clickBusy(this,'Saving…',settleMiscOffline)" id="ms_settle" class="btn-ghost text-sm" style="color:#7c3aed">Settle offline</button>
       </div>
     </section>
@@ -492,16 +495,19 @@
       }catch(e){ toast(e.message,'error'); }
     }
 
-    async function submitConveyance(){
+    async function submitConveyance(urgent=false){
       const open=cv.trips.filter(t=>!t.claimed);
       const n=open.filter(t=>t.status==='approved').length;
       if(!n) return toast('No new approved trips to submit','error');
       const period = cv.period || document.getElementById('cv_month').value;
       if(!/^\d{4}-\d{2}$/.test(period)) return toast('Pick a month first','error');
-      if(!confirm(`Submit ${n} new approved trip${n===1?'':'s'} as a claim? It goes to HR, then the final approver. Already-claimed trips stay untouched.`)) return;
-      await api('/expense/conveyance/'+period+'/submit',{method:'POST'});
-      toast('Submitted for approval','success'); await loadConveyance();
+      if(!confirm(urgent
+        ? `Submit ${n} new approved trip${n===1?'':'s'} as an URGENT claim? Full HR + final approval, but paid out-of-cycle — it is NOT added to the monthly consolidated report, and accounts are emailed the moment it is approved.`
+        : `Submit ${n} new approved trip${n===1?'':'s'} as a claim? It goes to HR, then the final approver. Already-claimed trips stay untouched.`)) return;
+      await api('/expense/conveyance/'+period+'/submit',{method:'POST',body:{standalone:urgent}});
+      toast(urgent?'Submitted as urgent':'Submitted for approval','success'); await loadConveyance();
     }
+    function submitConveyanceUrgent(){ return submitConveyance(true); }
     const pillText = s => ({pending_hr:'with HR',pending_final:'with the final approver',approved:'approved',returned:'returned',rejected:'rejected',settled_offline:'settled offline'}[s]||s);
     function statusText(s){ return ({
       pending_hr:'It is with HR for review.',
@@ -520,7 +526,7 @@
       el.innerHTML=list.map(s=>`<div onclick="openDetail(${s.id})" class="card lift p-4 flex items-center justify-between gap-3">
         <div class="min-w-0">
           <div class="flex items-center gap-2 flex-wrap"><span class="mono text-[11px] text-slate-400">${s.ref_no}</span>${statusPill(s.status)}
-            <span class="pill bg-brand-50 text-brand-700">${formLabel(s.form_type)}</span></div>
+            <span class="pill bg-brand-50 text-brand-700">${formLabel(s.form_type)}</span>${s.standalone?'<span class="pill bg-amber-100 text-amber-800">⚡ Urgent</span>':''}</div>
           <div class="text-sm font-semibold text-ink mt-1">${s.period_label||''} · ${fmtMoney(s.total_amount)}</div>
         </div>
         <div class="flex items-center gap-2">
@@ -902,12 +908,15 @@
         catch(e){ toast(e.message,'error'); await saveOutstation(true); refreshOut(false); } }, source, source!=='camera'); }
     function rmBillOut(ti,ii,idx){ const it=otTrips[ti].items[ii]; ensureBills(it); it.bills.splice(idx,1); saveOutstation(true).then(()=>refreshOut(false)); }
     async function saveOutstation(silent){ try{ const r=await api('/expense/outstation/'+otDraft.id,{method:'PUT',body:{trips:otTrips}}); if(!silent) toast(`Saved — ${fmtMoney(r.total)}`,'success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); throw e; } }
-    async function submitOutstation(){
+    async function submitOutstation(urgent=false){
       try{ await saveOutstation(true); }catch(e){ return; }
-      if(!confirm("Submit this outstation claim to HR? It locks once submitted — but you can still add more to this month as a new claim.")) return;
-      try{ await api('/expense/outstation/'+otDraft.id+'/submit',{method:'POST'}); toast('Submitted to HR','success'); loadOutstation(); }
+      if(!confirm(urgent
+        ? "Submit this outstation claim as URGENT? Full HR + final approval, but paid out-of-cycle — it is NOT added to the monthly consolidated report, and accounts are emailed the moment it is approved."
+        : "Submit this outstation claim to HR? It locks once submitted — but you can still add more to this month as a new claim.")) return;
+      try{ await api('/expense/outstation/'+otDraft.id+'/submit',{method:'POST',body:{standalone:urgent}}); toast(urgent?'Submitted as urgent':'Submitted to HR','success'); loadOutstation(); }
       catch(e){ toast(e.message,'error'); }
     }
+    function submitOutstationUrgent(){ return submitOutstation(true); }
     async function settleOutstationOffline(){
       try{ await saveOutstation(true); }catch(e){ return; }
       if(!confirm("Settle this OFFLINE?\n\nA PDF will open for you to print, get signed by management, and hand to accounts. It will NOT go through in-app HR / management approval.")) return;
@@ -934,6 +943,7 @@
       const offline = msStatus==='settled_offline';
       const editingExisting = submitted || offline;
       document.getElementById('ms_gen').classList.toggle('hidden', editingExisting);   // Submit for approval
+      document.getElementById('ms_urgent').classList.toggle('hidden', editingExisting); // Submit as urgent
       document.getElementById('ms_settle').classList.toggle('hidden', offline);         // already settled → hide
       const save=document.getElementById('ms_save');
       save.classList.toggle('hidden', !editingExisting);
@@ -969,14 +979,17 @@
     function billMisc(i,source){ pickFile(async files=>{ const arr=Array.isArray(files)?files:[files]; try{ await ensureMiscDraft(); const it=msItems[i]; ensureBills(it); toast('Uploading…','info'); for(const f of arr){ it.bills.push(await uploadBill(msDraft.ref_no,f)); } await saveMisc(true); renderMisc(); toast(arr.length>1?arr.length+' bills attached':'Bill attached','success'); }catch(e){ toast(e.message,'error'); } }, source, source!=='camera'); }
     function rmBillMisc(i,idx){ const it=msItems[i]; ensureBills(it); it.bills.splice(idx,1); saveMisc(true).then(()=>renderMisc()); }
     async function saveMisc(silent){ await ensureMiscDraft(); try{ const r=await api('/expense/misc/'+msDraft.id,{method:'PUT',body:{items:msItems}}); if(!silent) toast('Saved','success'); return r; }catch(e){ if(!silent) toast(e.message,'error'); } }
-    async function submitMisc(){
+    async function submitMisc(urgent=false){
       if(!msItems.length) return toast('Add at least one item','error');
       await saveMisc(true);
-      if(!confirm("Submit this claim for approval? It goes to HR for review, then final approval.")) return;
-      try{ await api('/expense/misc/'+msDraft.id+'/submit',{method:'POST'});
-        toast('Submitted for approval','success'); showForm('mine');
+      if(!confirm(urgent
+        ? "Submit this claim as URGENT? It goes through HR then final approval, but is paid out-of-cycle — it is NOT added to the monthly consolidated report, and accounts are emailed the instant it is approved."
+        : "Submit this claim for approval? It goes to HR for review, then final approval.")) return;
+      try{ await api('/expense/misc/'+msDraft.id+'/submit',{method:'POST',body:{standalone:urgent}});
+        toast(urgent?'Submitted as urgent':'Submitted for approval','success'); showForm('mine');
       }catch(e){ toast(e.message,'error'); }
     }
+    function submitMiscUrgent(){ return submitMisc(true); }
 
     async function settleMiscOffline(){
       if(!msItems.length) return toast('Add at least one item','error');

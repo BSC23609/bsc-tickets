@@ -329,6 +329,7 @@ router.post('/conveyance/:period/submit', async (req, res) => {
   // Lock these trips to this claim so they can't be edited or re-claimed.
   await q(`UPDATE conveyance_trips SET claim_ref=$3, updated_at=now() WHERE employee_id=$1 AND id = ANY($2)`,
     [req.user.id, claimTrips.map(t => t.id), row.ref_no]);
+  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
   await enterChain(row.id);
   res.json({ ok: true, claimed: claimTrips.length });
 });
@@ -533,7 +534,7 @@ async function nudgeManagers({ managerId = null, mode = null } = {}) {
 
 // ---------------- my submissions (non-draft) ----------------
 router.get('/', async (req, res) => {
-  const rows = (await q(`SELECT id,ref_no,form_type,period,total_amount,status,submitted_at,created_at,pdf_token
+  const rows = (await q(`SELECT id,ref_no,form_type,period,total_amount,status,submitted_at,created_at,pdf_token,standalone
     FROM expense_submissions WHERE employee_id=$1 AND status<>'draft'
     ORDER BY COALESCE(submitted_at,created_at) DESC LIMIT 100`, [req.user.id])).rows;
   res.json(rows.map(r => ({ ...r, period_label: r.period ? monthLabel(r.period) : '' })));
@@ -640,6 +641,10 @@ async function applyFinalApprove(row, byName) {
     if (c.accounts_notify_id) { const acc = await empById(c.accounts_notify_id); if (acc && acc.phone) await wati.notify.expense.paid(acc, chainSummary(full)); }
     if (c.cmd_notify_id) { const cmd = await empById(c.cmd_notify_id); if (cmd && cmd.phone) await wati.notify.expense.cmd(cmd, chainSummary(full), 'Approved for payment'); }
     if (CMD_TEST_PHONE) await wati.notify.expense.cmd({ name: 'Test', phone: CMD_TEST_PHONE }, chainSummary(full), 'Approved for payment');
+    // Urgent/standalone claims are out-of-cycle: email accounts THIS one claim now instead of waiting
+    // for the monthly consolidated run. No-ops for normal claims.
+    try { await require('./final.routes')._internal.emailStandaloneClaim(row.id, full.final_by_name || byName); }
+    catch (e) { console.error('[standalone accounts mail]', row.id, e.message); }
   })());
 }
 
@@ -835,6 +840,7 @@ router.post('/outstation/:id/submit', async (req, res) => {
   const trips = (row.payload && row.payload.trips) || [];
   const itemCount = trips.reduce((s, t) => s + ((t.items || []).length), 0);
   if (!itemCount) return res.status(400).json({ error: 'Add at least one expense line before submitting.' });
+  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
   await enterChain(row.id);
   res.json({ ok: true });
 });
@@ -868,6 +874,7 @@ router.post('/misc/:id/submit', async (req, res) => {
   const items = (row.payload && row.payload.items) || [];
   if (!items.length) return res.status(400).json({ error: 'Add at least one item.' });
   if (!row.pdf_token) await q(`UPDATE expense_submissions SET pdf_token=$2 WHERE id=$1`, [row.id, crypto.randomBytes(12).toString('hex')]);
+  await q(`UPDATE expense_submissions SET standalone=$2 WHERE id=$1`, [row.id, !!(req.body && req.body.standalone)]);
   await enterChain(row.id);
   res.json({ ok: true });
 });

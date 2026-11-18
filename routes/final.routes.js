@@ -145,6 +145,36 @@ function expInMonth(s, p) {
     OR (${s}.form_type = 'misc' AND COALESCE(${s}.period, to_char(${s}.submitted_at,'YYYY-MM'), to_char(${s}.created_at,'YYYY-MM'), to_char(${s}.final_at,'YYYY-MM')) = ${p})
   )`;
 }
+// Same as expInMonth but EXCLUDES urgent/standalone claims — the monthly consolidated accounts batch
+// must never include them (they get their own accounts email on final approval).
+function expInMonthBatch(s, p) { return `(${expInMonth(s, p)} AND NOT COALESCE(${s}.standalone, false))`; }
+
+// Instant accounts email for ONE urgent/standalone claim, on final approval. No-ops for normal claims.
+async function emailStandaloneClaim(claimId, byName) {
+  const row = (await q(
+    `SELECT s.id, s.ref_no, s.form_type, s.total_amount, s.standalone, e.name AS emp_name, e.emp_no
+     FROM expense_submissions s JOIN employees e ON e.id=s.employee_id WHERE s.id=$1`, [claimId])).rows[0];
+  if (!row || !row.standalone) return;
+  const expense = require('./expense.routes');
+  const pdf = await expense._internal.claimPdfById(row.id);
+  if (!pdf) return;
+  const cfg = await chain.getChain();
+  const acct = chain.accountsEmailFor(cfg, row.emp_no);
+  if (!acct) { console.warn('[standalone mail] no accounts email for', row.emp_no); return; }
+  const label = FORM_LABEL[row.form_type] || row.form_type;
+  const amt = money(Number(row.total_amount || 0));
+  await graph.sendMail({
+    to: acct,
+    subject: `Urgent payment — ${row.emp_name} — ${label} — ${amt} (${row.ref_no})`,
+    html: `<p>An <b>urgent (out-of-cycle) reimbursement</b> has been final-approved and is ready for payment.</p>
+           <p><b>Employee:</b> ${row.emp_name} (${row.emp_no})<br>
+           <b>Type:</b> ${label}<br><b>Amount:</b> ${amt}<br>
+           <b>Reference:</b> ${row.ref_no}<br><b>Approved by:</b> ${byName || ''}</p>
+           <p>This claim is <b>not</b> part of the monthly consolidated report — please process it separately. The approved claim PDF is attached.</p>`,
+    attachments: [{ name: `${row.emp_name.replace(/[^\w .-]/g, '')} - ${label} (${row.ref_no.replace(/\//g, '-')}).pdf`,
+      contentType: 'application/pdf', contentBytes: pdf.toString('base64') }],
+  });
+}
 function otInMonth(o, p) {
   return `${o}.ot_date >= (${p}||'-01')::date AND ${o}.ot_date < ((${p}||'-01')::date + interval '1 month') AND ${o}.status = 'mgmt_approved'`;  // unpaid only
 }
@@ -403,10 +433,10 @@ async function companyExpenseEmployees(companyKey, month) {
   return (await q(
     `SELECT e.id, e.name, e.emp_no,
        (SELECT COALESCE(SUM(total_amount),0) FROM expense_submissions s
-        WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s', '$2')}) AS total
+        WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonthBatch('s', '$2')}) AS total
      FROM employees e
      WHERE e.emp_no LIKE $1
-       AND EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s', '$2')})
+       AND EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonthBatch('s', '$2')})
      ORDER BY e.emp_no`, [C.staffPrefix + '/%', month])).rows;
 }
 async function companyOtTotal(companyKey, month) {
@@ -552,7 +582,7 @@ async function buildEmployeeConsolidatedPdf(empId, month, opts = {}) {
   if (!emp) return null;
   const claims = (await q(
     `SELECT id, form_type, total_amount, final_by_name, to_char(final_at AT TIME ZONE 'Asia/Kolkata','DD Mon YYYY, HH12:MI AM') AS final_at_fmt FROM expense_submissions s
-     WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonth('s','$2')}
+     WHERE employee_id=$1 AND status='approved' ${includePaid ? '' : 'AND paid_at IS NULL'} AND ${expInMonthBatch('s','$2')}
      ORDER BY array_position(ARRAY['conveyance','outstation','misc']::text[], form_type), final_at`, [empId, month])).rows;
   const FORM_LABEL = { conveyance: 'Local Conveyance', outstation: 'Outstation', misc: 'Miscellaneous' };
   const breakdown = claims.map(c => ({ label: FORM_LABEL[c.form_type] || c.form_type, amount: Number(c.total_amount || 0), by: c.final_by_name || '\u2014', at: c.final_at_fmt || '' }));
@@ -594,7 +624,7 @@ async function runMonthlyAccounts(month, byName) {
   const cfg = await chain.getChain();
   const emps = (await q(
     `SELECT DISTINCT e.id, e.name, e.emp_no FROM employees e
-     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')})
+     WHERE (EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonthBatch('s','$1')})
         OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}))
        AND NOT EXISTS (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id)
      ORDER BY e.emp_no`, [month])).rows;
@@ -742,7 +772,7 @@ router.get('/month-items', async (req, res) => {
     labour: { key: 'labour', label: 'Labour (OT + Shearing)', items: [] },
   };
   const exp = (await q(
-    `SELECT s.id, s.form_type, s.total_amount, s.status, s.paid_at, s.final_by_name, s.pdf_token, e.name AS emp_name, e.emp_no
+    `SELECT s.id, s.form_type, s.total_amount, s.status, s.paid_at, s.final_by_name, s.pdf_token, s.standalone, e.name AS emp_name, e.emp_no
      FROM expense_submissions s JOIN employees e ON e.id=s.employee_id
      WHERE s.status IN ('pending_final','approved','settled_offline') AND ${expInMonth('s', '$1')}
      ORDER BY e.name`, [month])).rows;
@@ -756,6 +786,7 @@ router.get('/month-items', async (req, res) => {
       approved_by: state === 'approved' ? (r.final_by_name || '') : null,
       nonmgmt: state === 'approved' && r.final_by_name && !mgmtNames.includes(r.final_by_name),
       pdf_token: r.pdf_token || null,
+      standalone: !!r.standalone,
       approve: state === 'pending' ? { url: '/expense/' + r.id + '/final-approve' } : null,
       paidToggle: state === 'approved' ? { url: '/expense/' + r.id + '/' + (paid ? 'unmark-paid' : 'mark-paid') } : null,
       reopen: (state === 'approved' && !paid) ? { url: '/expense/' + r.id + '/reopen-final' } : null,
@@ -805,14 +836,14 @@ router.get('/monthly-list', async (req, res) => {
   const month = /^\d{4}-\d{2}$/.test(String(req.query.month || '')) ? req.query.month : prevMonth();
   const rows = (await q(
     `SELECT e.id, e.name, e.emp_no,
-       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')}),0)
+       COALESCE((SELECT SUM(total_amount) FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonthBatch('s','$1')}),0)
        + COALESCE((SELECT SUM(amount) FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')}),0) AS total,
        (SELECT to_char(sent_at,'DD Mon HH24:MI') FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) AS sent_at
      FROM employees e
-     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonth('s','$1')})
+     WHERE EXISTS (SELECT 1 FROM expense_submissions s WHERE s.employee_id=e.id AND s.status='approved' AND s.paid_at IS NULL AND ${expInMonthBatch('s','$1')})
         OR EXISTS (SELECT 1 FROM ot_entries o WHERE o.employee_id=e.id AND ${otInMonth('o','$1')})
      ORDER BY (SELECT 1 FROM payment_run_sent r WHERE r.period=$1 AND r.employee_id=e.id) NULLS FIRST, e.emp_no`, [month])).rows;
   res.json({ month, employees: rows });
 });
 
-module.exports._internal = { runMonthlyAccounts, buildEmployeeConsolidatedPdf, prevMonth, expInMonth, COMPANIES };
+module.exports._internal = { runMonthlyAccounts, buildEmployeeConsolidatedPdf, prevMonth, expInMonth, emailStandaloneClaim, COMPANIES };

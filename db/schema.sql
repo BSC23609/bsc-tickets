@@ -443,6 +443,10 @@ ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS report_period_override 
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ;
 ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS paid_by_name TEXT;
 
+-- Urgent / standalone (out-of-cycle) claims: run the full HR→final chain, but are EXCLUDED from the
+-- monthly consolidated accounts report and instead get their own accounts email on final approval.
+ALTER TABLE expense_submissions ADD COLUMN IF NOT EXISTS standalone BOOLEAN DEFAULT FALSE;
+
 -- ===================== OUTPASS/GATEPASS: return tracking & overstay monitoring =====================
 -- Gatepasses declare an expected return (in_time) but nothing recorded the ACTUAL return, so
 -- overstays and never-logged returns were both invisible. These columns close that gap.
