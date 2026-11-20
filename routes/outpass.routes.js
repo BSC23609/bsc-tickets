@@ -245,7 +245,11 @@ async function applyApprove(o, actorId, actorName) {
   const token = crypto.randomBytes(16).toString('hex');
   // For a gatepass, resolve the declared in_time into a real instant so the overdue watcher
   // has something to compare against. Outpasses (no return) leave this null.
-  const expBack = (o.type === 'gatepass') ? istClockToMs(o.req_date, o.in_time) : null;
+  // Gatepass expects a return by its in_time; a late-arrival pass expects the employee to confirm
+  // arrival by the in-time they entered (stored in out_time). Both are tracked by the overdue watcher.
+  const expBack = o.type === 'gatepass' ? istClockToMs(o.req_date, o.in_time)
+                : o.type === 'late_arrival' ? istClockToMs(o.req_date, o.out_time)
+                : null;
   await q(`UPDATE outpass_requests SET status='approved', actioned_by_id=$2, actioned_by_name=$3,
            actioned_at=now(), pdf_token=$4, expected_back_at=$5 WHERE id=$1`,
           [o.id, actorId, actorName, token, expBack ? new Date(expBack) : null]);
@@ -338,7 +342,7 @@ async function notifyReturn(passId) {
   try {
     const o = (await q(`SELECT o.*, r.name AS requester_name FROM outpass_requests o
                         JOIN employees r ON r.id=o.requester_id WHERE o.id=$1`, [passId])).rows[0];
-    if (!o || o.type !== 'gatepass') return;
+    if (!o || !['gatepass', 'late_arrival'].includes(o.type)) return;
     const cfg = await gateConfig();
     const ids = [o.approver_id, cfg.hrEmpId].filter(Boolean);
     if (!ids.length) return;
@@ -358,7 +362,7 @@ async function notifyReturn(passId) {
 }
 
 // A pass is "out" if it's an approved gatepass with an expected return and no return recorded.
-const OPEN_WHERE = `o.status='approved' AND o.type='gatepass'
+const OPEN_WHERE = `o.status='approved' AND o.type IN ('gatepass','late_arrival')
   AND o.expected_back_at IS NOT NULL AND o.returned_at IS NULL`;
 
 function decorateOpen(o) {
@@ -437,7 +441,7 @@ router.post('/:id/return-gps', async (req, res) => {
   if (!o) return res.status(404).json({ error: 'Pass not found' });
   if (o.requester_id !== req.user.id) return res.status(403).json({ error: 'This is not your gatepass' });
   if (o.returned_at) return res.status(409).json({ error: 'Return already recorded' });
-  if (o.status !== 'approved' || o.type !== 'gatepass') return res.status(409).json({ error: 'Not an open gatepass' });
+  if (o.status !== 'approved' || !['gatepass', 'late_arrival'].includes(o.type)) return res.status(409).json({ error: 'Not an open pass' });
   if (typeof lat !== 'number' || typeof lng !== 'number') return res.status(400).json({ error: 'Location required. Please allow location access.' });
 
   const cfg = await gateConfig();
@@ -462,7 +466,7 @@ router.post('/:id/return-manual', async (req, res) => {
   const o = (await q(`SELECT * FROM outpass_requests WHERE id=$1`, [req.params.id])).rows[0];
   if (!o) return res.status(404).json({ error: 'Pass not found' });
   if (o.returned_at) return res.status(409).json({ error: 'Return already recorded' });
-  if (o.status !== 'approved' || o.type !== 'gatepass') return res.status(409).json({ error: 'Not an open gatepass' });
+  if (o.status !== 'approved' || !['gatepass', 'late_arrival'].includes(o.type)) return res.status(409).json({ error: 'Not an open pass' });
   const via = req.user.is_admin ? 'admin' : 'approver';
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE, returned_by_id=$3 WHERE id=$1`,
           [o.id, via, req.user.id]);
@@ -526,7 +530,7 @@ async function markReturnByToken(token, via = 'self_whatsapp') {
   const o = (await q(`SELECT * FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
   if (!o) return { status: 'notfound' };
   if (o.returned_at) return { status: 'already', ref: o.ref_no };
-  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  if (o.status !== 'approved' || !['gatepass', 'late_arrival'].includes(o.type)) return { status: 'invalid', ref: o.ref_no };
   await q(`UPDATE outpass_requests SET returned_at=now(), returned_via=$2, return_verified=FALSE WHERE id=$1`, [o.id, via]);
   background(notifyReturn(o.id));   // tell approver + HR the employee is back
   return { status: 'ok', ref: o.ref_no };
@@ -536,7 +540,7 @@ async function peekReturnToken(token) {
   const o = (await q(`SELECT ref_no, status, type, returned_at FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
   if (!o) return { status: 'notfound' };
   if (o.returned_at) return { status: 'already', ref: o.ref_no };
-  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  if (o.status !== 'approved' || !['gatepass', 'late_arrival'].includes(o.type)) return { status: 'invalid', ref: o.ref_no };
   return { status: 'ok', ref: o.ref_no };
 }
 // GPS-verified self-return from the WhatsApp button — same geofence rule as the QR scan.
@@ -544,7 +548,7 @@ async function markReturnByTokenGps(token, lat, lng, accuracy) {
   const o = (await q(`SELECT * FROM outpass_requests WHERE return_token=$1`, [token])).rows[0];
   if (!o) return { status: 'notfound' };
   if (o.returned_at) return { status: 'already', ref: o.ref_no };
-  if (o.status !== 'approved' || o.type !== 'gatepass') return { status: 'invalid', ref: o.ref_no };
+  if (o.status !== 'approved' || !['gatepass', 'late_arrival'].includes(o.type)) return { status: 'invalid', ref: o.ref_no };
   if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return { status: 'noloc', ref: o.ref_no };
   const cfg = await gateConfig();
   if (cfg.lat == null || cfg.lng == null) return { status: 'nogate', ref: o.ref_no };
@@ -590,7 +594,7 @@ async function backfillExpectedBack() {
          SET hr_alert_at = COALESCE(hr_alert_at, now()),
              overdue_alert_at = COALESCE(overdue_alert_at, now()),
              requester_reminder_at = COALESCE(requester_reminder_at, now())
-       WHERE type='gatepass' AND status='approved' AND returned_at IS NULL
+       WHERE type IN ('gatepass','late_arrival') AND status='approved' AND returned_at IS NULL
          AND expected_back_at IS NOT NULL AND expected_back_at < now()`);
     acknowledged = a.rowCount || 0;
     await q(`INSERT INTO app_settings(key,value) VALUES('overdue_backlog_ack_v2', now()::text) ON CONFLICT(key) DO NOTHING`);
