@@ -333,6 +333,8 @@ async function gateConfig() {
     overdueMin: Number(m.outpass_overdue_min || process.env.OUTPASS_OVERDUE_MIN || 5),
     hrEmpId: m.outpass_hr_emp_id ? Number(m.outpass_hr_emp_id) : (process.env.OUTPASS_HR_EMP_ID ? Number(process.env.OUTPASS_HR_EMP_ID) : null),
     multidayHours: Number(m.outpass_multiday_hours || process.env.OUTPASS_MULTIDAY_HOURS || 16),
+    // How often to re-send the requester's "I'm Back" reminder until they log their return.
+    remindEveryMin: Number(process.env.OUTPASS_REMIND_EVERY_MIN || 30),
   };
 }
 
@@ -501,10 +503,10 @@ router.get('/overstay-report', async (req, res) => {
 
 
 // --- overdue watcher, driven by the cron. Returns rows to alert on; caller sends the WATI. ---
-async function findOverdue(overdueMin, maxHours = 16) {
-  // Return every open gatepass that has reached its expected return time (and is not yet
-  // multi-day). The caller decides who to notify: the requester is nudged right at their time,
-  // HR/approver only once past the overdue threshold.
+async function findOverdue(overdueMin, maxHours = 16, remindEveryMin = 30) {
+  // Return every open pass that has reached its expected return time (and is not yet
+  // multi-day). The caller decides who to notify: the requester is re-nudged every
+  // remindEveryMin until they log their return; HR/approver only once past the overdue threshold.
   return (await q(
     `SELECT o.id, o.ref_no, o.purpose, o.out_time, o.in_time, o.expected_back_at, o.on_duty,
             o.overdue_alert_at, o.hr_alert_at, o.requester_reminder_at, o.return_token,
@@ -516,8 +518,10 @@ async function findOverdue(overdueMin, maxHours = 16) {
      WHERE ${OPEN_WHERE}
        AND o.expected_back_at < now()
        AND o.expected_back_at > (now() - ($1 || ' hours')::interval)
-       AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL OR o.requester_reminder_at IS NULL)
-     ORDER BY o.expected_back_at ASC`, [String(maxHours)])).rows;
+       AND (o.overdue_alert_at IS NULL OR o.hr_alert_at IS NULL
+            OR o.requester_reminder_at IS NULL
+            OR o.requester_reminder_at < now() - (($2)::int || ' minutes')::interval)
+     ORDER BY o.expected_back_at ASC`, [String(maxHours), String(remindEveryMin)])).rows;
 }
 async function ensureReturnToken(id) {
   const r = (await q(`SELECT return_token FROM outpass_requests WHERE id=$1`, [id])).rows[0];

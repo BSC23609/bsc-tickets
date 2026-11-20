@@ -975,7 +975,7 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
   if (!isOutpassWatchClock(startMin, endMin)) return res.json({ ok: true, skipped: 'outside watch window', backfill });
 
   const cfg = await op.gateConfig();
-  const overdue = await op.findOverdue(cfg.overdueMin, cfg.multidayHours);
+  const overdue = await op.findOverdue(cfg.overdueMin, cfg.multidayHours, cfg.remindEveryMin);
   // Resolve HR up-front so we can report it (this is the usual reason HR doesn't get the alert).
   let hr = null;
   if (cfg.hrEmpId) hr = (await q(`SELECT name, phone FROM employees WHERE id=$1 AND active=TRUE`, [cfg.hrEmpId])).rows[0] || null;
@@ -1012,14 +1012,19 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
         expected: o.in_time, overdue_min: Math.max(0, mins), purpose: o.purpose,
         duty: o.on_duty ? 'On duty (official)' : 'Personal', token };
       try {
-        // Requester: nudge right at their expected return time (once) — so someone already
-        // back but who forgot to log can tap "I'm Back" straight away.
-        if (!o.requester_reminder_at) {
-          if (o.req_phone) {
-            const ok = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
-            if (ok) await op.markRequesterReminded(o.id);
-          } else {
-            await op.markRequesterReminded(o.id);   // no phone on record — nothing to retry
+        // Requester: nudge at their expected return time and then re-send every remindEveryMin
+        // (default 30) until they tap "I'm Back" and log their return (which drops the row from
+        // findOverdue via returned_at). findOverdue already re-selects a row once a repeat is due.
+        {
+          const lastRem = o.requester_reminder_at ? +new Date(o.requester_reminder_at) : 0;
+          const dueAgain = (Date.now() - lastRem) >= (cfg.remindEveryMin * 60000);
+          if (dueAgain) {
+            if (o.req_phone) {
+              const ok = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
+              if (ok) await op.markRequesterReminded(o.id);
+            } else {
+              await op.markRequesterReminded(o.id);   // no phone on record — nothing to retry
+            }
           }
         }
         // HR + approver: escalate only once genuinely overdue past the threshold.
