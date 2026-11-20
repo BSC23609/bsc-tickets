@@ -240,12 +240,9 @@
       });
       const late = t === 'late_arrival';
       document.getElementById('inWrap').style.display = t === 'gatepass' ? '' : 'none';
-      // Late arrival is a record of coming in late: no on-duty / Keka proof, and the time is the arrival time.
-      document.getElementById('dutyRow').style.display = late ? 'none' : '';
-      document.getElementById('kekaWrap').style.display = late ? 'none' : '';
-      document.getElementById('outTimeLabel').textContent = late ? 'Arrival time' : 'Out-time';
+      // Late arrival keeps the on-duty + Keka behaviour of an outpass; only the time is the employee's own in-time.
+      document.getElementById('outTimeLabel').textContent = late ? 'In-time' : 'Out-time';
       document.getElementById('og_purpose').placeholder = late ? 'Reason for arriving late' : 'Reason for leaving the premises';
-      if (late) document.getElementById('og_onduty').checked = false;
       toggleKeka();
     }
 
@@ -288,8 +285,8 @@
       if (!approver) return ogErr('No approver is set for your department — contact admin');
       if (!purpose) return ogErr('Enter the purpose');
       const onDutyChk = document.getElementById('og_onduty').checked;
-      if (ogType !== 'late_arrival' && !onDutyChk && !kekaDataUrl) return ogErr('Upload the Keka permission proof screenshot');
-      const outErr = timeError('og_out_pick', ogType === 'late_arrival' ? 'arrival time' : 'out-time'); if (outErr) return ogErr(outErr);
+      if (!onDutyChk && !kekaDataUrl) return ogErr('Upload the Keka permission proof screenshot');
+      const outErr = timeError('og_out_pick', ogType === 'late_arrival' ? 'in-time' : 'out-time'); if (outErr) return ogErr(outErr);
       // Time-direction check. Normal passes must be forward (not in the past). A late-arrival pass is the
       // opposite — the arrival time is already past, so only block a FUTURE time. 2-min grace either way.
       {
@@ -300,7 +297,7 @@
           const outDt = new Date(p[0], p[1] - 1, p[2], Math.floor(om2 / 60), om2 % 60, 0, 0);
           if (ogType === 'late_arrival') {
             if (outDt.getTime() > Date.now() + 2 * 60000)
-              return ogErr('Arrival time cannot be in the future — please enter the time you actually arrived.');
+              return ogErr('In-time cannot be in the future — please enter the time you actually arrived.');
           } else if (outDt.getTime() < Date.now() - 2 * 60000) {
             return ogErr('Out-time cannot be in the past — please pick the current time or a later time.');
           }
@@ -324,7 +321,7 @@
         const r = await api('/outpass', { method: 'POST', body: {
           type: ogType, on_duty: document.getElementById('og_onduty').checked,
           req_date: document.getElementById('og_date').value,
-          purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: (ogType === 'late_arrival' || onDutyChk) ? null : kekaDataUrl } });
+          purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: onDutyChk ? null : kekaDataUrl } });
         ogErr(''); toast(`Request ${r.ref_no} sent for approval`, 'success');
         document.getElementById('og_purpose').value = '';
         resetPicker('og_out_pick');
