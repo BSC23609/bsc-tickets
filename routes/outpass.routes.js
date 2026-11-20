@@ -17,7 +17,7 @@ router.use(auth.requireAuth);
 
 const fmtDate = (d) => new Date(d).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' });
 const fmtDateTime = (d) => new Date(d).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-const typeLabel = (t) => (t === 'gatepass' ? 'Gatepass' : 'Outpass');
+const typeLabel = (t) => (t === 'gatepass' ? 'Gatepass' : t === 'late_arrival' ? 'Late Arrival' : 'Outpass');
 const decorate = (o) => { const { keka_proof, ...rest } = o; return { ...rest, type_label: typeLabel(o.type), has_keka_proof: !!keka_proof }; };
 
 // PDF field set from a full request row.
@@ -126,14 +126,20 @@ router.get('/:id/keka-proof', async (req, res) => {
 
 router.post('/', async (req, res) => {
   const { type, on_duty, req_date, purpose, out_time, in_time, manager_on_leave, keka_proof } = req.body || {};
-  if (!['outpass', 'gatepass'].includes(type)) return res.status(400).json({ error: 'Choose Outpass or Gatepass' });
+  if (!['outpass', 'gatepass', 'late_arrival'].includes(type)) return res.status(400).json({ error: 'Choose Outpass, Gatepass or Late arrival' });
   if (!purpose || !purpose.trim()) return res.status(400).json({ error: 'Purpose is required' });
-  if (!out_time) return res.status(400).json({ error: 'Out-time is required' });
+  if (!out_time) return res.status(400).json({ error: type === 'late_arrival' ? 'Arrival time is required' : 'Out-time is required' });
   if (type === 'gatepass' && !in_time) return res.status(400).json({ error: 'In-time is required for a gatepass' });
-  // Out-time must be a forward time — not already in the past. istClockToMs returns a true instant,
-  // so this compares correctly whatever the server's timezone. A pass for a future date is fine
-  // (its out-instant is in the future). 2-min grace so picking "now" never fails by seconds.
-  {
+  if (type === 'late_arrival') {
+    // A late-arrival pass is retrospective — the arrival time is already in the past, which is the whole
+    // point. Only guard against a FUTURE time (nobody can clock in ahead); past (today) is allowed.
+    const inMs = istClockToMs(req_date || new Date(), out_time);
+    if (inMs != null && inMs > Date.now() + 2 * 60000)
+      return res.status(400).json({ error: 'Arrival time cannot be in the future. Please enter the time you actually arrived.' });
+  } else {
+    // Out-time must be a forward time — not already in the past. istClockToMs returns a true instant,
+    // so this compares correctly whatever the server's timezone. A pass for a future date is fine
+    // (its out-instant is in the future). 2-min grace so picking "now" never fails by seconds.
     const outMs = istClockToMs(req_date || new Date(), out_time);
     if (outMs != null && outMs < Date.now() - 2 * 60000)
       return res.status(400).json({ error: 'Out-time cannot be in the past. Please choose the current time or a later time.' });
@@ -153,7 +159,8 @@ router.post('/', async (req, res) => {
     }
   }
   const proof = String(keka_proof || '');
-  if (!on_duty) {
+  // Late arrival needs no Keka permission proof (it is a record of coming in late, not an outing).
+  if (type !== 'late_arrival' && !on_duty) {
     if (!/^data:image\/(png|jpe?g|webp|gif);base64,/.test(proof)) return res.status(400).json({ error: 'Please upload the Keka permission proof screenshot (required when not on duty).' });
     if (proof.length > 8000000) return res.status(400).json({ error: 'Proof image is too large — please upload one under ~5 MB.' });
   }
@@ -172,7 +179,7 @@ router.post('/', async (req, res) => {
         `INSERT INTO outpass_requests(ref_no,type,on_duty,req_date,requester_id,purpose,out_time,in_time,approver_id,approver_label,manager_on_leave,action_token,keka_proof)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [ref, type, !!on_duty, req_date || new Date(), req.user.id, purpose.trim(),
-         out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken, (!on_duty ? proof : null)]);
+         out_time, type === 'gatepass' ? in_time : null, approver.emp_id, approver.label, onLeave, actionToken, ((type !== 'late_arrival' && !on_duty) ? proof : null)]);
       id = rows[0].id;
       break;
     } catch (e) {

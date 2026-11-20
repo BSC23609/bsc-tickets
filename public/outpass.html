@@ -51,12 +51,13 @@
       <div class="card p-6 max-w-2xl">
         <!-- Type toggle -->
         <label class="fieldlabel">Pass type</label>
-        <div class="grid grid-cols-2 gap-2 mb-4 max-w-sm">
+        <div class="grid grid-cols-3 gap-2 mb-4 max-w-md">
           <button type="button" id="type-outpass" onclick="setType('outpass')" class="typeBtn border-2 rounded-xl px-3 py-3 text-sm font-semibold">Outpass</button>
           <button type="button" id="type-gatepass" onclick="setType('gatepass')" class="typeBtn border-2 rounded-xl px-3 py-3 text-sm font-semibold">Gatepass</button>
+          <button type="button" id="type-late_arrival" onclick="setType('late_arrival')" class="typeBtn border-2 rounded-xl px-3 py-3 text-sm font-semibold">Late arrival</button>
         </div>
 
-        <label class="flex items-center gap-2 text-sm mb-4 select-none">
+        <label class="flex items-center gap-2 text-sm mb-4 select-none" id="dutyRow">
           <input id="og_onduty" type="checkbox" class="rounded border-slate-300" onchange="toggleKeka()" />
           <span class="font-medium">On duty</span>
           <span class="text-slate-400">— official outing</span>
@@ -90,7 +91,7 @@
           </div>
 
           <div>
-            <label class="fieldlabel">Out-time</label>
+            <label class="fieldlabel" id="outTimeLabel">Out-time</label>
             <div class="flex gap-2" id="og_out_pick">
               <select class="field tp-h"></select>
               <select class="field tp-m"></select>
@@ -147,7 +148,7 @@
     let me = {}, autoApprover = null, leaveApprover = null, ogType = 'outpass';
     const deepId = new URLSearchParams(location.search).get('id');
 
-    const typeLabel = t => t === 'gatepass' ? 'Gatepass' : 'Outpass';
+    const typeLabel = t => t === 'gatepass' ? 'Gatepass' : t === 'late_arrival' ? 'Late Arrival' : 'Outpass';
     function statusPill(s) {
       const m = { pending: ['bg-amber-100 text-amber-700', 'Pending'],
                   approved: ['bg-emerald-100 text-emerald-700', 'Approved'],
@@ -231,13 +232,21 @@
 
     function setType(t) {
       ogType = t;
-      ['outpass', 'gatepass'].forEach(x => {
+      ['outpass', 'gatepass', 'late_arrival'].forEach(x => {
         const b = document.getElementById('type-' + x);
         const on = x === t;
         b.classList.toggle('bg-ink', on); b.classList.toggle('text-white', on); b.classList.toggle('border-ink', on);
         b.classList.toggle('bg-white', !on); b.classList.toggle('text-slate-700', !on); b.classList.toggle('border-line', !on);
       });
+      const late = t === 'late_arrival';
       document.getElementById('inWrap').style.display = t === 'gatepass' ? '' : 'none';
+      // Late arrival is a record of coming in late: no on-duty / Keka proof, and the time is the arrival time.
+      document.getElementById('dutyRow').style.display = late ? 'none' : '';
+      document.getElementById('kekaWrap').style.display = late ? 'none' : '';
+      document.getElementById('outTimeLabel').textContent = late ? 'Arrival time' : 'Out-time';
+      document.getElementById('og_purpose').placeholder = late ? 'Reason for arriving late' : 'Reason for leaving the premises';
+      if (late) document.getElementById('og_onduty').checked = false;
+      toggleKeka();
     }
 
     function onLeaveToggle() {
@@ -279,18 +288,22 @@
       if (!approver) return ogErr('No approver is set for your department — contact admin');
       if (!purpose) return ogErr('Enter the purpose');
       const onDutyChk = document.getElementById('og_onduty').checked;
-      if (!onDutyChk && !kekaDataUrl) return ogErr('Upload the Keka permission proof screenshot');
-      const outErr = timeError('og_out_pick', 'out-time'); if (outErr) return ogErr(outErr);
-      // Out-time must be a forward time — not already in the past. Build the out-instant on the
-      // selected date in the browser's local (IST) zone; a future date is fine. 2-min grace.
+      if (ogType !== 'late_arrival' && !onDutyChk && !kekaDataUrl) return ogErr('Upload the Keka permission proof screenshot');
+      const outErr = timeError('og_out_pick', ogType === 'late_arrival' ? 'arrival time' : 'out-time'); if (outErr) return ogErr(outErr);
+      // Time-direction check. Normal passes must be forward (not in the past). A late-arrival pass is the
+      // opposite — the arrival time is already past, so only block a FUTURE time. 2-min grace either way.
       {
         const selDate = document.getElementById('og_date').value;
         const om2 = clockToMin(out_time);
         if (selDate && om2 != null) {
           const p = selDate.split('-').map(Number);
           const outDt = new Date(p[0], p[1] - 1, p[2], Math.floor(om2 / 60), om2 % 60, 0, 0);
-          if (outDt.getTime() < Date.now() - 2 * 60000)
+          if (ogType === 'late_arrival') {
+            if (outDt.getTime() > Date.now() + 2 * 60000)
+              return ogErr('Arrival time cannot be in the future — please enter the time you actually arrived.');
+          } else if (outDt.getTime() < Date.now() - 2 * 60000) {
             return ogErr('Out-time cannot be in the past — please pick the current time or a later time.');
+          }
         }
       }
       if (ogType === 'gatepass') {
@@ -311,7 +324,7 @@
         const r = await api('/outpass', { method: 'POST', body: {
           type: ogType, on_duty: document.getElementById('og_onduty').checked,
           req_date: document.getElementById('og_date').value,
-          purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: onDutyChk ? null : kekaDataUrl } });
+          purpose, out_time, in_time, manager_on_leave: onLeave, keka_proof: (ogType === 'late_arrival' || onDutyChk) ? null : kekaDataUrl } });
         ogErr(''); toast(`Request ${r.ref_no} sent for approval`, 'success');
         document.getElementById('og_purpose').value = '';
         resetPicker('og_out_pick');
