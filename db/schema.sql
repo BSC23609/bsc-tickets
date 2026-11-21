@@ -714,3 +714,10 @@ CREATE INDEX IF NOT EXISTS idx_work_approvals_token ON work_approvals(action_tok
 -- stable token for the approved work slip PDF (download link sent to the requester)
 ALTER TABLE work_approvals ADD COLUMN IF NOT EXISTS pdf_token TEXT;
 CREATE INDEX IF NOT EXISTS idx_work_approvals_pdf ON work_approvals(pdf_token);
+-- Nov 2026: the final-authorize stage was removed — HR verification is now the final step. Any request
+-- left waiting at the old authorize stage (HR already verified) is now approved; give it a slip token
+-- so its slip downloads. Idempotent: once none remain this updates zero rows.
+UPDATE work_approvals SET status='approved',
+       pdf_token = COALESCE(pdf_token, md5(random()::text || id::text || clock_timestamp()::text)),
+       updated_at = now()
+ WHERE status = 'pending_authorize';
