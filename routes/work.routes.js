@@ -296,6 +296,27 @@ router.post('/:id/action', async (req, res) => {
   res.json({ ok: true, status });
 });
 
+// Admin: (re)send the approved work slip to the requester via WhatsApp.
+router.post('/:id/resend-slip', async (req, res) => {
+  if (!req.user.is_admin) return res.status(403).json({ error: 'Admins only.' });
+  const row = (await q(`SELECT * FROM work_approvals WHERE id=$1`, [req.params.id])).rows[0];
+  if (!row) return res.status(404).json({ error: 'Not found' });
+  if (row.status !== 'approved') return res.status(409).json({ error: 'Only approved requests have a slip.' });
+  let pdfToken = row.pdf_token;
+  if (!pdfToken) { pdfToken = newToken(); await q(`UPDATE work_approvals SET pdf_token=$2 WHERE id=$1`, [row.id, pdfToken]); }
+  const raiser = row.raised_by_id
+    ? (await q(`SELECT name, phone FROM employees WHERE id=$1`, [row.raised_by_id])).rows[0] : null;
+  if (!raiser || !raiser.phone) return res.json({ ok: true, sent: false, reason: 'no_phone' });
+  const base = {
+    ref: row.ref_no, place: PLACES[row.place] || row.place,
+    date: fmtDate(row.work_date) + (row.work_time ? (' · ' + row.work_time) : ''), nature: row.nature,
+  };
+  let ok = false;
+  try { ok = await wati.notify.work.slip({ name: raiser.name, phone: raiser.phone }, { ...base, token: pdfToken }); }
+  catch (e) { console.error('[work resend-slip]', e.message); }
+  res.json({ ok: true, sent: !!ok, to: raiser.name });
+});
+
 module.exports = router;
 // One-tap WhatsApp flow (no login) — used by the public /w/:token page in api/index.js.
 async function tokenAct(token, decision, reason) {

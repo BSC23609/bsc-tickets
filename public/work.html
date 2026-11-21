@@ -287,7 +287,20 @@
       const box=document.getElementById('allBox');
       box.innerHTML='<div class="text-sm text-slate-400 py-6">Loading…</div>';
       let rows=[]; try{ rows=await api('/work/all'); }catch(e){ box.innerHTML='<div class="text-sm text-red-500 py-6">'+esc(e.message||'Failed to load')+'</div>'; return; }
-      box.innerHTML=rows.length?rows.map(r=>rowCard(r,'')).join(''):'<div class="text-sm text-slate-400 py-6">No requests yet.</div>';
+      box.innerHTML=rows.length?rows.map(r=>{
+        const act = r.status==='approved'
+          ? '<div class="flex justify-end mt-2 pt-2 border-t border-line"><button class="btn-ghost text-xs" style="color:#0A4566" onclick="resendSlip('+r.id+',this)">↻ Send slip again</button></div>'
+          : '';
+        return rowCard(r,act);
+      }).join(''):'<div class="text-sm text-slate-400 py-6">No requests yet.</div>';
+    }
+
+    async function resendSlip(id,btn){
+      btn.disabled=true; const old=btn.textContent; btn.textContent='Sending…';
+      try{ const r=await api('/work/'+id+'/resend-slip',{method:'POST'});
+        toast(r.sent?('Slip sent to '+r.to):(r.reason==='no_phone'?'Requester has no WhatsApp number on file':'Could not send slip'), r.sent?'success':'info');
+      }catch(e){ toast(e.message||'Failed','error'); }
+      finally{ btn.disabled=false; btn.textContent=old; }
     }
 
     async function act(id,decision){
