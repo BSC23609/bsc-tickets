@@ -15,8 +15,8 @@ router.use(auth.requireAuth);
 
 const PLACES = { BSC: 'Bharat (001)', G2: 'Salem G2 (1001)' };
 const CFG_KEYS = { approve: 'work_approve_emp_id', check: 'work_check_emp_id', authorize: 'work_authorize_emp_id' };
-const STAGE_OF = { pending_approve: 'approve', pending_check: 'check', pending_authorize: 'authorize' };
-const NEXT_STATUS = { approve: 'pending_check', check: 'pending_authorize', authorize: 'approved' };
+const STAGE_OF = { pending_approve: 'approve', pending_check: 'check' };
+const NEXT_STATUS = { approve: 'pending_check', check: 'approved' };
 
 const clean = (s, max = 200) => String(s == null ? '' : s).trim().slice(0, max);
 const adjustOf = (a) => (String(a) === 'payment' ? 'payment' : 'leave');
@@ -122,8 +122,34 @@ async function applyApprove(row, stage, actor) {
   if (token) {
     const fresh = (await q(`SELECT * FROM work_approvals WHERE id=$1`, [row.id])).rows[0];
     notifyStage(fresh, STAGE_OF[next]);
+  } else if (next === 'approved') {
+    finalizeApproved(row.id);   // HR verification done → notify management (FYI) + send the slip to the requester
   }
   return next;
+}
+
+// After the final (HR) verification: FYI WhatsApp to management, and the work slip to the requester.
+function finalizeApproved(id) {
+  background((async () => {
+    try {
+      const row = (await q(`SELECT * FROM work_approvals WHERE id=$1`, [id])).rows[0];
+      if (!row) return;
+      let pdfToken = row.pdf_token;
+      if (!pdfToken) { pdfToken = newToken(); await q(`UPDATE work_approvals SET pdf_token=$2 WHERE id=$1`, [id, pdfToken]); }
+      const base = {
+        ref: row.ref_no, place: PLACES[row.place] || row.place,
+        date: fmtDate(row.work_date) + (row.work_time ? (' · ' + row.work_time) : ''),
+        nature: row.nature,
+      };
+      // FYI to management (the role formerly called "authorize" is now just notified).
+      const fyi = await stageEmp('authorize');
+      if (fyi && fyi.phone) await wati.notify.work.fyi(fyi, base);
+      // Slip (with both approvals) to the requester, via a download-link WhatsApp.
+      const raiser = row.raised_by_id
+        ? (await q(`SELECT name, phone FROM employees WHERE id=$1`, [row.raised_by_id])).rows[0] : null;
+      if (raiser && raiser.phone) await wati.notify.work.slip({ name: raiser.name, phone: raiser.phone }, { ...base, token: pdfToken });
+    } catch (e) { console.error('[work finalize]', e.message); }
+  })());
 }
 async function applyReject(row, stage, reason) {
   await q(`UPDATE work_approvals SET status='rejected', reject_reason=$2, reject_stage=$3, action_token=NULL, updated_at=now() WHERE id=$1`,
@@ -133,6 +159,22 @@ async function applyReject(row, stage, reason) {
 async function loadByToken(token) {
   if (!token || !/^[a-f0-9]{12,}$/i.test(String(token))) return null;
   return (await q(`SELECT * FROM work_approvals WHERE action_token=$1`, [token])).rows[0] || null;
+}
+// Build the approved work slip PDF (both approvals) for a row loaded by its stable pdf_token.
+async function buildSlipByToken(token) {
+  if (!token || !/^[a-f0-9]{12,}$/i.test(String(token))) return null;
+  const row = (await q(`SELECT * FROM work_approvals WHERE pdf_token=$1`, [token])).rows[0];
+  if (!row || row.status !== 'approved') return null;
+  const buildWorkSlipPDF = require('../lib/work_pdf');
+  const pdf = await buildWorkSlipPDF({
+    ref_no: row.ref_no, place_label: PLACES[row.place] || row.place,
+    date: fmtDate(row.work_date), time: row.work_time || '',
+    nature: row.nature, team_emp: row.team_emp || [], team_labour: row.team_labour || [],
+    raised_by: row.raised_by_name || '',
+    approve_by: row.approve_by_name || '', approve_at: row.approve_at,
+    check_by: row.check_by_name || '', check_at: row.check_at,
+  });
+  return { pdf, ref: row.ref_no };
 }
 
 // ---- Directory for the employee dropdown (any logged-in user) ----
@@ -217,7 +259,7 @@ router.get('/mine', async (req, res) => {
 router.get('/pending', async (req, res) => {
   const cfg = await getConfig();
   const rows = (await q(
-    `SELECT * FROM work_approvals WHERE status IN ('pending_approve','pending_check','pending_authorize')
+    `SELECT * FROM work_approvals WHERE status IN ('pending_approve','pending_check')
      ORDER BY work_date DESC, created_at DESC LIMIT 200`)).rows;
   res.json(rows.map((r) => decorate(r, cfg, req.user)).filter((r) => r.can_act));
 });
@@ -266,4 +308,4 @@ async function tokenAct(token, decision, reason) {
   const status = await applyApprove(row, stage, actor);
   return { ok: true, status, stage, ref: row.ref_no };
 }
-module.exports._internal = { loadByToken, tokenAct, STAGE_OF, PLACES, fmtDate, teamCount };
+module.exports._internal = { loadByToken, buildSlipByToken, tokenAct, STAGE_OF, PLACES, fmtDate, teamCount };

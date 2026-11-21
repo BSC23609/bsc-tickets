@@ -36,7 +36,7 @@
     <div class="mb-4">
       <div class="eyebrow">Overtime</div>
       <h1 class="font-display text-2xl font-bold text-ink mt-0.5">Approval for Work</h1>
-      <p class="text-sm text-slate-500 mt-1">Raise a Sunday / overtime work approval with the team required. Goes through Approve → Checked By → Authorized Signatory.</p>
+      <p class="text-sm text-slate-500 mt-1">Raise a Sunday / overtime work approval with the team required. Goes through Approve → HR Verification, then the slip is sent to you.</p>
       <p class="text-[11px] text-slate-400 mt-1">Note: Time logs (punch in &amp; punch out) are required for the corresponding dates of overtime.</p>
     </div>
 
@@ -44,6 +44,7 @@
       <button data-tab="raise" class="tabBtn tab" data-active="true">New request</button>
       <button data-tab="mine" class="tabBtn tab" data-active="false">My requests</button>
       <button data-tab="appr" id="apprTab" class="tabBtn tab hidden" data-active="false">To approve <span id="apprCount" class="pill bg-amber-100 text-amber-700 ml-1 hidden"></span></button>
+      <button data-tab="all" id="allTab" class="tabBtn tab hidden" data-active="false">All requests</button>
       <button data-tab="cfg" id="cfgTab" class="tabBtn tab hidden" data-active="false">Approvers</button>
     </div>
 
@@ -108,6 +109,9 @@
     <!-- ========== APPROVALS ========== -->
     <section id="tab-appr" class="hidden"><div id="apprBox"></div></section>
 
+    <!-- ========== ALL REQUESTS (admin) ========== -->
+    <section id="tab-all" class="hidden"><div id="allBox"></div></section>
+
     <!-- ========== APPROVER CONFIG (admin) ========== -->
     <section id="tab-cfg" class="hidden">
       <div class="card p-5 max-w-lg">
@@ -115,8 +119,8 @@
         <p class="text-xs text-slate-500 mb-3">Who signs off each stage. An admin can always act on any stage too.</p>
         <div class="space-y-3">
           <div><label class="fieldlabel">1. Kindly Approve</label><select id="cfgApprove" class="field"></select></div>
-          <div><label class="fieldlabel">2. Checked By</label><select id="cfgCheck" class="field"></select></div>
-          <div><label class="fieldlabel">3. Authorized Signatory</label><select id="cfgAuthorize" class="field"></select></div>
+          <div><label class="fieldlabel">2. HR Verification</label><select id="cfgCheck" class="field"></select></div>
+          <div><label class="fieldlabel">3. Notify (FYI) — management</label><select id="cfgAuthorize" class="field"></select><p class="text-xs text-slate-400 mt-1">Gets an FYI WhatsApp once a work is scheduled (no approval needed).</p></div>
         </div>
         <div class="flex justify-end mt-4"><button onclick="saveCfg(this)" class="text-white text-sm font-semibold px-4 py-2.5 rounded-lg" style="background:#0A4566">Save</button></div>
       </div>
@@ -160,16 +164,17 @@
       try{ EMP=await api('/work/employees'); }catch(e){ EMP=[]; }
       addEmp();
       setupTabs();
-      if(me.is_admin){ document.getElementById('cfgTab').classList.remove('hidden'); loadCfg(); }
+      if(me.is_admin){ document.getElementById('cfgTab').classList.remove('hidden'); document.getElementById('allTab').classList.remove('hidden'); loadCfg(); }
       loadMine(); loadPending();
     })();
 
     function setupTabs(){
       document.querySelectorAll('.tabBtn').forEach(b=>b.onclick=()=>{
         document.querySelectorAll('.tabBtn').forEach(x=>x.dataset.active='false'); b.dataset.active='true';
-        ['raise','mine','appr','cfg'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==b.dataset.tab));
+        ['raise','mine','appr','cfg','all'].forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden', t!==b.dataset.tab));
         if(b.dataset.tab==='mine') loadMine();
         if(b.dataset.tab==='appr') loadPending();
+        if(b.dataset.tab==='all') loadAll();
       });
     }
     function setPlace(p){ curPlace=p; document.querySelectorAll('.plBtn').forEach(b=>b.style.background=b.style.color=''); const el=document.getElementById('pl-'+p); el.style.background='#0A4566'; el.style.color='#fff'; }
@@ -278,6 +283,13 @@
       }).join(''):'<div class="text-sm text-slate-400 py-6">Nothing waiting for your approval.</div>';
     }
 
+    async function loadAll(){
+      const box=document.getElementById('allBox');
+      box.innerHTML='<div class="text-sm text-slate-400 py-6">Loading…</div>';
+      let rows=[]; try{ rows=await api('/work/all'); }catch(e){ box.innerHTML='<div class="text-sm text-red-500 py-6">'+esc(e.message||'Failed to load')+'</div>'; return; }
+      box.innerHTML=rows.length?rows.map(r=>rowCard(r,'')).join(''):'<div class="text-sm text-slate-400 py-6">No requests yet.</div>';
+    }
+
     async function act(id,decision){
       let reason='';
       if(decision==='reject'){ reason=prompt('Reason for rejecting?')||''; if(!reason.trim()) return; }
@@ -289,7 +301,7 @@
       let r; try{ r=await api('/work/'+id); }catch(e){ return toast(e.message,'error'); }
       const emp=(r.team_emp||[]).map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>').join('');
       const lab=(r.team_labour||[]).map((p,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc(p.name)+'</td><td>'+esc(p.designation||'')+'</td><td>'+(p.adjust==='payment'?'Payment':'Leave adj.')+'</td></tr>').join('');
-      const chain=[['Kindly Approve',r.approve_by_name,r.approve_at],['Checked By',r.check_by_name,r.check_at],['Authorized Signatory',r.authorize_by_name,r.authorize_at]]
+      const chain=[['Kindly Approve',r.approve_by_name,r.approve_at],['HR Verification',r.check_by_name,r.check_at]]
         .map(c=>'<div class="flex justify-between text-xs py-1 border-b border-line/50"><span class="text-slate-500">'+c[0]+'</span><span>'+(c[1]?esc(c[1]):'<span class="text-slate-400">pending</span>')+'</span></div>').join('');
       document.getElementById('modal').innerHTML='<div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick="if(event.target===this)this.innerHTML=\'\'">'+
         '<div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-y-auto">'+

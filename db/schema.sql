@@ -711,3 +711,6 @@ CREATE INDEX IF NOT EXISTS idx_work_approvals_raiser ON work_approvals(raised_by
 -- one-tap WhatsApp action link for Approval for Work (rotated each stage)
 ALTER TABLE work_approvals ADD COLUMN IF NOT EXISTS action_token TEXT;
 CREATE INDEX IF NOT EXISTS idx_work_approvals_token ON work_approvals(action_token);
+-- stable token for the approved work slip PDF (download link sent to the requester)
+ALTER TABLE work_approvals ADD COLUMN IF NOT EXISTS pdf_token TEXT;
+CREATE INDEX IF NOT EXISTS idx_work_approvals_pdf ON work_approvals(pdf_token);

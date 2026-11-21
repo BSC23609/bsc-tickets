@@ -48,8 +48,7 @@ app.get('/gate', (req, res) => res.redirect('/gate.html'));
 const workInt = require('../routes/work.routes')._internal;
 const WORK_STAGE_UI = {
   approve:   { title: 'Approval for Work — your approval', ok: 'Approve', after: 'Approved — sent to HR for verification.' },
-  check:     { title: 'Approval for Work — HR verification', ok: 'Verify', after: 'Verified — sent for final authorization.' },
-  authorize: { title: 'Approval for Work — final authorization', ok: 'Authorize', after: 'Authorized — approval complete.' },
+  check:     { title: 'Approval for Work — HR verification', ok: 'Verify', after: 'Verified — work approved. Slip sent to the requester.' },
 };
 function workActPage(token) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -143,6 +142,17 @@ fetch('/w/'+token+'/info').then(function(r){return r.json();}).then(function(d){
 }
 app.get('/wa/:token', (req, res) => res.set('Content-Type', 'text/html; charset=utf-8').send(workDirectPage(req.params.token, 'approve')));
 app.get('/wr/:token', (req, res) => res.set('Content-Type', 'text/html; charset=utf-8').send(workDirectPage(req.params.token, 'reject')));
+
+// Public download of the approved work slip (token = the row's stable pdf_token).
+app.get('/wdl/:token', async (req, res) => {
+  try {
+    const out = await workInt.buildSlipByToken(req.params.token);
+    if (!out) return res.status(404).type('text/plain').send('Slip not available.');
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="${out.ref.replace(/\//g, '-')}.pdf"`);
+    res.send(out.pdf);
+  } catch (e) { console.error('[wdl]', e.message); res.status(500).type('text/plain').send('Could not generate slip.'); }
+});
 
 // One-tap approve/reject straight from the WhatsApp buttons (token = the request's
 // action_token). No login: the unguessable token is the authorisation. Single-use
