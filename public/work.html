@@ -289,7 +289,9 @@
       let rows=[]; try{ rows=await api('/work/all'); }catch(e){ box.innerHTML='<div class="text-sm text-red-500 py-6">'+esc(e.message||'Failed to load')+'</div>'; return; }
       box.innerHTML=rows.length?rows.map(r=>{
         const act = r.status==='approved'
-          ? '<div class="flex justify-end mt-2 pt-2 border-t border-line"><button class="btn-ghost text-xs" style="color:#0A4566" onclick="resendSlip('+r.id+',this)">↻ Send slip again</button></div>'
+          ? '<div class="flex justify-end gap-3 mt-2 pt-2 border-t border-line">'+
+            (r.pdf_token?'<a class="btn-ghost text-xs" style="color:#0A4566" href="/wdl/'+r.pdf_token+'" target="_blank" rel="noopener">⤓ View slip</a>':'')+
+            '<button class="btn-ghost text-xs" style="color:#0A4566" onclick="resendSlip('+r.id+',this)">↻ Send slip again</button></div>'
           : '';
         return rowCard(r,act);
       }).join(''):'<div class="text-sm text-slate-400 py-6">No requests yet.</div>';
@@ -326,6 +328,7 @@
         (emp?('<div class="fieldlabel">Employees</div><table class="tbl mb-3"><thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Adjust</th></tr></thead><tbody>'+emp+'</tbody></table>'):'')+
         (lab?('<div class="fieldlabel">Labour</div><table class="tbl mb-3"><thead><tr><th>#</th><th>Name</th><th>Designation</th><th>Adjust</th></tr></thead><tbody>'+lab+'</tbody></table>'):'')+
         '<div class="fieldlabel mt-2">Sign-off</div>'+chain+
+        ((r.status==='approved'&&r.pdf_token)?('<div class="mt-4"><a href="/wdl/'+r.pdf_token+'" target="_blank" rel="noopener" class="inline-block text-white text-sm font-semibold px-4 py-2.5 rounded-lg" style="background:#0A4566">⤓ View approved slip (PDF)</a></div>'):'')+
         '</div></div></div>';
     }
 
