@@ -5,6 +5,11 @@ const { q } = require('../lib/db');
 const wati = require('../lib/wati');
 
 const app = express();
+// The group hub (app.thebharatsteelgroup.com) may show this app inside its own tabs; no other site may frame it.
+app.use((req, res, next) => {
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'self' https://app.thebharatsteelgroup.com https://bsg-hub-one.vercel.app");
+  next();
+});
 app.use(express.json({ limit: '1mb' })); // photos go straight to OneDrive, not through here
 app.use(express.urlencoded({ extended: false })); // reject-reason form post from the WhatsApp link
 
@@ -750,7 +755,7 @@ app.get('/auth/sso', async (req, res) => {
       emp.must_reset = false;
     }
     const auth = require('../lib/auth');
-    auth.setAuthCookie(res, auth.sign(emp));
+    auth.setAuthCookie(res, auth.sign(emp), String(req.query.embed || '') === '1');
     const next = String(req.query.next || '');
     res.setHeader('Referrer-Policy', 'no-referrer');
     // "/" (index.html) picks up the fresh cookie via /api/me, stores the token for installed
