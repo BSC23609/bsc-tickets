@@ -1094,9 +1094,14 @@ router.get('/wa-log', async (req, res) => {
   if (req.query.result) { params.push(req.query.result); where.push(`result=$${params.length}`); }
   if (req.query.template) { params.push('%' + req.query.template + '%'); where.push(`template ILIKE $${params.length}`); }
   if (req.query.phone) { params.push('%' + String(req.query.phone).replace(/\D/g, '') + '%'); where.push(`phone ILIKE $${params.length}`); }
+  const whereSql = where.length ? 'WHERE ' + where.map(w => w.replace(/\b(result|template|phone)\b/g, 'w.$1')).join(' AND ') : '';
   const rows = (await q(
-    `SELECT id, phone, template, result, detail, to_char(created_at AT TIME ZONE 'Asia/Kolkata','DD Mon HH24:MI') AS at
-     FROM wa_log ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY created_at DESC LIMIT ${limit}`, params)).rows;
+    `SELECT w.id, w.phone, w.template, w.result, w.detail,
+            to_char(w.created_at AT TIME ZONE 'Asia/Kolkata','DD Mon HH24:MI') AS at,
+            (SELECT e.name FROM employees e
+             WHERE right(regexp_replace(e.phone,'\\D','','g'),10) = right(regexp_replace(w.phone,'\\D','','g'),10)
+             LIMIT 1) AS name
+     FROM wa_log w ${whereSql} ORDER BY w.created_at DESC LIMIT ${limit}`, params)).rows;
   const summary = Object.fromEntries((await q(
     `SELECT result, count(*)::int AS n FROM wa_log WHERE created_at > now() - interval '24 hours' GROUP BY result`)).rows.map(r => [r.result, r.n]));
   res.json({ rows, summary });
@@ -1156,7 +1161,7 @@ router.get('/db-info', async (req, res) => {
   const raw = process.env.DATABASE_URL || '';
   let host = null, dbname = null, user = null;
   try { const u = new URL(raw); host = u.host; dbname = u.pathname.replace(/^\//, ''); user = u.username; } catch {}
-  const out = { build: 'FIXED321', env_host: host, env_dbname: dbname, env_user: user };
+  const out = { build: 'FIXED322', env_host: host, env_dbname: dbname, env_user: user };
   try {
     const r = (await q(`SELECT current_database() AS db, current_user AS usr,
       inet_server_addr()::text AS server_ip, now() AS now`)).rows[0];

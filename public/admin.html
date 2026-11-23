@@ -488,7 +488,8 @@
           <table class="w-full text-xs">
             <thead class="text-slate-500 uppercase text-[10px]"><tr>
               <th class="text-left py-1 pr-3">When</th><th class="text-left py-1 pr-3">Template</th>
-              <th class="text-left py-1 pr-3">Phone</th><th class="text-left py-1 pr-3">Result</th><th class="text-left py-1">Detail</th></tr></thead>
+              <th class="text-left py-1 pr-3">Name</th><th class="text-left py-1 pr-3">Phone</th>
+              <th class="text-left py-1 pr-3">Result</th><th class="text-left py-1">Detail</th></tr></thead>
             <tbody id="waRows"></tbody>
           </table>
         </div>
@@ -994,7 +995,9 @@
         (['sent','declined','no_phone','http_error','error','skipped'].map(k=>d.summary[k]?`<span class="px-2 py-0.5 rounded ${RC[k]}">${k}: ${d.summary[k]}</span>`:'').filter(Boolean).join(' ')||'<span class="text-slate-400">nothing yet</span>');
       const tb=document.getElementById('waRows'); tb.innerHTML=(d.rows||[]).map(r=>
         `<tr class="border-t border-line"><td class="py-1 pr-3 whitespace-nowrap text-slate-500">${r.at}</td>
-         <td class="py-1 pr-3 mono">${r.template||''}</td><td class="py-1 pr-3 mono">${r.phone||''}</td>
+         <td class="py-1 pr-3 mono">${r.template||''}</td>
+         <td class="py-1 pr-3 whitespace-nowrap">${r.name?(''+r.name).replace(/</g,'&lt;'):'<span class=\"text-slate-300\">—</span>'}</td>
+         <td class="py-1 pr-3 mono">${r.phone||''}</td>
          <td class="py-1 pr-3"><span class="px-1.5 py-0.5 rounded ${RC[r.result]||'bg-slate-100'}">${r.result}</span></td>
          <td class="py-1 text-slate-500">${(r.detail||'').replace(/</g,'&lt;')}</td></tr>`).join('');
       document.getElementById('waEmpty').classList.toggle('hidden',(d.rows||[]).length>0);
