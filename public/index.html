@@ -128,6 +128,7 @@
       } catch {}
       try { localStorage.removeItem('bsc_token'); } catch {}
       if (window.hideBscSplash) window.hideBscSplash();   // not signed in → show login
+      try { if (window.top !== window.self) window.parent.postMessage({ bsg: "login" }, "*"); } catch (e) {}   // inside the group hub's tab: let the hub open the app in its own tab
     })();
 
     function showForgot() {
