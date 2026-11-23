@@ -966,9 +966,10 @@ app.get('/api/report/daily.pdf', async (req, res) => {
 });
 
 // ---- Cron: overdue-gatepass watcher ----
-// Runs every ~5 min. Clock-gated (broad watch window, no DB) so night/Sunday runs skip before
-// waking Neon. For each gatepass past its expected return + threshold with no return yet, it
-// WhatsApps the approver + HR once (overdue_alert_at dedupes). Idempotent — safe to re-run.
+// Runs every ~2-5 min. Clock-gated (broad watch window, no DB) so night/Sunday runs skip before
+// waking Neon. For each open pass past its expected return with no return yet, it re-sends a
+// reminder every remindEveryMin (default 30) to the REQUESTER, APPROVER and HR until the pass is
+// logged back (returned_at). The 30-min cadence is gated per-pass, so the frequent cron is safe.
 app.all('/api/cron/outpass-overdue', async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const provided = (req.headers.authorization || '').replace('Bearer ', '') || req.query.key;
@@ -1022,39 +1023,21 @@ app.all('/api/cron/outpass-overdue', async (req, res) => {
         expected: o.in_time, overdue_min: Math.max(0, mins), purpose: o.purpose,
         duty: o.on_duty ? 'On duty (official)' : 'Personal', token };
       try {
-        // Requester: nudge at their expected return time and then re-send every remindEveryMin
-        // (default 30) until they tap "I'm Back" and log their return (which drops the row from
-        // findOverdue via returned_at). findOverdue already re-selects a row once a repeat is due.
-        {
-          const lastRem = o.requester_reminder_at ? +new Date(o.requester_reminder_at) : 0;
-          const dueAgain = (Date.now() - lastRem) >= (cfg.remindEveryMin * 60000);
-          if (dueAgain) {
-            if (o.req_phone) {
-              const ok = await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
-              if (ok) await op.markRequesterReminded(o.id);
-            } else {
-              await op.markRequesterReminded(o.id);   // no phone on record — nothing to retry
-            }
+        // One reminder cycle every remindEveryMin (default 30) until the pass is closed — once the
+        // employee logs their return, returned_at drops the row from findOverdue and reminders stop.
+        // Each cycle nudges the REQUESTER (tap "I'm Back"), and once past the overdue grace the
+        // APPROVER and HR too — all three, repeating on the same cadence until it's logged back.
+        const lastRem = o.requester_reminder_at ? +new Date(o.requester_reminder_at) : 0;
+        const dueAgain = (Date.now() - lastRem) >= (cfg.remindEveryMin * 60000);
+        if (dueAgain) {
+          if (o.req_phone) await wati.notify.outpass.returnReminder({ name: o.req_name, phone: o.req_phone }, payload);
+          if (mins >= cfg.overdueMin) {
+            if (o.approver_phone) await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload);
+            if (hr && hr.phone)   await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
+            if (!o.overdue_alert_at) await op.markApproverAlerted(o.id);   // first-alert markers (for diagnostics)
+            if (!o.hr_alert_at)      await op.markHrAlerted(o.id);
           }
-        }
-        // HR + approver: escalate only once genuinely overdue past the threshold.
-        if (mins >= cfg.overdueMin) {
-          // Approver: alert once. Mark done only on real delivery (or if there's no phone to try).
-          if (!o.overdue_alert_at) {
-            const ok = o.approver_phone
-              ? await wati.notify.outpass.overdue({ name: o.approver_name, phone: o.approver_phone }, payload)
-              : false;
-            if (ok || !o.approver_phone) await op.markApproverAlerted(o.id);
-          }
-          // HR: retry every run until WATI actually delivers.
-          if (!o.hr_alert_at) {
-            if (hr && hr.phone) {
-              const ok = await wati.notify.outpass.overdue({ name: hr.name, phone: hr.phone }, payload);
-              if (ok) await op.markHrAlerted(o.id);
-            } else {
-              await op.markHrAlerted(o.id);   // no HR configured — nothing to retry
-            }
-          }
+          await op.markRequesterReminded(o.id);   // stamp the cycle; next send waits another remindEveryMin
         }
       } catch (e) { console.error('[outpass-overdue] alert failed for', o.ref_no, e.message); }
     }
