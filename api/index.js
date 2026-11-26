@@ -282,7 +282,6 @@ function maintApprovePage(token, t) {
     <form method="POST" action="/mta/${token}/maint" style="margin-top:10px">
       <button type="submit" style="width:100%;background:#059669;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\ud83d\udd27 Assign to maintenance</button>
     </form>
-    <a href="/mta/${token}/reject" style="display:block;text-align:center;margin-top:14px;color:#dc2626;font-weight:600;font-size:14px;text-decoration:none">Reject</a>
   </div></body></html>`;
 }
 function maintDone(emoji, title, msg) { return actionPage(emoji, title, msg); }
