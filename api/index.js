@@ -276,10 +276,13 @@ function maintApprovePage(token, t) {
       <div style="margin-top:4px">${t.subject || ''}</div>
       <div style="color:#64748b;margin-top:4px">Raised by ${t.requester_name || '\u2014'}</div>
     </div>
-    <form method="POST" action="/mta/${token}/approve">
-      <button type="submit" style="width:100%;background:#059669;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\u2713 Approve \u2014 send to maintenance</button>
+    <form method="POST" action="/mta/${token}/mine">
+      <button type="submit" style="width:100%;background:#0A4566;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\ud83d\udc64 Assign to me</button>
     </form>
-    <a href="/mta/${token}/reject" style="display:block;text-align:center;margin-top:12px;color:#dc2626;font-weight:600;font-size:14px;text-decoration:none">Reject</a>
+    <form method="POST" action="/mta/${token}/maint" style="margin-top:10px">
+      <button type="submit" style="width:100%;background:#059669;color:#fff;border:0;border-radius:10px;padding:14px;font-size:16px;font-weight:700">\ud83d\udd27 Assign to maintenance</button>
+    </form>
+    <a href="/mta/${token}/reject" style="display:block;text-align:center;margin-top:14px;color:#dc2626;font-weight:600;font-size:14px;text-decoration:none">Reject</a>
   </div></body></html>`;
 }
 function maintDone(emoji, title, msg) { return actionPage(emoji, title, msg); }
@@ -356,6 +359,24 @@ app.get('/mta/reject/:token', async (req, res) => {
     res.send(actionPage('\u26d4', 'Rejected', `${t.ref_no} was rejected. The requester has been asked to use the Opmaint app.`));
   } catch (e) { console.error('mta-reject-get', e); res.status(500).send(actionPage('\u26a0\ufe0f', 'Something went wrong', 'Please try again.')); }
 });
+
+// Assign to me (gate approver) / Assign to maintenance (trade L1). Both the page POSTs and the
+// direct WhatsApp-button GETs (token last) are handled; reject stays as above.
+async function maintAssign(req, res, toApprover) {
+  try {
+    const tk = require('../routes/tickets.routes')._internal;
+    const t = await tk.loadTicketByMaintToken(req.params.token);
+    if (!t) return res.status(404).send(actionPage('⛔', 'Link not valid', 'This link is not recognised, or the request was already handled.'));
+    if (t.maint_gate !== 'pending') return res.send(actionPage(t.maint_gate === 'approved' ? '✅' : '⛔', `Already ${t.maint_gate}`, `This request was already ${t.maint_gate}.`));
+    await tk.applyMaintApprove(t, { toApprover });
+    res.send(actionPage('✅', toApprover ? 'Assigned to you' : 'Sent to maintenance',
+      toApprover ? `${t.ref_no} is now assigned to you.` : `${t.ref_no} has been assigned to the maintenance team.`));
+  } catch (e) { console.error('mta-assign', e); res.status(500).send(actionPage('⚠️', 'Something went wrong', 'Please try again.')); }
+}
+app.post('/mta/:token/mine',  (req, res) => maintAssign(req, res, true));
+app.post('/mta/:token/maint', (req, res) => maintAssign(req, res, false));
+app.get('/mta/mine/:token',   (req, res) => maintAssign(req, res, true));
+app.get('/mta/maint/:token',  (req, res) => maintAssign(req, res, false));
 
 // --- requester one-tap "I'm Back" from the WhatsApp return reminder (no app / no scan) ---
 app.get('/gpr/:token', async (req, res) => {

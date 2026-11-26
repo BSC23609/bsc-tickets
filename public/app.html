@@ -563,7 +563,9 @@
         actions.push(btn(`startTicket(${id})`, 'Start working', 'brand'));
       if (p.isL1 && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`resolveTicket(${id})`, 'Mark resolved', 'violet'));
-      if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
+      if (p.canTransferGate)
+        actions.push(btn(`transferGate(${id})`, `External support (transfer to ${t.gate_approver_name || 'maintenance head'})`, 'fuchsia'));
+      else if (p.isHandler && ['open','in_progress','reopened'].includes(t.status))
         actions.push(btn(`externalHold(${id})`, t.external_hold ? 'Update external ETA' : 'Requires external support', 'fuchsia'));
       if (p.canEscalateL3)
         actions.push(btn(`escalateL3(${id})`, 'Escalate to L3', 'red'));
@@ -665,7 +667,7 @@
     const btn = (fn, txt, color) => color==='brand'
       ? `<button onclick="${fn}" class="btn text-sm" style="padding:.55rem 1.1rem">${txt}</button>`
       : `<button onclick="${fn}" class="text-white text-sm font-semibold px-4 py-2.5 rounded-xl bg-${color}-600 hover:bg-${color}-700 transition">${txt}</button>`;
-    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened',external_hold:'Sent to external/vendor support'}[e] || e);
+    const evLabel = (e) => ({raised:'Raised',in_progress:'In progress',assigned:'Assigned to L1',reminder:'Reminder sent',escalated_l2:'Escalated to L2',escalated_l3:'Escalated to L3',forwarded:'Forwarded',resolved:'Resolved',confirmed_closed:'Closed (confirmed)',auto_closed:'Auto-closed',reopened:'Reopened',external_hold:'Sent to external/vendor support',transferred:'Transferred to maintenance head',maint_approved:'Approved at gate',maint_rejected:'Rejected at gate'}[e] || e);
     function closeDetail(){ document.getElementById('detail').classList.add('hidden'); refreshCurrent(); }
     function refreshCurrent(){ if(!document.getElementById('tab-dash').classList.contains('hidden')) return loadDashboard(); if(!document.getElementById('tab-log').classList.contains('hidden')) return loadAssignLog(); const open=['mine','assigned'].find(t=>!document.getElementById('tab-'+t).classList.contains('hidden')); if(open) loadList(open, open+'List'); }
     // Keep the List tab current: reload it whenever the user returns to the page (covers a ticket
@@ -761,6 +763,14 @@
       try{ const r=await api(`/tickets/${id}/forward`,{method:'POST',body:{category_id:cid,trade_id:tid,note}});
         toast('Forwarded to '+(r.to||'the new area')+' — handlers notified','success'); closeDetail(); }
       catch(e){ toast(e.message,'error'); }
+    }
+    async function transferGate(id){
+      if (!confirm('Transfer this ticket to the maintenance head for external/vendor support? It will move to their plate and they will be notified.')) return;
+      try {
+        const r = await api(`/tickets/${id}/transfer-gate`, { method:'POST' });
+        toast('Transferred to '+(r.to||'the maintenance head')+' — notified on WhatsApp','success');
+        closeDetail();
+      } catch(e){ toast(e.message,'error'); }
     }
     let extId = null;
     function externalHold(id){

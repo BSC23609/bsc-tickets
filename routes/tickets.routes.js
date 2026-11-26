@@ -346,6 +346,16 @@ router.get('/:id', async (req, res) => {
   const canAssign = false;   // L2-assign step removed — tickets land on L1 directly
   const canForward = (isHandler || req.user.is_admin) && isOpen;
   const canEscalateL3 = (isL1 || isL2 || req.user.is_admin) && isOpen && !!t.l3_emp_id && t.escalation_level < 3;
+  // Maintenance tickets: a handler can hand a ticket needing external/vendor support to the
+  // maintenance head (the gate approver). Hidden once the head is already the handler.
+  let canTransferGate = false, gateApproverName = null;
+  try {
+    const g = await maintGateConfig();
+    if (g.approverId && isHandler && isOpen && Number(t.category_id) === g.categoryId && t.l1_emp_id !== g.approverId) {
+      canTransferGate = true;
+      const ap = await empById(g.approverId); gateApproverName = ap ? ap.name : null;
+    }
+  } catch (e) { console.error('[gate-transfer flag]', e.message); }
   let pool = [];
   if (canAssign) {
     pool = (await q(
@@ -353,8 +363,8 @@ router.get('/:id', async (req, res) => {
        WHERE p.category_id=$1 AND e.active=TRUE ORDER BY e.name`, [t.category_id])).rows;
   }
 
-  res.json({ ...t, downtime_mins: downtimeMins(t), photos, events, pool,
-    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL1: isL1 || req.user.is_admin, isL2, canAssign, canForward, canEscalateL3 } });
+  res.json({ ...t, downtime_mins: downtimeMins(t), photos, events, pool, gate_approver_name: gateApproverName,
+    perms: { isRequester, isHandler, isAdmin: req.user.is_admin, isL1: isL1 || req.user.is_admin, isL2, canAssign, canForward, canEscalateL3, canTransferGate } });
 });
 
 // ---- photos: mint upload session (browser uploads straight to OneDrive) ----
@@ -646,6 +656,32 @@ router.post('/:id/external-hold', async (req, res) => {
   })());
 });
 
+// ---- "External support → transfer to the maintenance head (gate approver)" ----
+// Reassigns the ticket's L1 to the maintenance head, restarts the escalation clock,
+// clears any external hold, and WhatsApps the head so it lands on their plate.
+router.post('/:id/transfer-gate', async (req, res) => {
+  const t = await loadTicket(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const isHandler = [t.l1_emp_id, t.l2_emp_id, t.l3_emp_id].includes(req.user.id) || req.user.is_admin;
+  if (!isHandler) return res.status(403).json({ error: 'Only the assigned handler can do this' });
+  if (!['open', 'in_progress', 'reopened'].includes(t.status)) return res.status(409).json({ error: 'Ticket is not open' });
+  const g = await maintGateConfig();
+  if (!g.approverId) return res.status(400).json({ error: 'Maintenance head is not set in Gate settings' });
+  if (t.l1_emp_id === g.approverId) return res.status(400).json({ error: 'This ticket is already with the maintenance head' });
+  const approver = await empById(g.approverId);
+  await q(`UPDATE tickets SET l1_emp_id=$2, assigned_at=now(), assigned_by_id=$3, external_hold=FALSE,
+           escalation_level=0, escalated_l2_at=NULL, escalated_l3_at=NULL, last_reminder_at=NULL, raised_at=now(),
+           status=CASE WHEN status='in_progress' THEN 'open' ELSE status END WHERE id=$1`,
+    [t.id, g.approverId, req.user.id]);
+  await q(`INSERT INTO ticket_events(ticket_id,event,by_emp_id,note) VALUES($1,'transferred',$2,$3)`,
+    [t.id, req.user.id, `External support — transferred to ${approver ? approver.name : 'the maintenance head'}`]);
+  res.json({ ok: true, to: approver ? approver.name : null });
+  background((async () => {
+    try { if (approver && approver.phone) await wati.notify.raised(approver, { ...t, requester_name: t.requester_name }); }
+    catch (e) { console.error('[transfer-gate notify]', e.message); }
+  })());
+});
+
 async function maintGateConfig() {
   const s = Object.fromEntries((await q(
     `SELECT key,value FROM app_settings WHERE key IN ('maint_gate_category_id','maint_gate_approver_id')`)).rows.map(r => [r.key, r.value]));
@@ -663,11 +699,14 @@ async function loadTicketByMaintToken(token) {
      FROM tickets t LEFT JOIN employees r ON r.id=t.requester_id LEFT JOIN categories c ON c.id=t.category_id
      WHERE t.maint_gate_token=$1`, [token])).rows[0] || null;
 }
-async function applyMaintApprove(t) {
+// opts.toApprover=true → "Assign to me": the gate approver (the person who got the WhatsApp)
+// takes the ticket. Default → "Assign to maintenance": the trade/category L1 handles it.
+async function applyMaintApprove(t, opts = {}) {
   const route = await resolveRoute(t.category_id, t.trade_id, t.location_id);
   // Guarantee an owner: if this trade/location has no L1 configured, fall back to the gate
   // approver (then category L2) so the ticket is never left unassigned and invisible.
   let l1 = route.l1;
+  if (opts.toApprover) { try { const g = await maintGateConfig(); l1 = g.approverId || route.l1; } catch (e) { console.error('[maint assign-me cfg]', e.message); } }
   if (!l1) { try { const g = await maintGateConfig(); l1 = g.approverId || route.l2 || null; } catch (e) { console.error('[maint approve cfg]', e.message); } }
 
   // CORE approval — the one statement that MUST succeed. Uses only long-standing columns so a
